@@ -6,7 +6,7 @@
 #   - host 半区（exports "."）在宿主进程运行：注册 /api/dsh-jx/* 素材路由 +
 #     导入 API + KV 元数据（工单 02/07 起填充）。
 #   - browser 半区（exports "./client"，由 package.json 的 dsh.client 声明，
-#     经 /plugins/dsh-jx/client.js 服务）在 web GUI 加载：注入管理 UI +
+#     经 /plugins/dsh-web-ui-jx/client.js 服务）在 web GUI 加载：注入管理 UI +
 #     角色浮层 + 设置卡 + 侧边栏入口（工单 03/04/08/10 起填充）。
 - insert:
     - id: dsh-jx

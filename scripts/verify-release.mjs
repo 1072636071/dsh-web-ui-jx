@@ -18,7 +18,7 @@
  * @module verify-release
  */
 
-import { existsSync, statSync, readdirSync } from "node:fs";
+import { existsSync, statSync, readdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -94,7 +94,6 @@ console.log("=".repeat(60));
 console.log("\n[1] 构建产物（lib/）");
 const libIndex = join(projectRoot, "lib", "index.js");
 const libClient = join(projectRoot, "lib", "client.js");
-const libClientCss = join(projectRoot, "lib", "client.css");
 
 check("lib/index.js（host 半区）存在且非空", () =>
   nonEmptyFile(libIndex)
@@ -106,11 +105,16 @@ check("lib/client.js（client 半区）存在且非空", () =>
     ? `${(statSync(libClient).size / 1024).toFixed(1)} KB`
     : false,
 );
-check("lib/client.css（client 样式）存在且非空", () =>
-  nonEmptyFile(libClientCss)
-    ? `${(statSync(libClientCss).size / 1024).toFixed(1)} KB`
-    : false,
-);
+// client 样式由 vite 的 inlineClientCss 插件内联进 client.js（以
+// <style data-plugin-css> 注入），构建后不保留独立 client.css 文件。
+// 验收改为确认 client.js 内含 data-plugin-css 注入标记。
+check("lib/client.js 已内联 client 样式（含 data-plugin-css 注入）", () => {
+  if (!nonEmptyFile(libClient)) return false;
+  const js = readFileSync(libClient, "utf8");
+  return js.includes("data-plugin-css")
+    ? `${(statSync(libClient).size / 1024).toFixed(1)} KB 内联`
+    : false;
+});
 
 // ─── 2. package.json 字段 ─────────────────────────────────────
 console.log("\n[2] package.json 字段");

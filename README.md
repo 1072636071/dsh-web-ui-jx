@@ -49,7 +49,7 @@ npm install dsh-web-ui-jx
 git clone <repo-url> dsh-web-ui-jx
 cd dsh-web-ui-jx
 npm install
-npm run build          # 产出 lib/index.js（host）+ lib/client.js（client）+ lib/client.css
+npm run build          # 产出 lib/index.js（host）+ lib/client.js（client，内联 CSS）
 ```
 
 构建产物在 `lib/`（被 `.gitignore` 忽略，但 `npm pack` 包含）。`prepublishOnly` 钩子会自动执行构建 + 验收。
@@ -106,7 +106,7 @@ npm run build          # 产出 lib/index.js（host）+ lib/client.js（client�
 ### 脚本
 
 ```bash
-npm run build           # 构建双半区：lib/index.js（host）+ lib/client.js（client）+ lib/client.css
+npm run build           # 构建双半区：lib/index.js（host）+ lib/client.js（client，内联 CSS）
 npm run build:host      # 仅构建 host 半区
 npm run build:client    # 仅构建 client 半区
 npm run typecheck       # tsc --noEmit 类型检查
@@ -148,7 +148,7 @@ dsh-web-ui-jx/
 ### 双半区架构
 
 - **host 半区**（`exports "."`）：在宿主 Node 进程运行，注册 `/api/dsh-jx/*` 素材路由 + 导入 API + KV 元数据。构建产物 `lib/index.js`。
-- **client 半区**（`exports "./client"`）：在浏览器加载，注入管理 UI + 角色浮层 + 设置卡 + 侧边栏入口。构建产物 `lib/client.js` + `lib/client.css`。经 `/plugins/dsh-jx/client.js` 服务。
+- **client 半区**（`exports "./client"`）：在浏览器加载，注入管理 UI + 角色浮层 + 设置卡 + 侧边栏入口。构建产物 `lib/client.js`（内联 CSS）。经 `/plugins/dsh-web-ui-jx/client.js` 服务。
 - **挂载声明**：`cordis.patch.yml` 单行同时挂载双半区，由 `package.json` 的 `dsh.bundle.patch` 字段指向。
 
 ### 发布前验收
@@ -159,7 +159,7 @@ npm run verify          # 运行 scripts/verify-release.mjs
 
 验收脚本检查项（任一失败则退出码 1）：
 
-1. 构建产物 `lib/index.js` / `lib/client.js` / `lib/client.css` 存在且非空
+1. 构建产物 `lib/index.js` / `lib/client.js` 存在且非空（client.js 内联 CSS）
 2. `package.json` 关键字段齐全（name / version / exports / dsh.bundle.patch / files / license）
 3. `cordis.patch.yml` 存在且非空
 4. `assets/` 三类素材齐全（character/webp、fonts/woff2、preview/png）
@@ -174,7 +174,7 @@ npm run verify          # 运行 scripts/verify-release.mjs
 
 ### 插件未加载
 
-**现象**：宿主启动后浏览器看不到侧边栏入口，`/plugins/dsh-jx/client.js` 404。
+**现象**：宿主启动后浏览器看不到侧边栏入口，`/plugins/dsh-web-ui-jx/client.js` 404。
 
 **检查**：
 
@@ -221,7 +221,7 @@ npm run verify          # 运行 scripts/verify-release.mjs
 1. `localStorage('jx-fx')` 值（应为 JSON 对象，含 `shimmer/fall/grain/breathe/micro` 五个布尔字段）。
 2. `document.documentElement`（`<html>`）上对应 `fx-*` 类是否增删（`applyFx` 函数）。
 3. `prefers-reduced-motion: reduce` 是否激活（系统级减少动效设置）—— 激活时全关是预期行为。
-4. `lib/client.css` 含 `fx-shimmer` / `fx-fall` / ... 选择器（构建产物完整）。
+4. `lib/client.js` 内联 CSS 含 `fx-shimmer` / `fx-fall` / ... 选择器（构建产物完整）。
 
 **处置**：DevTools 改 `localStorage('jx-fx')` 后刷新；确认 `prefers-reduced-motion` 未激活；`npm run build` 重建 client 半区。
 
@@ -249,7 +249,7 @@ npm run verify          # 运行 scripts/verify-release.mjs
 2. 本插件 L2 skin remap（`src/client/styles/jiangxiao.css`）含 `:not([data-ds-dark-theme])` 浅色覆盖块。
 3. `body[data-dsh-jiangxiao]` 已设置（本插件 skin remap 挂载前提）。
 
-**处置**：DevTools 手动在 `body` 上增删 `data-ds-dark-theme` 看是否切换；查宿主主题切换逻辑是否正确设置该属性；查 `lib/client.css` 含双值 remap。
+**处置**：DevTools 手动在 `body` 上增删 `data-ds-dark-theme` 看是否切换；查宿主主题切换逻辑是否正确设置该属性；查 `lib/client.js` 内联 CSS 含双值 remap。
 
 ## 许可证
 

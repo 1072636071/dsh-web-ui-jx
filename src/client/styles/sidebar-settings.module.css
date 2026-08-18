@@ -38,6 +38,8 @@
   top: 50%;
   left: 0;
   transform: translateY(-50%);
+  /* 放大以左边缘为锚点，hover 时不位移、仅向右扩展放大 */
+  transform-origin: left center;
   z-index: 2147483644;
   /* 窄条尺寸 */
   width: 36px;
@@ -54,7 +56,8 @@
   border-radius: 0 8px 8px 0;
   font-family: var(--dsw-font-family);
   color: var(--dsw-alias-brand-text);
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
   /* 常规动效：hover 微交互 150ms */
   transition:
     background 150ms var(--ds-ease-in-out),
@@ -65,13 +68,21 @@
 .sidebarRail:hover {
   background: var(--dsw-specific-sidebar-nav-item-active);
   border-color: var(--dsw-alias-brand-text);
-  /* hover 时轻微外凸 */
-  transform: translateY(-50%) translateX(2px);
+  /* hover 时放大，不位移 */
+  transform: translateY(-50%) scale(1.08);
 }
 
 .sidebarRail:active {
   transform: translateY(-50%) scale(0.96);
   transition-duration: 100ms;
+}
+
+.sidebarRail.dragging,
+.sidebarRail.dragging:hover,
+.sidebarRail.dragging:active {
+  /* 拖动中：grabbing、不放大不缩放，仅保留垂直居中 */
+  cursor: grabbing;
+  transform: translateY(-50%);
 }
 
 .sidebarRail:focus-visible {
@@ -83,15 +94,6 @@
 .railLogo {
   /* FishLogo color rides currentColor，随 .sidebarRail 的 color 着色 */
   display: block;
-}
-
-.railLabel {
-  /* 窄条上的"姜晓"文字：竖排小字 */
-  font-size: 10px;
-  font-weight: 500;
-  writing-mode: vertical-rl;
-  letter-spacing: 1px;
-  line-height: 1;
 }
 
 /* ============================================================
@@ -122,8 +124,8 @@
   top: 0;
   left: 0;
   z-index: 2147483644;
-  /* 面板尺寸 */
-  width: 320px;
+  /* 面板尺寸：ADR-0004 加宽 320→380 容纳管理界面 section */
+  width: 380px;
   max-width: 90vw;
   height: 100vh;
   display: flex;
@@ -276,12 +278,33 @@
 }
 
 /* ============================================================
- * SettingsCard — FX 开关区段
+ * SettingsCard — 可折叠 section（ADR-0004）
  * ============================================================ */
 .fxSection {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.sectionHeader {
+  /* section 标题栏：标题 + 折叠把手，可点击整行展开/折叠（role=button） */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+}
+
+.sectionHeader:hover {
+  background: var(--dsw-specific-sidebar-nav-item-active);
+}
+
+.sectionHeader:focus-visible {
+  outline: 2px solid var(--jx-gold);
+  outline-offset: 2px;
 }
 
 .sectionTitle {
@@ -291,6 +314,37 @@
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.sectionToggleBtn {
+  /* 折叠把手 ▸/▾ 视觉指示（span，aria-hidden，非独立 button） */
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 1;
+  font-family: var(--dsw-font-family);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.sectionBody {
+  /* section 内容区；折叠时由 JS 条件渲染控制（D9 瞬时切换，无过渡） */
+}
+
+.managementBody {
+  /* 管理界面 section body：D6 section 内滚动 */
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.managementBody::-webkit-scrollbar {
+  width: 6px;
+}
+.managementBody::-webkit-scrollbar-track {
+  background: var(--dsw-alias-border-l1);
+}
+.managementBody::-webkit-scrollbar-thumb {
+  background: var(--dsw-alias-brand-text);
+  border-radius: 3px;
 }
 
 .fxList {
@@ -405,46 +459,6 @@
 }
 
 /* ============================================================
- * SettingsCard — 进入管理界面按钮
- * ============================================================ */
-.managementSection {
-  display: flex;
-  padding-top: 10px;
-  border-top: 1px solid var(--dsw-alias-border-l1);
-}
-
-.managementButton {
-  flex: 1 1 auto;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-family: var(--dsw-font-family);
-  color: var(--dsw-alias-label-primary);
-  background: var(--dsw-specific-input-major);
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 4px;
-  cursor: pointer;
-  transition:
-    background 150ms var(--ds-ease-in-out),
-    border-color 150ms var(--ds-ease-in-out),
-    transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.managementButton:hover {
-  background: var(--dsw-specific-sidebar-nav-item-active);
-  border-color: var(--dsw-alias-brand-text);
-}
-
-.managementButton:active {
-  transform: scale(0.97);
-  transition-duration: 100ms;
-}
-
-.managementButton:focus-visible {
-  outline: 2px solid var(--jx-gold);
-  outline-offset: 2px;
-}
-
-/* ============================================================
  * prefers-reduced-motion：全关
  * ============================================================ */
 @media (prefers-reduced-motion: reduce) {
@@ -458,7 +472,6 @@
   .sidebarRail,
   .toggleSwitch,
   .toggleKnob,
-  .managementButton,
   .closeBtn {
     transition: none;
   }
@@ -469,8 +482,5 @@
   }
   .sidebarRail:active {
     transform: translateY(-50%);
-  }
-  .managementButton:active {
-    transform: none;
   }
 }

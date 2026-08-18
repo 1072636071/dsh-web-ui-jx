@@ -89,7 +89,7 @@ L3 组件       : 只消费 --dsw-alias-* / --dsw-specific-*，禁止写颜色�
 | `shimmer` | 鎏金流光顶线 + 标题烫金流动 | CSS `background-position` 动画 | 静态金字 |
 | `fall` | 银杏(暗)/梅花(浅)飘落 | 12 片 Web Animations API, GPU transform | 无飘落 |
 | `grain` | 墨韵暗纹 | 静态 SVG turbulence, 零热循环 | 无 |
-| `breathe` | 墨光呼吸背景 | body::after opacity 呼吸 | 静态 |
+| `warp` | 鼠标光线扭曲 | 鼠标周围局部 SVG feDisplacementMap + --jx-moon 边缘光，pointermove 跟手停淡出 | 静态 |
 | `micro` | 微交互 hover/active | transform+cubic-bezier(0.16,1,0.3,1) | 即时 on/off |
 
 全关判定：`html` 无任何 `fx-*` 类 → 移除全部 animation/transition/装饰层，与原版皮肤无差异。

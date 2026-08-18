@@ -20,18 +20,18 @@
  *
  * 后续工单在此扩展为：
  *   - 工单 04：右下角常驻角色浮层（已注入 CharacterOverlay）
- *   - 工单 08：管理界面（已注入 ManagementUI，含导入面板 + 已导入列表）
- *   - 工单 10：侧边栏入口与设置卡（已注入 SidebarEntry，由它控制 ManagementUI
- *     显隐；设置卡含 FX 五类开关，调 setFxEnabled 即时生效 + 持久化）
+ *   - 工单 08：管理界面（ADR-0004 起内嵌 SettingsCard 第三个 section，
+ *     不再作为右上角浮层独立渲染）
+ *   - 工单 10：侧边栏入口与设置卡（已注入 SidebarEntry；设置卡含 FX 五类开关
+ *     + 管理界面 section，调 setFxEnabled 即时生效 + 持久化）
  *
  * @module dsh-web-ui-jx/client
  */
 
 import type { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
-import { createElement, Fragment, useState } from "react";
+import { createElement, Fragment } from "react";
 import { createRoot } from "react-dom/client";
 import { CharacterOverlay } from "./components/CharacterOverlay.tsx";
-import { ManagementUI } from "./components/ManagementUI.tsx";
 import { SidebarEntry } from "./components/SidebarEntry.tsx";
 import { applyFx } from "./fx/index.ts";
 import { attachSessionFollow } from "./state-machine/session-follow.ts";
@@ -44,40 +44,28 @@ import "./styles/fx.css";
 export const inject: string[] = ["sessions"];
 
 /**
- * 内部根组件：管理 ManagementUI 显隐状态，由 SidebarEntry 的「进入管理界面」
- * 回调控制。
+ * 内部根组件：渲染 CharacterOverlay + SidebarEntry。
  *
- * 工单 10：SidebarEntry 作为侧边栏入口常驻左侧边缘，点击展开为设置卡（含
- * FX 五类开关），设置卡内「进入管理界面」按钮触发 onOpenManagement 回调，
- * 将 managementVisible 设为 true，ManagementUI 显现。
+ * ADR-0004 起 ManagementUI 内嵌 SettingsCard 第三个 section，不再独立渲染，
+ * RootApp 无需 managementVisible 状态。
  *
- * @returns TokenDemo + CharacterOverlay + SidebarEntry + ManagementUI（条件渲染）.
+ * @returns CharacterOverlay + SidebarEntry.
  */
 function RootApp() {
-  // managementVisible：ManagementUI 是否可见（默认 false，由侧边栏入口控制显隐）
-  const [managementVisible, setManagementVisible] = useState(false);
-
-  /** 侧边栏入口「进入管理界面」回调：显示 ManagementUI. */
-  const handleOpenManagement = () => {
-    setManagementVisible(true);
-  };
-
   return createElement(
     Fragment,
     null,
     createElement(CharacterOverlay),
-    createElement(SidebarEntry, { onOpenManagement: handleOpenManagement }),
-    createElement(ManagementUI, { visible: managementVisible }),
+    createElement(SidebarEntry),
   );
 }
 
 /**
  * Client plugin body：在 document.body 上设置 data-dsh-jiangxiao 触发 L2
  * jiangxiao skin remap 挂载，并挂载 React root 渲染：
- *   - TokenDemo（令牌基座演示）
  *   - CharacterOverlay（右下角角色浮层，<img> 播放 idle.webp）
- *   - SidebarEntry（左侧边缘侧边栏入口，工单 10；展开后含设置卡 + 进入管理界面入口）
- *   - ManagementUI（右上角管理界面，由 SidebarEntry 控制显隐）
+ *   - SidebarEntry（左侧边缘侧边栏入口，工单 10；展开后含设置卡，设置卡内嵌
+ *     皮肤/特效/管理三个可折叠 section，ADR-0004）
  * 最后启动 FX 特效系统（applyFx 读取 localStorage + reduced-motion 判定，
  * 在 html 上增删 fx-* 类）。
  *
@@ -92,9 +80,9 @@ export function apply(ctx: ClientContext): void {
   container.dataset.dshJxRoot = "";
   document.body.appendChild(container);
   const root = createRoot(container);
-  // 并列渲染 CharacterOverlay（右下角角色浮层）、SidebarEntry（左侧边缘
-  // 侧边栏入口）与 ManagementUI（右上角管理界面，由 SidebarEntry 控制显隐）。
-  // 浮层与侧边栏均 position:fixed 自带定位，不参与容器流式布局，互不干扰。
+  // 并列渲染 CharacterOverlay（右下角角色浮层）与 SidebarEntry（左侧边缘
+  // 侧边栏入口，含设置卡 + 内嵌管理界面 section）。浮层与侧边栏均
+  // position:fixed 自带定位，不参与容器流式布局，互不干扰。
   root.render(createElement(RootApp));
 
   // 启动 FX 特效系统。
