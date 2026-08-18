@@ -1,0 +1,10 @@
+# 临时文件（AGENTS.md 约定：.temp/ 下按 scripts/output/logs 分类，不进 git）
+.temp/
+
+# Node
+node_modules/
+
+# 构建产物（vite 产出的 host/client 双半区 + 类型构建缓存）
+lib/
+dist/
+*.tsbuildinfo

@@ -1,0 +1,178 @@
+/**
+ * L2 skin remap 层 — 姜晓唐风皮肤令牌。
+ *
+ * 挂 body[data-dsh-jiangxiao] 选择器。暗色为默认（墨金卷轴），
+ * 浅色通过 body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) 覆盖（宣纸梅花）。
+ * 暗/亮走官方信号 body[data-ds-dark-theme]：存在 = 暗色，不存在 = 浅色。
+ *
+ * --jx-* 规范令牌深浅双值齐全（DESIGN.md §2 表，缺一套即违规）。
+ * --dsw-static-* / --dsw-alias-* / --dsw-specific-* remap 到 --jx-*（仅插件 UI
+ * 用到的语义别名，不做整套皮肤 remap）。
+ *
+ * 本文件为全局 CSS（非 CSS Module，body 选择器不应被 scope），由
+ * src/client/index.ts 顶部 import。对应 DESIGN.md 三层架构的 L2 skin remap 层。
+ */
+
+/* ============================================================
+ * 暗色（墨金卷轴）— 默认
+ * ============================================================ */
+body[data-dsh-jiangxiao] {
+  /* --- Surface 色阶 --- */
+  --jx-surface-0: #0b090d;
+  --jx-surface-1: #121016;
+  --jx-surface-2: #1a1620;
+  --jx-surface-3: #2d242f;
+
+  /* --- Text --- */
+  --jx-text-strong: #f2ead8;
+  --jx-text-base: #f2ead8;
+  --jx-text-weak: #a99c8a;
+  --jx-text-faint: #8a7e6e;
+
+  /* --- Gold --- */
+  --jx-gold-bright: #f6d365;
+  --jx-gold: #d6b34a;
+  --jx-gold-deep: #b8860b;
+  --jx-gold-dim: #996515;
+  --jx-ginkgo: #dfb793;
+
+  /* --- Seal --- */
+  --jx-seal: #c7493a;
+  --jx-seal-deep: #a8382b;
+  --jx-seal-bright: #d85444;
+  --jx-seal-ink: #fff8ef;
+
+  /* --- 状态 --- */
+  --jx-success: #86b08a;
+  --jx-warn: #d9a05b;
+  --jx-error: #d06552;
+
+  /* --- 装饰 --- */
+  --jx-border-deco: #3d3218;
+  --jx-selection: rgba(184, 134, 11, 0.3);
+  --jx-scroll-track: #2a2210;
+  --jx-scroll-thumb: #b8860b;
+
+  /* --- 氛围族（仅用于渐变/特效/插画层，不进正文文字） --- */
+  --jx-mist: #b5a8b2;
+  --jx-mountain: #827686;
+  --jx-water: #767687;
+  --jx-cloud: #e7d3d2;
+  --jx-moon: #ecd8d8;
+  --jx-hair: #d1beca;
+  --jx-wisteria: #b89aac;
+
+  /* --- 烫金渐变 --- */
+  --jx-gold-foil: linear-gradient(135deg, #f6d365, #fda085, #b8860b);
+
+  /* ============================================================
+   * remap: --dsw-static-* → --jx-*
+   * 按 DESIGN.md §2 remap 原则：
+   *   neutral/bluish → 墨阶 surface；blue/deepseek → 金族；
+   *   green/red/amber → 唐风状态（石绿/赭朱/藤黄）
+   * ============================================================ */
+  --dsw-static-neutral-0: var(--jx-surface-0);
+  --dsw-static-neutral-1: var(--jx-surface-1);
+  --dsw-static-neutral-2: var(--jx-surface-2);
+  --dsw-static-neutral-3: var(--jx-surface-3);
+  --dsw-static-bluish-0: var(--jx-surface-0);
+  --dsw-static-bluish-1: var(--jx-surface-1);
+  --dsw-static-blue-0: var(--jx-gold-dim);
+  --dsw-static-blue-1: var(--jx-gold-deep);
+  --dsw-static-blue-2: var(--jx-gold);
+  --dsw-static-deepseek-0: var(--jx-gold-dim);
+  --dsw-static-deepseek-1: var(--jx-gold);
+  --dsw-static-green: var(--jx-success);
+  --dsw-static-red: var(--jx-error);
+  --dsw-static-amber: var(--jx-warn);
+
+  /* ============================================================
+   * remap: --dsw-alias-* → --jx-*
+   * bg=surface，label=text，brand=gold，state=status，border=gold alpha
+   * ============================================================ */
+  /* label → text */
+  --dsw-alias-label-primary: var(--jx-text-strong);
+  --dsw-alias-label-secondary: var(--jx-text-base);
+  --dsw-alias-label-tertiary: var(--jx-text-weak);
+  --dsw-alias-label-dimmed: var(--jx-text-faint);
+  /* border → border-deco / gold-deep */
+  --dsw-alias-border-l1: var(--jx-border-deco);
+  --dsw-alias-border-l2: var(--jx-gold-deep);
+  /* state → 状态色 */
+  --dsw-alias-state-error-primary: var(--jx-error);
+  --dsw-alias-state-success-primary: var(--jx-success);
+  --dsw-alias-state-warn-primary: var(--jx-warn);
+  /* brand → gold */
+  --dsw-alias-brand-text: var(--jx-gold);
+  /* markdown inline code → surface-2 */
+  --dsw-alias-markdown-inline-code: var(--jx-surface-2);
+
+  /* ============================================================
+   * remap: --dsw-specific-* → --jx-*
+   * ============================================================ */
+  /* sidebar */
+  --dsw-specific-sidebar-bg: var(--jx-surface-1);
+  --dsw-specific-sidebar-nav-item-active: var(--jx-surface-2);
+  --dsw-specific-sidebar-nav-item-active-accent: var(--jx-gold);
+  /* 用户气泡 */
+  --dsw-specific-bubble: var(--jx-surface-2);
+  /* composer 输入框 */
+  --dsw-specific-input-major: var(--jx-surface-1);
+}
+
+/* ============================================================
+ * 浅色（宣纸梅花）— 覆盖
+ * data-ds-dark-theme 不存在 = 浅色
+ * ============================================================ */
+body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) {
+  /* --- Surface 色阶 --- */
+  --jx-surface-0: #faf5ee;
+  --jx-surface-1: #f5eddf;
+  --jx-surface-2: #efe3d0;
+  --jx-surface-3: #e8dcc8;
+
+  /* --- Text --- */
+  --jx-text-strong: #2a241a;
+  --jx-text-base: #5d4a42;
+  --jx-text-weak: #7d6a5e;
+  --jx-text-faint: #8a7765;
+
+  /* --- Gold --- */
+  --jx-gold-bright: #9c7a1e;
+  --jx-gold: #b8860b;
+  --jx-gold-deep: #8a6508;
+  --jx-gold-dim: #6f5306;
+  --jx-ginkgo: #b8860b;
+
+  /* --- Seal --- */
+  --jx-seal: #8e3a49;
+  --jx-seal-deep: #7a2a39;
+  --jx-seal-bright: #d97a8e;
+  --jx-seal-ink: #fff8f6;
+
+  /* --- 状态 --- */
+  --jx-success: #3d7a3d;
+  --jx-warn: #9c6b1e;
+  --jx-error: #a83a3a;
+
+  /* --- 装饰 --- */
+  --jx-border-deco: #d9c9b5;
+  --jx-selection: rgba(178, 74, 92, 0.14);
+  --jx-scroll-track: #ece0d0;
+  --jx-scroll-thumb: #d97a8e;
+
+  /* --- 氛围族（DESIGN.md 只给一组，暗浅共用） --- */
+  --jx-mist: #b5a8b2;
+  --jx-mountain: #827686;
+  --jx-water: #767687;
+  --jx-cloud: #e7d3d2;
+  --jx-moon: #ecd8d8;
+  --jx-hair: #d1beca;
+  --jx-wisteria: #b89aac;
+
+  /* --- 烫金渐变 --- */
+  --jx-gold-foil: linear-gradient(135deg, #b8860b, #d97a8e, #8a6508);
+
+  /* remap 在暗块已声明（引用 --jx-*），浅色覆盖 --jx-* 后 remap 自动切换。
+   * 故此处无需重复 remap 声明。 */
+}

@@ -1,0 +1,29 @@
+# .npmignore — npm pack 时排除开发-only 内容
+# 与 .gitignore 互补：.gitignore 排除构建产物（lib/）等，
+# 但 npm pack 需要包含 lib/（运行时产物），故 .npmignore 不含 lib/。
+# node_modules/ 由 npm 自动排除，无需声明。
+
+# 测试
+tests/
+vitest.config.ts
+
+# 开发工具配置
+.temp/
+.gitignore
+.arts/
+.codeartsdoer/
+
+# 文档源（工单 / PRD / map / memorial，不进发布包）
+.scratch/
+
+# IDE
+.vscode/
+.idea/
+
+# CI
+.github/
+
+# 临时脚本输出 / 日志（AGENTS.md 约定 .temp/ 下分类）
+.temp/scripts/
+.temp/output/
+.temp/logs/

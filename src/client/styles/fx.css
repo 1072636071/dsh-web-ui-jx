@@ -1,0 +1,218 @@
+/**
+ * FX 特效系统全局样式（L2 装饰层）。
+ *
+ * 对应 DESIGN.md §5 特效系统。五类特效由 `html` 上 `fx-*` 类控制：
+ *   - html.fx-shimmer：鎏金流光顶线 + 标题烫金流动
+ *   - html.fx-fall：银杏(暗)/梅花(浅)飘落（元素由 fx/fall.ts JS 创建，
+ *     此处只定义叶片颜色/形状/大小，深浅双主题）
+ *   - html.fx-grain：墨韵暗纹静态 SVG turbulence
+ *   - html.fx-breathe：墨光呼吸背景
+ *   - html.fx-micro：微交互 hover/active
+ *
+ * 全关判定：所有选择器以 `html.fx-*` 开头，html 无任何 fx-* 类时无样式生效，
+ * 与原版皮肤无差异。
+ *
+ * 装饰层均 pointer-events: none，不拦截指针。
+ * 特效配色只用 --jx-* 专属轨与氛围族令牌（--jx-gold-foil / --jx-ginkgo /
+ * --jx-seal-bright / --jx-moon / --jx-text-strong 等），氛围族只用于渐变/
+ * 装饰层，不进正文文字。
+ *
+ * prefers-reduced-motion: reduce 下全部关闭（见文件末尾媒体查询）。
+ *
+ * 本文件为全局 CSS（非 CSS Module，html/body 选择器不应被 scope），由
+ * src/client/index.ts 顶部 import。
+ */
+
+/* ============================================================
+ * shimmer — 鎏金流光顶线 + 标题烫金流动
+ * ============================================================ */
+
+/* 鎏金流光顶线：html::before 固定顶部 2px 渐变条，background-position 流动 */
+html.fx-shimmer::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  pointer-events: none;
+  z-index: 9999;
+  background: var(--jx-gold-foil);
+  background-size: 200% 100%;
+  animation: jx-shimmer-line 3s linear infinite;
+}
+
+@keyframes jx-shimmer-line {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+/* 标题烫金流动：插件 root 内 h1/h2/h3 用 --jx-gold-foil 渐变填充文字 + 流动 */
+html.fx-shimmer [data-dsh-jx-root] :is(h1, h2, h3) {
+  background: var(--jx-gold-foil);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: jx-shimmer-text 4s linear infinite;
+}
+
+@keyframes jx-shimmer-text {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+/* ============================================================
+ * fall — 银杏(暗)/梅花(浅)飘落
+ * 元素由 fx/fall.ts JS 创建（[data-jx-fx-fall] 容器 + 12 个 span），
+ * 此处只定义叶片颜色/形状/大小。深浅双主题：暗=银杏，浅=梅花。
+ * ============================================================ */
+
+/* 暗色（默认）：银杏色 --jx-ginkgo */
+html.fx-fall body[data-dsh-jiangxiao] [data-jx-fx-fall] span {
+  display: block;
+  width: 10px;
+  height: 14px;
+  /* 银杏叶形状：不对称圆角 */
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: var(--jx-ginkgo);
+  opacity: 0.6;
+}
+
+/* 浅色：梅花色 --jx-seal-bright */
+html.fx-fall
+  body[data-dsh-jiangxiao]:not([data-ds-dark-theme])
+  [data-jx-fx-fall]
+  span {
+  /* 梅花形状：圆瓣 */
+  border-radius: 50%;
+  background: var(--jx-seal-bright);
+  opacity: 0.5;
+}
+
+/* ============================================================
+ * grain — 墨韵暗纹静态 SVG turbulence（零热循环）
+ * html::after 固定全屏，SVG feTurbulence 作为 mask，background 用 --jx-text-strong
+ * 深浅主题自动跟随（text-strong 暗色=浅金，浅色=深墨）
+ * ============================================================ */
+
+html.fx-grain::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9997;
+  background: var(--jx-text-strong);
+  opacity: 0.04;
+  /* SVG feTurbulence 作为 mask：噪声分布的墨韵暗纹 */
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  /* 静态：无 animation，零热循环 */
+}
+
+/* ============================================================
+ * breathe — 墨光呼吸背景
+ * body[data-dsh-jiangxiao]::before 固定全屏，radial-gradient 墨光，
+ * opacity 在 0.04 ↔ 0.08 之间 8s 周期呼吸。
+ * 用 --jx-moon 氛围族（月色光晕），仅用于渐变装饰层，不进正文文字。
+ * ============================================================ */
+
+html.fx-breathe body[data-dsh-jiangxiao]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9996;
+  background: radial-gradient(
+    ellipse at 50% 40%,
+    var(--jx-moon) 0%,
+    transparent 70%
+  );
+  opacity: 0.04;
+  animation: jx-breathe 8s ease-in-out infinite;
+}
+
+@keyframes jx-breathe {
+  0%,
+  100% {
+    opacity: 0.04;
+  }
+  50% {
+    opacity: 0.08;
+  }
+}
+
+/* ============================================================
+ * micro — 微交互 hover/active
+ * 插件 root 内按钮 hover translateY(-1px) / active scale(0.98)，
+ * cubic-bezier(0.16,1,0.3,1) 自然减速曲线（DESIGN.md §6）。
+ * 只作用于插件 UI，不影响宿主按钮。
+ * ============================================================ */
+
+html.fx-micro [data-dsh-jx-root] button {
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html.fx-micro [data-dsh-jx-root] button:hover {
+  transform: translateY(-1px);
+}
+
+html.fx-micro [data-dsh-jx-root] button:active {
+  transform: scale(0.98);
+  transition: transform 100ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ============================================================
+ * prefers-reduced-motion: reduce — 全部自动关闭
+ * DESIGN.md §6：prefers-reduced-motion 全关。
+ * 装饰层隐藏，动画/transition 移除，标题恢复静态金字。
+ * fall 的 JS 装饰层由 fx/index.ts 在 reduced-motion 下不创建，
+ * 此处额外 display:none 作双保险。
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  /* shimmer 顶线隐藏 */
+  html.fx-shimmer::before {
+    display: none !important;
+    animation: none !important;
+  }
+
+  /* shimmer 标题恢复静态金字（--dsw-alias-brand-text remap 到 --jx-gold） */
+  html.fx-shimmer [data-dsh-jx-root] :is(h1, h2, h3) {
+    animation: none !important;
+    background: none !important;
+    -webkit-background-clip: border-box !important;
+    background-clip: border-box !important;
+    color: var(--dsw-alias-brand-text) !important;
+    -webkit-text-fill-color: currentColor !important;
+  }
+
+  /* fall 装饰层隐藏（双保险，JS 侧已不创建） */
+  [data-jx-fx-fall] {
+    display: none !important;
+  }
+
+  /* grain 保留（静态、零热循环，不涉及动效，无需关闭） */
+
+  /* breathe 呼吸停止 + 隐藏 */
+  html.fx-breathe body[data-dsh-jiangxiao]::before {
+    display: none !important;
+    animation: none !important;
+  }
+
+  /* micro 微交互移除 */
+  html.fx-micro [data-dsh-jx-root] button,
+  html.fx-micro [data-dsh-jx-root] button:hover,
+  html.fx-micro [data-dsh-jx-root] button:active {
+    transform: none !important;
+    transition: none !important;
+  }
+}

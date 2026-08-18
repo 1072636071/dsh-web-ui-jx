@@ -1,0 +1,476 @@
+/**
+ * SidebarEntry / SettingsCard 组件局部样式（CSS Module）。
+ *
+ * 工单 10 产物：侧边栏入口（collapsed rail 常驻标记 / expanded 设置卡面板）+
+ * 设置卡（五类 FX 独立开关 + 进入管理界面入口）。
+ *
+ * 只消费 --dsw-alias-* / --dsw-specific-* 语义别名 + --jx-* 专属轨令牌 +
+ * L1 base 字族/动效变量。无颜色字面量、无主题选择器（body[data-ds-dark-theme]
+ * 等）。深浅双主题由 L2 jiangxiao.css 的 --jx-* 双值自动处理（同一套令牌双值）。
+ *
+ * DESIGN.md §6 动效与可访问性：
+ *   - 常规 150ms（hover/active 微交互、toggle 切换）
+ *   - 布局 200ms（侧边栏展开/折叠、设置卡出现）
+ *   - 强调 350ms（侧边栏整体出现）
+ *   - 自然减速 cubic-bezier(0.16, 1, 0.3, 1)
+ *   - 退出快于进入
+ *   - prefers-reduced-motion 下全关
+ *   - :focus-visible 用 --jx-gold 描边（DESIGN.md §6 明确要求）
+ *
+ * z-index 层级：
+ *   - sidebarRail/sidebarExpanded: 2147483644（低于 overlay 2147483646、
+ *     低于 ManagementUI 2147483645，高于普通内容）
+ *   - overlay: 2147483643（在 sidebarExpanded 之下，因为遮罩应在面板之下；
+ *     实际上遮罩需在面板之下才能让面板可点击，这里遮罩在面板之下）
+ *
+ * pointer-events 精确：
+ *   - sidebarRail：仅入口元素可点击，不拦截主内容区
+ *   - overlay：拦截主内容区点击（用于点击外部折叠）
+ *   - sidebarExpanded：面板内可点击
+ */
+
+/* ============================================================
+ * SidebarEntry — collapsed rail 模式
+ * ============================================================ */
+.sidebarRail {
+  /* 左侧边缘常驻窄条入口 */
+  position: fixed;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  z-index: 2147483644;
+  /* 窄条尺寸 */
+  width: 36px;
+  padding: 12px 4px;
+  /* 入口样式：垂直排列 logo + 文字 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  /* 语义别名：bg=surface，brand=gold */
+  background: var(--dsw-specific-sidebar-bg);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  font-family: var(--dsw-font-family);
+  color: var(--dsw-alias-brand-text);
+  cursor: pointer;
+  /* 常规动效：hover 微交互 150ms */
+  transition:
+    background 150ms var(--ds-ease-in-out),
+    border-color 150ms var(--ds-ease-in-out),
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sidebarRail:hover {
+  background: var(--dsw-specific-sidebar-nav-item-active);
+  border-color: var(--dsw-alias-brand-text);
+  /* hover 时轻微外凸 */
+  transform: translateY(-50%) translateX(2px);
+}
+
+.sidebarRail:active {
+  transform: translateY(-50%) scale(0.96);
+  transition-duration: 100ms;
+}
+
+.sidebarRail:focus-visible {
+  /* DESIGN.md §6：:focus-visible 用 --jx-gold 描边 */
+  outline: 2px solid var(--jx-gold);
+  outline-offset: 2px;
+}
+
+.railLogo {
+  /* FishLogo color rides currentColor，随 .sidebarRail 的 color 着色 */
+  display: block;
+}
+
+.railLabel {
+  /* 窄条上的"姜晓"文字：竖排小字 */
+  font-size: 10px;
+  font-weight: 500;
+  writing-mode: vertical-rl;
+  letter-spacing: 1px;
+  line-height: 1;
+}
+
+/* ============================================================
+ * SidebarEntry — expanded 模式
+ * ============================================================ */
+.overlay {
+  /* 外部遮罩：点击折叠侧边栏；不视觉遮挡（透明），仅拦截点击 */
+  position: fixed;
+  inset: 0;
+  z-index: 2147483643;
+  background: transparent;
+  /* 遮罩出现：布局动效 200ms */
+  animation: overlay-in 200ms var(--ds-ease-in-out) both;
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sidebarExpanded {
+  /* 展开的侧边栏面板：左侧固定 */
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483644;
+  /* 面板尺寸 */
+  width: 320px;
+  max-width: 90vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  /* 语义别名：bg=surface */
+  background: var(--dsw-specific-sidebar-bg);
+  border-right: 1px solid var(--dsw-alias-border-l1);
+  font-family: var(--dsw-font-family);
+  color: var(--dsw-alias-label-secondary);
+  /* 强调动效：面板出现 350ms 自然减速 */
+  animation: sidebar-in 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  overflow: hidden;
+}
+
+@keyframes sidebar-in {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.sidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-specific-sidebar-nav-item-active);
+}
+
+.brandBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brandLogo {
+  /* FishLogo color rides currentColor，随 .brandText 的 color 着色 */
+  display: block;
+  color: var(--dsw-alias-brand-text);
+}
+
+.brandText {
+  /* 品牌字：用楷体（base.css @font-face）+ 烫金色 */
+  font-family: "JX MashanZheng", var(--dsw-font-family);
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--dsw-alias-brand-text);
+  letter-spacing: 1px;
+}
+
+.closeBtn {
+  padding: 4px 8px;
+  font-size: 14px;
+  line-height: 1;
+  font-family: var(--dsw-font-family);
+  color: var(--dsw-alias-label-tertiary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    color 150ms var(--ds-ease-in-out),
+    border-color 150ms var(--ds-ease-in-out);
+}
+
+.closeBtn:hover {
+  color: var(--dsw-alias-label-primary);
+  border-color: var(--dsw-alias-border-l1);
+}
+
+.closeBtn:focus-visible {
+  outline: 2px solid var(--jx-gold);
+  outline-offset: 2px;
+}
+
+.sidebarBody {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 滚动条（用语义别名模拟金描滚动条） */
+.sidebarBody::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebarBody::-webkit-scrollbar-track {
+  background: var(--dsw-alias-border-l1);
+}
+.sidebarBody::-webkit-scrollbar-thumb {
+  background: var(--dsw-alias-brand-text);
+  border-radius: 3px;
+}
+
+/* ============================================================
+ * SettingsCard — 设置卡
+ * ============================================================ */
+.settingsCard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px;
+  background: var(--dsw-specific-input-major);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  /* 布局动效：设置卡出现 200ms */
+  animation: card-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.settingsHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.settingsTitle {
+  /* 设置卡标题：楷体 + 烫金色 */
+  font-family: "JX MashanZheng", var(--dsw-font-family);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--dsw-alias-brand-text);
+  margin: 0;
+  letter-spacing: 1px;
+}
+
+.settingsSubtitle {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  margin: 0;
+}
+
+/* ============================================================
+ * SettingsCard — FX 开关区段
+ * ============================================================ */
+.fxSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sectionTitle {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.fxList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.fxItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--dsw-specific-sidebar-bg);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  /* 布局动效：列表项出现 200ms */
+  animation: item-in 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes item-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fxLabelBox {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fxLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.fxDesc {
+  font-size: 10px;
+  color: var(--dsw-alias-label-dimmed);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ============================================================
+ * Toggle 开关
+ * ============================================================ */
+.toggleSwitch {
+  /* 开关轨道 */
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  background: var(--dsw-alias-border-l1);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  cursor: pointer;
+  /* 常规动效：toggle 切换 150ms */
+  transition:
+    background 150ms var(--ds-ease-in-out),
+    border-color 150ms var(--ds-ease-in-out);
+}
+
+.toggleSwitch:hover {
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.toggleSwitch:focus-visible {
+  outline: 2px solid var(--jx-gold);
+  outline-offset: 2px;
+}
+
+.toggleOn {
+  /* 开关打开：轨道变烫金色 */
+  background: var(--dsw-alias-brand-text);
+  border-color: var(--dsw-alias-brand-text);
+}
+
+.toggleKnob {
+  /* 开关旋钮 */
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  background: var(--dsw-alias-label-primary);
+  border-radius: 50%;
+  /* 常规动效：旋钮滑动 150ms 自然减速 */
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toggleOn .toggleKnob {
+  /* 打开时旋钮滑到右侧；颜色用 sidebar 背景语义别名（深底浅字对比）。
+   * --jx-* 专属轨仅限唐风炫技（烫金/印章/金描滚动条），toggle knob 不属此列，
+   * 故消费 --dsw-specific-sidebar-bg（remap 到 --jx-surface-1）。 */
+  transform: translateX(16px);
+  background: var(--dsw-specific-sidebar-bg);
+}
+
+/* ============================================================
+ * SettingsCard — 进入管理界面按钮
+ * ============================================================ */
+.managementSection {
+  display: flex;
+  padding-top: 10px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.managementButton {
+  flex: 1 1 auto;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-family: var(--dsw-font-family);
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-input-major);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background 150ms var(--ds-ease-in-out),
+    border-color 150ms var(--ds-ease-in-out),
+    transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.managementButton:hover {
+  background: var(--dsw-specific-sidebar-nav-item-active);
+  border-color: var(--dsw-alias-brand-text);
+}
+
+.managementButton:active {
+  transform: scale(0.97);
+  transition-duration: 100ms;
+}
+
+.managementButton:focus-visible {
+  outline: 2px solid var(--jx-gold);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+ * prefers-reduced-motion：全关
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .sidebarRail,
+  .sidebarExpanded,
+  .settingsCard,
+  .fxItem,
+  .overlay {
+    animation: none;
+  }
+  .sidebarRail,
+  .toggleSwitch,
+  .toggleKnob,
+  .managementButton,
+  .closeBtn {
+    transition: none;
+  }
+  /* sidebarRail 默认 transform: translateY(-50%) 用于垂直居中，
+   * reduced-motion 下 hover/active 仅移除位移/缩放变换，保留居中。 */
+  .sidebarRail:hover {
+    transform: translateY(-50%);
+  }
+  .sidebarRail:active {
+    transform: translateY(-50%);
+  }
+  .managementButton:active {
+    transform: none;
+  }
+}

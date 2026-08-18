@@ -1,0 +1,106 @@
+/**
+ * TokenDemo 组件局部样式（CSS Module）。
+ *
+ * 只消费 --dsw-alias-* / --dsw-specific-* 语义别名 + L1 base 字族/动效变量。
+ * 无颜色字面量、无主题选择器（body[data-ds-dark-theme] 等）。
+ * 深浅双主题由 L2 jiangxiao.css 的 --jx-* 双值自动处理。
+ */
+
+.demo {
+  background: var(--dsw-specific-sidebar-bg);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  padding: 16px 20px;
+  max-width: 480px;
+  font-family: var(--dsw-font-family);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.title {
+  /* 楷体标题（马善政体） */
+  font-family: "JX MashanZheng", var(--dsw-font-family);
+  font-size: 24px;
+  font-weight: 400;
+  color: var(--dsw-alias-brand-text);
+  margin: 0 0 8px;
+}
+
+.body {
+  /* 宋体正文（Noto Serif SC） */
+  font-family: "JX NotoSerifSC", var(--dsw-font-family);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-secondary);
+  margin: 0 0 12px;
+}
+
+.brandRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.logo {
+  /* FishLogo fill=currentColor，随品牌文字色着色 */
+  color: var(--dsw-alias-brand-text);
+}
+
+.brandText {
+  font-size: 14px;
+  color: var(--dsw-alias-brand-text);
+  font-weight: 500;
+}
+
+.states {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.state {
+  /* 状态色块：底色背景 + 状态色文字/边框，对比清晰 */
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--ds-font-family-code);
+  background: var(--dsw-specific-sidebar-bg);
+  border: 1px solid currentColor;
+}
+
+.stateSuccess {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.stateWarn {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.stateError {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.toggle {
+  /* 主题切换钮：composer 输入框语义 */
+  background: var(--dsw-specific-input-major);
+  color: var(--dsw-alias-label-primary);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+  transition: border-color var(--ds-transition-duration-fast)
+    var(--ds-ease-in-out);
+}
+
+.toggle:hover {
+  border-color: var(--dsw-alias-brand-text);
+}
+
+.toggle:focus-visible {
+  /* DESIGN.md §6 明确要求 :focus-visible 用 --jx-gold 描边（唐风炫技专属轨） */
+  outline: 2px solid var(--jx-gold);
+  outline-offset: 2px;
+}

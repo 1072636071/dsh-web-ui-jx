@@ -1,0 +1,42 @@
+/**
+ * L1 base 层 + @font-face 声明。
+ *
+ * 按 DESIGN.md §2 的 L1 base 块，在 :root 声明字族/动效官方变量。
+ * 两个 woff2 字体（楷体/宋体）从素材路由 /api/dsh-jx/fonts/* 加载，
+ * 不再 base64 内联。
+ *
+ * 本文件为全局 CSS（非 CSS Module），由 src/client/index.ts 顶部 import。
+ * 对应 DESIGN.md 三层架构的 L1 base 层。
+ */
+
+:root {
+  --dsw-font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
+    sans-serif;
+  --ds-font-family-code:
+    "SF Mono", "JetBrains Mono", "Fira Code", Consolas, "Liberation Mono",
+    Menlo, Courier, "PingFang SC", "Microsoft YaHei";
+  --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ds-transition-duration: 0.2s;
+  --ds-transition-duration-fast: 0.1s;
+  --ds-transition-duration-slow: 0.3s;
+}
+
+/* 楷体（马善政体）— 标题/印章用 */
+@font-face {
+  font-family: "JX MashanZheng";
+  src: url("/api/dsh-jx/fonts/JIANGXIAO_FONT_MASHANZHENG.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 宋体（Noto Serif SC）— 正文用 */
+@font-face {
+  font-family: "JX NotoSerifSC";
+  src: url("/api/dsh-jx/fonts/JIANGXIAO_FONT_NOTOSERIFSC.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}

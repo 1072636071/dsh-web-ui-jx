@@ -1,0 +1,79 @@
+{
+  "name": "dsh-web-ui-jx",
+  "description": "姜晓角色素材 DSH Bundle 插件 — 为 deepseek-harness 宿主提供唐风角色浮层、管理 UI 与三层 token 设计系统（独立插件，不复用 dsh-web-ui 任何包）",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.0.0"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/host/index.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./src/client/index.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml",
+    "assets",
+    "README.md",
+    "DESIGN.md",
+    "CONTEXT.md",
+    "docs/adr"
+  ],
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ],
+      "platform": "web"
+    }
+  },
+  "scripts": {
+    "build": "vite build && vite build --mode client",
+    "build:host": "vite build",
+    "build:client": "vite build --mode client",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "vite build --watch",
+    "verify": "node scripts/verify-release.mjs",
+    "prepublishOnly": "npm run build && node scripts/verify-release.mjs"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-storage": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-storage-domain": "^0.1.0-rc.7",
+    "@types/adm-zip": "^0.5.8",
+    "@types/node": "^22.20.0",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.0",
+    "adm-zip": "^0.5.16",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.0",
+    "vitest": "^4.1.8",
+    "zod": "^4.4.3"
+  }
+}
