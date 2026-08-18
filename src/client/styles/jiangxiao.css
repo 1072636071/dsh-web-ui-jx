@@ -106,6 +106,10 @@ body[data-dsh-jiangxiao] {
   --dsw-alias-brand-text: var(--jx-gold);
   /* markdown inline code → surface-2 */
   --dsw-alias-markdown-inline-code: var(--jx-surface-2);
+  /* 聚焦描边 → 金 */
+  --dsw-alias-focus-ring: var(--jx-gold-deep);
+  /* 分隔线 → border-deco */
+  --dsw-alias-divider: var(--jx-border-deco);
 
   /* ============================================================
    * remap: --dsw-specific-* → --jx-*
@@ -116,8 +120,36 @@ body[data-dsh-jiangxiao] {
   --dsw-specific-sidebar-nav-item-active-accent: var(--jx-gold);
   /* 用户气泡 */
   --dsw-specific-bubble: var(--jx-surface-2);
+  /* assistant 气泡 */
+  --dsw-specific-assistant-bubble: var(--jx-surface-0);
   /* composer 输入框 */
   --dsw-specific-input-major: var(--jx-surface-1);
+  /* 侧栏底仅含数字的次级文字弱化 */
+  --dsw-specific-sidebar-nav-item-hover: var(--jx-surface-3);
+}
+
+/* ============================================================
+ * 宿主滚动条 / 选区染色（随 body[data-dsh-jiangxiao] 门控）
+ * 用 --jx-* 引用，深浅双值自动跟随；不新增颜色字面量。
+ * ============================================================ */
+body[data-dsh-jiangxiao] {
+  scrollbar-color: var(--jx-scroll-thumb) var(--jx-scroll-track);
+  scrollbar-width: thin;
+}
+body[data-dsh-jiangxiao] ::selection {
+  background: var(--jx-selection);
+}
+/* WebKit 细滚动条（宿主容器内生效） */
+body[data-dsh-jiangxiao] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+body[data-dsh-jiangxiao] ::-webkit-scrollbar-track {
+  background: var(--jx-scroll-track);
+}
+body[data-dsh-jiangxiao] ::-webkit-scrollbar-thumb {
+  background: var(--jx-scroll-thumb);
+  border-radius: 4px;
 }
 
 /* ============================================================

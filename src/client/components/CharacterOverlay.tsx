@@ -37,7 +37,6 @@ import {
   type StateMachineSnapshot,
   type PlaybackItem,
 } from "../state-machine/overlay-state-machine.ts";
-import { StateSwitcher } from "./StateSwitcher.tsx";
 import { SpeechBubble, DEFAULT_BUBBLE_DURATION_MS } from "./SpeechBubble.tsx";
 
 /**
@@ -186,7 +185,6 @@ export function CharacterOverlay({
           onDone={() => setBubble(null)}
         />
       )}
-      <StateSwitcher />
     </div>
   );
 }

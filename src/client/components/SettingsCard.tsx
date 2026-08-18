@@ -25,6 +25,7 @@ import {
   getFxState,
   setFxEnabled,
 } from "../fx/index.ts";
+import { getSkinEnabled, setSkinEnabled } from "../skin.ts";
 import styles from "../styles/sidebar-settings.module.css";
 
 /** 五类 FX 的中文标签（用于开关 UI 显示）. */
@@ -66,6 +67,15 @@ export function SettingsCard({
 }: SettingsCardProps) {
   // 初始状态从 getFxState() 读取（反映 html 上 fx-* 类当前生效状态）
   const [fxState, setFxState] = useState<FxState>(() => getFxState());
+  // 皮肤开关初始状态（getSkinEnabled 读 localStorage('jx-skin')，默认开）
+  const [skinEnabled, setSkinOn] = useState<boolean>(() => getSkinEnabled());
+
+  /** 切换皮肤总开关：setSkinEnabled 即时生效 + 持久化，并更新本地视图状态. */
+  const handleToggleSkin = useCallback(() => {
+    const next = !skinEnabled;
+    setSkinEnabled(next);
+    setSkinOn(next);
+  }, [skinEnabled]);
 
   /** 切换某类 FX 开关：调 setFxEnabled 即时生效 + 持久化，并更新本地视图状态. */
   const handleToggleFx = useCallback(
@@ -100,6 +110,30 @@ export function SettingsCard({
         <h2 className={styles.settingsTitle}>姜晓·墨染</h2>
         <p className={styles.settingsSubtitle}>唐风特效设置</p>
       </header>
+
+      <section className={styles.fxSection}>
+        <h3 className={styles.sectionTitle}>皮肤开关</h3>
+        <ul className={styles.fxList}>
+          <li className={styles.fxItem}>
+            <div className={styles.fxLabelBox}>
+              <span className={styles.fxLabel}>唐风皮肤</span>
+              <span className={styles.fxDesc}>
+                关闭即一键按回宿主原皮（本浮层与侧边栏保留）
+              </span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={skinEnabled}
+              aria-label="切换唐风皮肤"
+              className={`${styles.toggleSwitch}${skinEnabled ? " " + styles.toggleOn : ""}`}
+              onClick={handleToggleSkin}
+            >
+              <span className={styles.toggleKnob} />
+            </button>
+          </li>
+        </ul>
+      </section>
 
       <section className={styles.fxSection}>
         <h3 className={styles.sectionTitle}>特效开关</h3>

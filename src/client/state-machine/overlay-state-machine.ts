@@ -296,15 +296,19 @@ export function createOverlayStateMachine(
   let playback: readonly PlaybackItem[] = [
     { kind: "loop", state: initial, url: loopAssetUrl(initial) },
   ];
+  // 缓存快照：useSyncExternalStore 要求 getSnapshot 在状态未变时返回稳定引用。
+  // 若每次调用都新建对象，React 每次 render 都会发现引用不等 → 判定 store 变化
+  // → 无限重渲染（React error #301）。因此只在 emit（状态真变）时重建引用。
+  let cachedSnapshot: StateMachineSnapshot = { currentState, playback };
   const listeners = new Set<(snapshot: StateMachineSnapshot) => void>();
 
   function getSnapshot(): StateMachineSnapshot {
-    return { currentState, playback };
+    return cachedSnapshot;
   }
 
   function emit(): void {
-    const snapshot = getSnapshot();
-    for (const listener of listeners) listener(snapshot);
+    cachedSnapshot = { currentState, playback };
+    for (const listener of listeners) listener(cachedSnapshot);
   }
 
   function dispatch(intent: OverlayIntent): void {
