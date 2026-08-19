@@ -160,14 +160,14 @@ export function transitionAssetUrl(
 // 播放计划项
 // ---------------------------------------------------------------------------
 
-/** 过渡段播放项（播放一次后推进到下一项）. */
+/** 过渡段播放项（播放一次后推进到下一项）.
+ *  播放时长不在计划项内携带：UI 侧播放期经 webp-duration 解析真实时长
+ *  （失败回退 DEFAULT_TRANSITION_DURATION_MS）。 */
 export interface TransitionPlaybackItem {
   readonly kind: "transition";
   readonly from: TransitionEndpoint;
   readonly to: TransitionEndpoint;
   readonly url: string;
-  /** 预估播放时长 ms（webp 实际时长未知，UI 用此值 setTimeout 后推进）. */
-  readonly durationMs: number;
 }
 
 /** 循环态播放项（持续循环直到下次切换）. */
@@ -209,7 +209,7 @@ export interface StateMachineSnapshot {
 // 过渡段预估时长
 // ---------------------------------------------------------------------------
 
-/** 过渡段预估播放时长 ms（webp 实际时长未知，给保守默认值；UI 用此值 setTimeout 推进）. */
+/** 过渡段播放时长的回退默认值 ms（真实时长解析失败时 UI 侧使用）. */
 export const DEFAULT_TRANSITION_DURATION_MS = 800;
 
 // ---------------------------------------------------------------------------
@@ -243,7 +243,6 @@ export function planSwitch(
         from,
         to,
         url: transitionAssetUrl(from, to),
-        durationMs: DEFAULT_TRANSITION_DURATION_MS,
       },
       { kind: "loop", state: to, url: loopAssetUrl(to) },
     ];
@@ -256,14 +255,12 @@ export function planSwitch(
       from,
       to: "idle",
       url: transitionAssetUrl(from, "idle"),
-      durationMs: DEFAULT_TRANSITION_DURATION_MS,
     },
     {
       kind: "transition",
       from: "idle",
       to,
       url: transitionAssetUrl("idle", to),
-      durationMs: DEFAULT_TRANSITION_DURATION_MS,
     },
     { kind: "loop", state: to, url: loopAssetUrl(to) },
   ];

@@ -25,7 +25,6 @@ import {
   TRANSITION_EDGES,
   loopAssetUrl,
   transitionAssetUrl,
-  DEFAULT_TRANSITION_DURATION_MS,
   type OverlayState,
   type StateMachineSnapshot,
   type PlaybackItem,
@@ -125,7 +124,6 @@ describe("planSwitch: 切换计划构造", () => {
       expect(plan[0].from).toBe("idle");
       expect(plan[0].to).toBe("thinking");
       expect(plan[0].url).toBe(transitionAssetUrl("idle", "thinking"));
-      expect(plan[0].durationMs).toBe(DEFAULT_TRANSITION_DURATION_MS);
     }
     if (plan[1].kind === "loop") expect(plan[1].state).toBe("thinking");
   });
@@ -237,15 +235,6 @@ describe("createOverlayStateMachine: 过渡只播一次", () => {
         expect(loops, `from=${from} to=${to} 应只有一个 loop`).toHaveLength(1);
         expect(pb[pb.length - 1].kind).toBe("loop");
       }
-    }
-  });
-
-  it("过渡段 durationMs 为 DEFAULT_TRANSITION_DURATION_MS", () => {
-    const sm = createOverlayStateMachine("idle");
-    sm.dispatch({ type: "switch", target: "thinking" });
-    const ts = transitionsOf(sm.getSnapshot().playback);
-    for (const t of ts) {
-      expect(t.durationMs).toBe(DEFAULT_TRANSITION_DURATION_MS);
     }
   });
 

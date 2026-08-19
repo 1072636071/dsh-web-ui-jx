@@ -70,6 +70,7 @@ import {
   type ViewportSize,
 } from "../state-machine/overlay-position.ts";
 import { SpeechBubble, DEFAULT_BUBBLE_DURATION_MS } from "./SpeechBubble.tsx";
+import { loadWebpDurationMs } from "../webp-duration.ts";
 import { SessionBubbleList } from "./SessionBubbleList.tsx";
 import type { ISessions } from "@deepseek-ai/dsh-client-runtime/client";
 
@@ -321,15 +322,27 @@ export function CharacterOverlay({
 
   const item = currentItem(snapshot.playback, index);
 
-  // 过渡段播放完毕推进：transition 项 setTimeout(durationMs) 后 index++。
-  // 停在末尾 loop 时不推进（循环态持续循环）。
+  // 过渡段播放完毕推进：transition 项按真实素材时长（webp 素材 ANMF 解析，
+  // 工单 01）setTimeout 后 index++；解析失败回退默认时长。停在其他情况
+  // （index 在末尾 loop）不推进（循环态持续循环）。
+  // 兜底 timer：解析期间先按回退时长起 timer，解析完成后未推进则改设真实
+  // 时长——fetch 挂起/解析不落定时 800ms 后仍推进，播放链路不冻结。
   useEffect(() => {
     if (index >= snapshot.playback.length - 1) return; // 停在末尾 loop
     const current = snapshot.playback[index];
     if (!current || current.kind !== "transition") return;
-    const duration = current.durationMs ?? DEFAULT_TRANSITION_DURATION_MS;
-    const timer = setTimeout(() => setIndex((i) => i + 1), duration);
-    return () => clearTimeout(timer);
+    let cancelled = false;
+    const advance = () => setIndex((i) => i + 1);
+    let timer = setTimeout(advance, DEFAULT_TRANSITION_DURATION_MS);
+    void loadWebpDurationMs(current.url).then((durationMs) => {
+      if (cancelled) return;
+      clearTimeout(timer);
+      timer = setTimeout(advance, durationMs ?? DEFAULT_TRANSITION_DURATION_MS);
+    });
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [index, snapshot]);
 
   // ADR-0006 决策 2/5：transform: translate3d(x,y,0) scale(s)，GPU 合成。
