@@ -87,18 +87,18 @@ function initialReducedMotion(): boolean {
 
 /**
  * 各循环态的演示台词（状态切换时触发，工单 06 演示用）。
- * idle 不配台词（切回 idle 不弹气泡，避免频繁打扰）。
+ * 匹配设计 demo 的唐风角色语气。idle 不配台词（切回 idle 不弹气泡）。
  */
 const STATE_SPEECH: Partial<Record<OverlayState, string>> = {
-  thinking: "思考中…",
-  reading: "阅读中…",
-  replying: "正在回复…",
-  working: "处理中…",
-  error: "出错了，请重试",
-  welcome: "你好，我是姜晓",
-  done: "已完成",
-  permission: "需要你的授权",
-  listening: "聆听中…",
+  thinking: "容姜晓思量片刻……",
+  reading: "正在阅卷，稍候。",
+  replying: "为大人细细道来。",
+  working: "遵命，这就去办。",
+  error: "此事有蹊跷，容我再查。",
+  welcome: "大人来了，姜晓候久。",
+  done: "此事已毕，大人过目。",
+  permission: "此事需大人首肯。",
+  listening: "姜晓静候大人示下。",
 };
 
 /** 外部触发的台词（通过 props 注入，供后续工单调用）. */
@@ -113,9 +113,9 @@ export interface SpeechTrigger {
 
 /** CharacterOverlay props. */
 export interface CharacterOverlayProps {
-  /** 浮层宽度 px（默认 180）. */
+  /** 浮层宽度 px（默认 140，匹配设计 demo 的 character-stage）. */
   width?: number | undefined;
-  /** 浮层高度 px（默认 260）. */
+  /** 浮层高度 px（默认 249，匹配设计 demo 的 character-stage）. */
   height?: number | undefined;
   /** extra class for layout placement. */
   className?: string | undefined;
@@ -149,8 +149,8 @@ function currentItem(
  * @returns 右下角常驻角色浮层，<img> 播放状态机输出的素材序列.
  */
 export function CharacterOverlay({
-  width = 180,
-  height = 260,
+  width = 140,
+  height = 249,
   className,
   speech,
   sessions,
@@ -358,6 +358,7 @@ export function CharacterOverlay({
         height,
         transform: `translate3d(${position.x}px, ${position.y}px, 0) scale(${scale})`,
       }}
+      data-jx-character=""
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

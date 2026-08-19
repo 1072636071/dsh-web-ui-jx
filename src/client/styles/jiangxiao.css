@@ -65,6 +65,61 @@ body[data-dsh-jiangxiao] {
   /* --- 烫金渐变 --- */
   --jx-gold-foil: linear-gradient(135deg, #f6d365, #fda085, #b8860b);
 
+  /* --- 朱砂 --- */
+  --jx-cinnabar: #c3272b;
+
+  /* --- 氛围（渐变/特效层） --- */
+  --jx-ink-glow: rgba(184, 134, 11, 0.06);
+
+  /* --- 代码语法高亮 --- */
+  --jx-code-bg: #0b090d;
+  --jx-code-border: rgba(184, 134, 11, 0.26);
+  --jx-kw: #d6b34a;
+  --jx-str: #86b08a;
+  --jx-fn: #7fd8e8;
+  --jx-cmt: #8a7e6e;
+  --jx-num: #f6d365;
+
+  /* --- 飘落装饰色 --- */
+  --jx-petal-1: #d6b34a;
+  --jx-petal-2: #dfb793;
+  --jx-petal-3: #b8860b;
+  --jx-poem-color: #dfb793;
+
+  /* --- 字体 --- */
+  --jx-font-display: "JX MashanZheng", "Kaiti SC", "STKaiti", "KaiTi", serif;
+  --jx-font-ui: "JX NotoSerifSC", "Songti SC", "SimSun", serif;
+  --jx-font-code: ui-monospace, "JetBrains Mono", "Cascadia Code", Consolas,
+    monospace;
+
+  /* --- 动效时长 --- */
+  --jx-dur-fast: 0.15s;
+  --jx-dur: 0.35s;
+  --jx-breathe-dur: 8s;
+  --jx-gold-rotate-dur: 12s;
+  --jx-shimmer-dur: 4s;
+  --jx-leaf-fall-min: 18s;
+  --jx-leaf-fall-max: 28s;
+  --jx-seal-pulse-dur: 3s;
+  --jx-bpulse-dur: 1.2s;
+
+  /* --- 圆角 --- */
+  --jx-radius-sm: 4px;
+  --jx-radius-md: 6px;
+  --jx-radius-lg: 8px;
+  --jx-radius-xl: 12px;
+  --jx-radius-seal: 50%;
+
+  /* --- 阴影 --- */
+  --jx-shadow-1: 0 2px 8px rgba(5, 3, 8, 0.5);
+  --jx-shadow-2: 0 8px 24px rgba(5, 3, 8, 0.55);
+  --jx-gold-rim: 0 0 0 1px #3d3218,
+    0 0 14px rgba(246, 211, 101, 0.12);
+
+  /* --- 布局 --- */
+  --jx-sidebar-w: 220px;
+  --jx-files-w: 220px;
+
   /* ============================================================
    * remap: --dsw-static-* → --jx-*
    * 按 DESIGN.md §2 remap 原则：
@@ -202,8 +257,35 @@ body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) {
   --jx-hair: #d1beca;
   --jx-wisteria: #b89aac;
 
+  /* --- 朱砂 --- */
+  --jx-cinnabar: #8e3a49;
+
+  /* --- 氛围（渐变/特效层） --- */
+  --jx-ink-glow: rgba(178, 74, 92, 0.05);
+
+  /* --- 代码语法高亮 --- */
+  --jx-code-bg: #f5eddf;
+  --jx-code-border: rgba(138, 101, 8, 0.22);
+  --jx-kw: #8a6508;
+  --jx-str: #3d7a3d;
+  --jx-fn: #2c6a7a;
+  --jx-cmt: #8a7765;
+  --jx-num: #9c7a1e;
+
+  /* --- 飘落装饰色（梅花） --- */
+  --jx-petal-1: #d97a8e;
+  --jx-petal-2: #e89aa8;
+  --jx-petal-3: #b24a5c;
+  --jx-poem-color: #8e3a49;
+
   /* --- 烫金渐变 --- */
   --jx-gold-foil: linear-gradient(135deg, #b8860b, #d97a8e, #8a6508);
+
+  /* --- 阴影（浅色减淡） --- */
+  --jx-shadow-1: 0 2px 8px rgba(5, 3, 8, 0.25);
+  --jx-shadow-2: 0 8px 24px rgba(5, 3, 8, 0.3);
+  --jx-gold-rim: 0 0 0 1px #d9c9b5,
+    0 0 14px rgba(184, 134, 11, 0.12);
 
   /* remap 在暗块已声明（引用 --jx-*），浅色覆盖 --jx-* 后 remap 自动切换。
    * 故此处无需重复 remap 声明。 */

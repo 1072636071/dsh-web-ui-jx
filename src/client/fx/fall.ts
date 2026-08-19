@@ -12,8 +12,20 @@
  * @module dsh-web-ui-jx/client
  */
 
-/** 飘落叶片数量（DESIGN.md §5：12 片）. */
-const LEAF_COUNT = 12;
+/** 飘落叶片数量（DESIGN.md §4：<= 8 片）. */
+const LEAF_COUNT = 8;
+
+/** 8 片叶子的设计尺寸（px），匹配设计 demo 的 deco-leaf 规格. */
+const LEAF_SIZES: Array<[number, number]> = [
+  [48, 64],
+  [38, 52],
+  [56, 72],
+  [32, 44],
+  [44, 60],
+  [36, 50],
+  [50, 68],
+  [28, 40],
+];
 
 /** 单片叶子动画参数（关键帧 + 时长 + 延迟）. */
 interface LeafPlan {
@@ -32,20 +44,20 @@ let animations: Animation[] = [];
  * 生成单片叶子的随机飘落计划（GPU transform 关键帧 + 时长 + 延迟）。
  *
  * 从视口顶部上方飘落到底部下方，伴随横向漂移与旋转，opacity 淡入淡出。
- * 用 translate3d 触发 GPU 合成层。
+ * 用 translate3d 触发 GPU 合成层。时长 18s-28s（DESIGN.md §4）。
  *
  * @param index - 叶片序号（0..LEAF_COUNT-1），用于相位错开。
  * @returns 叶子动画计划。
  */
 function buildLeafPlan(index: number): LeafPlan {
-  // 横向起点均匀分布 + 小随机扰动
-  const startX = (index / LEAF_COUNT) * 100 + (Math.random() * 6 - 3);
-  // 横向漂移终点（银杏/梅花飘落有横向摆动）
-  const endX = startX + (Math.random() * 20 - 10);
-  // 旋转角度
-  const rotateEnd = Math.random() * 360 - 180;
-  // 时长 8s ~ 14s
-  const duration = 8000 + Math.random() * 6000;
+  // 横向起点均匀分布 + 小随机扰动（匹配 demo 的 110vw/90vw/75vw 等分布）
+  const startX = (index / LEAF_COUNT) * 100 + (Math.random() * 10 - 5);
+  // 横向漂移终点
+  const endX = startX + (Math.random() * 30 - 15);
+  // 旋转角度（±540deg~900deg，匹配 demo 的多样旋转）
+  const rotateEnd = (Math.random() > 0.5 ? 1 : -1) * (540 + Math.random() * 360);
+  // 时长 18s ~ 28s（DESIGN.md §4：--jx-leaf-fall-min=18s, max=28s）
+  const duration = 18000 + Math.random() * 10000;
   // 起始延迟错开（负延迟让初始就分布在不同阶段）
   const delay = -(index / LEAF_COUNT) * duration;
 
@@ -57,9 +69,17 @@ function buildLeafPlan(index: number): LeafPlan {
         offset: 0,
       },
       {
-        transform: `translate3d(${startX + (endX - startX) * 0.3}vw, 30vh, 0) rotate(${rotateEnd * 0.3}deg)`,
-        opacity: 0.8,
-        offset: 0.3,
+        opacity: 0.5,
+        offset: 0.08,
+      },
+      {
+        transform: `translate3d(${startX + (endX - startX) * 0.5}vw, 50vh, 0) rotate(${rotateEnd * 0.5}deg)`,
+        opacity: 0.45,
+        offset: 0.5,
+      },
+      {
+        opacity: 0.42,
+        offset: 0.9,
       },
       {
         transform: `translate3d(${endX}vw, 110vh, 0) rotate(${rotateEnd}deg)`,
@@ -75,25 +95,27 @@ function buildLeafPlan(index: number): LeafPlan {
 /**
  * 启动飘落特效。
  *
- * 创建固定全屏装饰层 + 12 片叶子，每片用 Web Animations API 做 GPU transform
- * 动画。幂等：已启动时直接返回。
+ * 创建固定全屏装饰层 + 8 片 SVG 叶子，每片用 Web Animations API 做 GPU transform
+ * 动画。叶子尺寸按 LEAF_SIZES 表分配（匹配设计 demo 的 8 种规格）。
+ * 颜色/形状由 fx.css 的 `[data-jx-fx-fall] span` SVG background-image 驱动。
+ * 幂等：已启动时直接返回。
  */
 export function startFall(): void {
   if (container) return; // 已启动，幂等
 
   container = document.createElement("div");
   container.setAttribute("data-jx-fx-fall", "");
-  // 装饰层固定全屏，不拦截指针，置于角色浮层之下（浮层 z-index 由 overlay 控制）
+  // 装饰层固定全屏，不拦截指针，contain:strict 隔离布局/绘制
   container.style.cssText =
-    "position:fixed;inset:0;pointer-events:none;z-index:9998;overflow:hidden;";
+    "position:fixed;inset:0;pointer-events:none;z-index:9998;overflow:hidden;contain:strict;";
   document.body.appendChild(container);
 
   animations = [];
   for (let i = 0; i < LEAF_COUNT; i++) {
     const leaf = document.createElement("span");
-    // 叶片外观（颜色/形状/大小）由 fx.css 的 [data-jx-fx-fall] span 驱动
-    leaf.style.cssText =
-      "position:absolute;top:0;left:0;display:block;pointer-events:none;will-change:transform,opacity;";
+    const [w, h] = LEAF_SIZES[i % LEAF_SIZES.length];
+    // 叶片尺寸由 inline style 设定，SVG 背景由 fx.css 驱动
+    leaf.style.cssText = `position:absolute;top:0;left:0;display:block;pointer-events:none;will-change:transform,opacity;width:${w}px;height:${h}px;`;
     container.appendChild(leaf);
 
     const plan = buildLeafPlan(i);

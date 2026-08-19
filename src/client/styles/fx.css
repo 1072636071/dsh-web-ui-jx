@@ -27,7 +27,8 @@
  * shimmer — 鎏金流光顶线 + 标题烫金流动
  * ============================================================ */
 
-/* 鎏金流光顶线：html::before 固定顶部 2px 渐变条，background-position 流动 */
+/* 鎏金流光顶线：conic-gradient(from --gold-angle) 旋转，12s 周期。
+ * @property --gold-angle 在 base.css 注册，支持角度平滑过渡。 */
 html.fx-shimmer::before {
   content: "";
   position: fixed;
@@ -37,66 +38,65 @@ html.fx-shimmer::before {
   height: 2px;
   pointer-events: none;
   z-index: 9999;
-  background: var(--jx-gold-foil);
-  background-size: 200% 100%;
-  animation: jx-shimmer-line 3s linear infinite;
+  background: conic-gradient(
+    from var(--gold-angle) at 50% 50%,
+    rgba(184, 134, 11, 0.08),
+    rgba(246, 211, 101, 0.35),
+    rgba(184, 134, 11, 0.04),
+    rgba(246, 211, 101, 0.25),
+    rgba(184, 134, 11, 0.08)
+  );
+  animation: jx-gold-rotate var(--jx-gold-rotate-dur, 12s) linear infinite;
 }
 
-@keyframes jx-shimmer-line {
-  0% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 200% 50%;
+@keyframes jx-gold-rotate {
+  to {
+    --gold-angle: 360deg;
   }
 }
 
-/* 标题烫金流动：插件 root 内 h1/h2/h3 用 --jx-gold-foil 渐变填充文字 + 流动 */
+/* 标题烫金流动：background-clip:text + @property --shimmer-x 位移，4s 交替。
+ * 文字不重排（仅 background-position 变化），性能优于 background-size 动画。 */
 html.fx-shimmer [data-dsh-jx-root] :is(h1, h2, h3) {
   background: var(--jx-gold-foil);
   background-size: 200% 100%;
+  background-position: var(--shimmer-x) 0;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
-  animation: jx-shimmer-text 4s linear infinite;
+  animation: jx-shimmer-sweep var(--jx-shimmer-dur, 4s) ease-in-out infinite
+    alternate;
 }
 
-@keyframes jx-shimmer-text {
-  0% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 200% 50%;
+@keyframes jx-shimmer-sweep {
+  to {
+    --shimmer-x: 0%;
   }
 }
 
 /* ============================================================
  * fall — 银杏(暗)/梅花(浅)飘落
- * 元素由 fx/fall.ts JS 创建（[data-jx-fx-fall] 容器 + 12 个 span），
- * 此处只定义叶片颜色/形状/大小。深浅双主题：暗=银杏，浅=梅花。
+ * 元素由 fx/fall.ts JS 创建（[data-jx-fx-fall] 容器 + 8 个 span），
+ * 此处定义叶片 SVG 背景形状/颜色。深浅双主题：暗=银杏 SVG，浅=梅花 SVG。
  * ============================================================ */
 
-/* 暗色（默认）：银杏色 --jx-ginkgo */
+/* 暗色（默认）：银杏叶 SVG — 扇形带柄 + 5 条叶脉，3 色 */
 html.fx-fall body[data-dsh-jiangxiao] [data-jx-fx-fall] span {
   display: block;
-  width: 10px;
-  height: 14px;
-  /* 银杏叶形状：不对称圆角 */
-  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
-  background: var(--jx-ginkgo);
-  opacity: 0.6;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M50 96L50 72C40 70 24 64 18 50C14 38 20 22 34 16C42 13 47 20 50 20C53 20 58 13 66 16C80 22 86 38 82 50C76 64 60 70 50 72Z' fill='%23d6b34a'/%3E%3Cpath d='M50 72L18 50M50 72L34 16M50 72L50 20M50 72L66 16M50 72L82 50' fill='none' stroke='%23996515' stroke-width='1.2' stroke-opacity='0.6'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
 }
 
-/* 浅色：梅花色 --jx-seal-bright */
+/* 浅色：梅花 SVG — 5 瓣旋转 72deg + 花蕊圆，3 色 */
 html.fx-fall
   body[data-dsh-jiangxiao]:not([data-ds-dark-theme])
   [data-jx-fx-fall]
   span {
-  /* 梅花形状：圆瓣 */
-  border-radius: 50%;
-  background: var(--jx-seal-bright);
-  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='%23d97a8e'%3E%3Cpath d='M50 50C40 40 40 25 50 22C60 25 60 40 50 50Z'/%3E%3Cpath d='M50 50C40 40 40 25 50 22C60 25 60 40 50 50Z' transform='rotate(72 50 50)'/%3E%3Cpath d='M50 50C40 40 40 25 50 22C60 25 60 40 50 50Z' transform='rotate(144 50 50)'/%3E%3Cpath d='M50 50C40 40 40 25 50 22C60 25 60 40 50 50Z' transform='rotate(216 50 50)'/%3E%3Cpath d='M50 50C40 40 40 25 50 22C60 25 60 40 50 50Z' transform='rotate(288 50 50)'/%3E%3C/g%3E%3Ccircle cx='50' cy='50' r='5' fill='%23b24a5c'/%3E%3C/svg%3E");
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
 }
 
 /* ============================================================
@@ -121,9 +121,9 @@ html.fx-grain::after {
 
 /* ============================================================
  * breathe — 墨光呼吸背景
- * body[data-dsh-jiangxiao]::before 固定全屏，radial-gradient 墨光，
- * opacity 在 0.04 ↔ 0.08 之间 8s 周期呼吸。
- * 用 --jx-moon 氛围族（月色光晕），仅用于渐变装饰层，不进正文文字。
+ * body[data-dsh-jiangxiao]::before 固定全屏，双层 radial-gradient 墨光，
+ * opacity 通过 @property --breathe 在 1 ↔ 1.15 之间 8s 周期呼吸。
+ * 用 --jx-ink-glow 令牌（暗色=金晕，浅色=梅晕），仅用于渐变装饰层。
  * ============================================================ */
 
 html.fx-breathe body[data-dsh-jiangxiao]::before {
@@ -133,22 +133,56 @@ html.fx-breathe body[data-dsh-jiangxiao]::before {
   pointer-events: none;
   z-index: 9996;
   background: radial-gradient(
-    ellipse at 50% 40%,
-    var(--jx-moon) 0%,
-    transparent 70%
-  );
-  opacity: 0.04;
-  animation: jx-breathe 8s ease-in-out infinite;
+      ellipse 60% 50% at 30% 40%,
+      var(--jx-ink-glow),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 50% 40% at 70% 60%,
+      var(--jx-ink-glow),
+      transparent 70%
+    );
+  opacity: var(--breathe);
+  animation: jx-ink-breathe var(--jx-breathe-dur, 8s) ease-in-out infinite;
+  will-change: opacity;
 }
 
-@keyframes jx-breathe {
+@keyframes jx-ink-breathe {
   0%,
   100% {
-    opacity: 0.04;
+    --breathe: 1;
   }
   50% {
-    opacity: 0.08;
+    --breathe: 1.15;
   }
+}
+
+/* ============================================================
+ * character-glow — 角色金色背光
+ * html.fx-shimmer 下角色浮层 [data-jx-character] 获得 drop-shadow 金晕 +
+ * ::before radial-gradient 呼吸背光，6s 周期（复用 --breathe 属性）。
+ * 只在插件 root 内生效，不影响宿主 UI。
+ * ============================================================ */
+
+html.fx-shimmer [data-jx-character] {
+  filter: drop-shadow(
+    0 0 16px color-mix(in srgb, var(--jx-gold) 28%, transparent)
+  );
+  transition: filter 0.3s;
+}
+
+html.fx-shimmer [data-jx-character]::before {
+  content: "";
+  position: absolute;
+  inset: -24px;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--jx-gold) 14%, transparent),
+    transparent 70%
+  );
+  z-index: -1;
+  pointer-events: none;
+  animation: jx-ink-breathe 6s ease-in-out infinite;
 }
 
 /* ============================================================
@@ -204,6 +238,15 @@ html.fx-micro [data-dsh-jx-root] button:active {
 
   /* breathe 呼吸停止 + 隐藏 */
   html.fx-breathe body[data-dsh-jiangxiao]::before {
+    display: none !important;
+    animation: none !important;
+  }
+
+  /* character-glow 关闭 filter 和背光 */
+  html.fx-shimmer [data-jx-character] {
+    filter: none !important;
+  }
+  html.fx-shimmer [data-jx-character]::before {
     display: none !important;
     animation: none !important;
   }
