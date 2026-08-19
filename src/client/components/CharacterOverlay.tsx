@@ -70,6 +70,8 @@ import {
   type ViewportSize,
 } from "../state-machine/overlay-position.ts";
 import { SpeechBubble, DEFAULT_BUBBLE_DURATION_MS } from "./SpeechBubble.tsx";
+import { SessionBubbleList } from "./SessionBubbleList.tsx";
+import type { ISessions } from "@deepseek-ai/dsh-client-runtime/client";
 
 /** 拖动中提视缩放（ADR-0006 决策 5：scale 1.02）. */
 const DRAG_SCALE = 1.02;
@@ -118,6 +120,8 @@ export interface CharacterOverlayProps {
   className?: string | undefined;
   /** 外部触发台词（nonce 变化即触发新台词显示）. */
   speech?: SpeechTrigger | undefined;
+  /** 会话数据源（ADR-0007：传入 ctx.sessions 供会话气泡列订阅）. */
+  sessions?: ISessions | undefined;
 }
 
 /**
@@ -148,6 +152,7 @@ export function CharacterOverlay({
   height = 260,
   className,
   speech,
+  sessions,
 }: CharacterOverlayProps) {
   const snapshot: StateMachineSnapshot = useSyncExternalStore(
     subscribeOverlayStateMachine,
@@ -346,6 +351,7 @@ export function CharacterOverlay({
       onPointerCancel={handlePointerUp}
     >
       <img className={styles.image} src={item.url} alt="" draggable={false} />
+      <SessionBubbleList sessions={sessions} />
       {bubble && (
         <SpeechBubble
           key={bubble.key}

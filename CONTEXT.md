@@ -10,6 +10,8 @@
 | dsh-web-ui-jx  | 本项目（`dsh-web-ui-jx`）：一个**独立 DSH Bundle 插件**，实现姜晓角色素材 UI。参考 `dsh-web-ui` 的 jiangxiao 皮肤做法，但**不复用 dsh-web-ui 任何包**（ADR-0001）。 |
 | 素材（assets） | 插件运行所需的真实资源，存放于本仓库 `assets/`：`character/`（46 角色 webp）、`fonts/`（2 woff2）、`preview/`（2 png）。全部进 git。                                |
 | 角色浮层       | client 半区注入的透明角色层，播放 10 态 WebP，可 10 态切换 + 台词气泡；**整盒可拖动**（ADR-0006）：`pointer-events:auto` 反转穿透原则，`transform` 定位 + `localStorage('jx-overlay-pos')` 持久化 + 视口内钳制，SettingsCard 提供重置入口。 |
+| 会话气泡列     | 角色浮层左侧竖排的常驻气泡列（ADR-0007），自下而上生长：一气泡 = 一运行中（`running`）/已结束未查看（`completed`）会话，标题 + 状态点（运行中金呼吸 / 已完成石绿）；气泡本体可点击（反转台词气泡穿透原则），点击经 `sessions.open(id)` 跳转会话；当前会话金描边；数量上限默认 5（1-10 可配置，SettingsCard「角色」section），超出折叠为「+N」原地展开。 |
+| 角色 section    | SettingsCard 的第四个可折叠 section（ADR-0007 起）：会话气泡数量上限配置（数字输入，持久化 `localStorage('jx-max-session-bubbles')`），后续角色相关设置归属地。 |
 | 侧边栏入口     | client 半区注入的左侧边缘 rail（`SidebarEntry`），收起为 36px 竖条，展开为 380px 设置卡（ADR-0004 加宽，原 320px）。含 ESC 监听 + 遮罩点击 + X 关闭。              |
 | 设置卡         | `SidebarEntry` 展开后的内容卡（`SettingsCard`），含三个独立可折叠 section：皮肤开关 / 特效开关 / 管理界面（ADR-0004）。                                            |
 | 管理界面       | 素材管理面板（`ImportPanel` + `AssetList`），ADR-0004 起内嵌于 `SettingsCard` 第三个 section，不再作为右上角 `position:fixed` 浮层。                              |
@@ -47,5 +49,6 @@
 | ADR-0004 | 管理界面内嵌侧边栏作为可折叠 section（取代右上角固定浮层）。`SettingsCard` 三 section 各自折叠；侧边栏展开 320→380px；移除 `managementVisible` 状态与「进入管理界面」按钮。 |
 | ADR-0005 | 用 warp（鼠标光线扭曲）替换 breathe（墨光呼吸背景）。SVG feDisplacementMap 局部扭曲 + --jx-moon 边缘光，pointermove 跟手 + 停下 400ms 淡出；pointer:coarse 与 reduced-motion 降级。 |
 | ADR-0006 | 角色浮层可拖动（整盒可拖 + 位置持久化 + 视口钳制 + SettingsCard 重置入口）。反转 DESIGN.md §4 的「装饰层不拦截指针」原则，整盒 `pointer-events:auto`，`transform` 定位，`localStorage('jx-overlay-pos')` 持久化，resize 重钳制。 |
+| ADR-0007 | 角色浮层会话气泡列（常驻 + 可点击跳转）。气泡范围 = `running`/`completed` 会话，左侧竖排自下而上，点击 `sessions.open(id)` 跳转；反转「气泡不拦截指针」规（仅气泡本体）；上限默认 5 可配置（SettingsCard「角色」section），超出折叠「+N」展开。 |
 
 详见 `docs/adr/`。

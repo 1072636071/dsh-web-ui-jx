@@ -33,6 +33,13 @@ import {
 } from "../fx/index.ts";
 import { getSkinEnabled, setSkinEnabled } from "../skin.ts";
 import { overlayPositionStore } from "../state-machine/overlay-position.ts";
+import {
+  DEFAULT_MAX_SESSION_BUBBLES,
+  MAX_MAX_SESSION_BUBBLES,
+  MIN_MAX_SESSION_BUBBLES,
+  getMaxSessionBubbles,
+  setMaxSessionBubbles,
+} from "../session-bubbles-config.ts";
 import { ManagementUI } from "./ManagementUI.tsx";
 import styles from "../styles/sidebar-settings.module.css";
 
@@ -81,9 +88,16 @@ export function SettingsCard({ className }: SettingsCardProps) {
   const [skinEnabled, setSkinOn] = useState<boolean>(() => getSkinEnabled());
 
   // 三 section 折叠状态（D4）：皮肤默认展开 / 特效默认展开 / 管理默认折叠
+  // ADR-0007：角色 section 默认折叠
   const [skinCollapsed, setSkinCollapsed] = useState(false);
   const [fxCollapsed, setFxCollapsed] = useState(false);
   const [mgmtCollapsed, setMgmtCollapsed] = useState(true);
+  const [charCollapsed, setCharCollapsed] = useState(true);
+
+  // 会话气泡数量上限（ADR-0007 决策 5，初始值读 localStorage，默认 5）
+  const [maxBubbles, setMaxBubbles] = useState<number>(() =>
+    getMaxSessionBubbles(),
+  );
 
   /** 切换皮肤总开关：setSkinEnabled 即时生效 + 持久化，并更新本地视图状态. */
   const handleToggleSkin = useCallback(() => {
@@ -111,6 +125,18 @@ export function SettingsCard({ className }: SettingsCardProps) {
   const handleToggleMgmtSection = useCallback(() => {
     setMgmtCollapsed((c) => !c);
   }, []);
+  const handleToggleCharSection = useCallback(() => {
+    setCharCollapsed((c) => !c);
+  }, []);
+
+  /** 切换会话气泡数量上限：调 setMaxSessionBubbles 即时生效 + 持久化，并更新本地视图状态. */
+  const handleMaxBubblesChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const next = setMaxSessionBubbles(Number(e.target.value));
+      setMaxBubbles(next);
+    },
+    [],
+  );
 
   /** 重置浮层位置：调位置 store 的 reset()，浮层立即回右下角 + 清持久化（工单 03）. */
   const handleResetPosition = useCallback(() => {
@@ -217,6 +243,46 @@ export function SettingsCard({ className }: SettingsCardProps) {
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+      </section>
+
+      {/* 角色 section（ADR-0007，默认折叠）：会话气泡数量上限配置 */}
+      <section className={styles.fxSection}>
+        <div
+          className={styles.sectionHeader}
+          onClick={handleToggleCharSection}
+          onKeyDown={(e) => handleSectionKeyDown(e, handleToggleCharSection)}
+          role="button"
+          tabIndex={0}
+          aria-expanded={!charCollapsed}
+          aria-label="折叠角色设置"
+        >
+          <h3 className={styles.sectionTitle}>角色</h3>
+          <span className={styles.sectionToggleBtn} aria-hidden="true">
+            {charCollapsed ? "▸" : "▾"}
+          </span>
+        </div>
+        {!charCollapsed && (
+          <div className={styles.sectionBody}>
+            <div className={styles.fxItem}>
+              <div className={styles.fxLabelBox}>
+                <span className={styles.fxLabel}>会话气泡数量上限</span>
+                <span className={styles.fxDesc}>
+                  角色浮层左侧显示的运行/待查看会话气泡数（1-10）
+                </span>
+              </div>
+              <input
+                type="number"
+                min={MIN_MAX_SESSION_BUBBLES}
+                max={MAX_MAX_SESSION_BUBBLES}
+                step={1}
+                value={maxBubbles}
+                onChange={handleMaxBubblesChange}
+                aria-label="会话气泡数量上限"
+                className={styles.numberInput}
+              />
+            </div>
           </div>
         )}
       </section>

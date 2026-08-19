@@ -29,6 +29,7 @@
  */
 
 import type { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
+import type { ISessions } from "@deepseek-ai/dsh-client-runtime/client";
 import { createElement, Fragment } from "react";
 import { createRoot } from "react-dom/client";
 import { CharacterOverlay } from "./components/CharacterOverlay.tsx";
@@ -48,14 +49,16 @@ export const inject: string[] = ["sessions"];
  *
  * ADR-0004 起 ManagementUI 内嵌 SettingsCard 第三个 section，不再独立渲染，
  * RootApp 无需 managementVisible 状态。
+ * ADR-0007：CharacterOverlay 接收 sessions prop 供会话气泡列订阅。
  *
+ * @param props.sessions - 会话数据源（传入 CharacterOverlay 供气泡列订阅）.
  * @returns CharacterOverlay + SidebarEntry.
  */
-function RootApp() {
+function RootApp({ sessions }: { sessions?: ISessions | undefined }) {
   return createElement(
     Fragment,
     null,
-    createElement(CharacterOverlay),
+    createElement(CharacterOverlay, { sessions }),
     createElement(SidebarEntry),
   );
 }
@@ -83,14 +86,15 @@ export function apply(ctx: ClientContext): void {
   // 并列渲染 CharacterOverlay（右下角角色浮层）与 SidebarEntry（左侧边缘
   // 侧边栏入口，含设置卡 + 内嵌管理界面 section）。浮层与侧边栏均
   // position:fixed 自带定位，不参与容器流式布局，互不干扰。
-  root.render(createElement(RootApp));
+  // ADR-0007：sessions 传入 CharacterOverlay 供会话气泡列订阅。
+  const sessions = ctx.get("sessions");
+  root.render(createElement(RootApp, { sessions }));
 
   // 启动 FX 特效系统。
   applyFx();
 
   // 动画挂钩会话：订阅 ctx.sessions，差分快照驱动角色状态机
   // （thinking/replying/working/error/permission… 跟随会话实时状态）。
-  const sessions = ctx.get("sessions");
   if (sessions !== undefined) {
     ctx.effect(
       () => attachSessionFollow(sessions),

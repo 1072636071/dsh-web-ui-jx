@@ -465,6 +465,36 @@
 }
 
 /* ============================================================
+ * SettingsCard — 数字输入（ADR-0007 角色 section）
+ * ============================================================ */
+.numberInput {
+  flex: 0 0 auto;
+  width: 64px;
+  padding: 4px 6px;
+  font-family: var(--dsw-font-family);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-sidebar-bg);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 4px;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 150ms var(--ds-ease-in-out),
+    color 150ms var(--ds-ease-in-out);
+}
+
+.numberInput:hover {
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.numberInput:focus-visible {
+  outline: 2px solid var(--jx-gold);
+  outline-offset: 2px;
+}
+
+/* ============================================================
  * SettingsCard — 重置浮层位置按钮（工单 03，ADR-0006 决策 6）
  * ============================================================ */
 .resetRow {
@@ -489,7 +519,8 @@
   .toggleSwitch,
   .toggleKnob,
   .closeBtn,
-  .resetBtn {
+  .resetBtn,
+  .numberInput {
     transition: none;
   }
   /* sidebarRail 默认 transform: translateY(-50%) 用于垂直居中，
