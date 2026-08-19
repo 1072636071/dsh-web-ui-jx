@@ -181,7 +181,11 @@
   letter-spacing: 1px;
 }
 
-.closeBtn {
+/* 唐风次要按钮范式（关闭按钮 + 重置浮层位置按钮共享）：
+ * 透明底 + tertiary 文字 + hover 出边框 + focus-visible 金描边。
+ * .closeBtn 用于 SidebarEntry 关闭，.resetBtn 用于 SettingsCard 重置浮层位置。 */
+.closeBtn,
+.resetBtn {
   padding: 4px 8px;
   font-size: 14px;
   line-height: 1;
@@ -196,12 +200,14 @@
     border-color 150ms var(--ds-ease-in-out);
 }
 
-.closeBtn:hover {
+.closeBtn:hover,
+.resetBtn:hover {
   color: var(--dsw-alias-label-primary);
   border-color: var(--dsw-alias-border-l1);
 }
 
-.closeBtn:focus-visible {
+.closeBtn:focus-visible,
+.resetBtn:focus-visible {
   outline: 2px solid var(--jx-gold);
   outline-offset: 2px;
 }
@@ -459,6 +465,16 @@
 }
 
 /* ============================================================
+ * SettingsCard — 重置浮层位置按钮（工单 03，ADR-0006 决策 6）
+ * ============================================================ */
+.resetRow {
+  /* 设置卡底部次要按钮行：右对齐。重置按钮 .resetBtn 样式见上方 .closeBtn 共享声明。 */
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+/* ============================================================
  * prefers-reduced-motion：全关
  * ============================================================ */
 @media (prefers-reduced-motion: reduce) {
@@ -472,7 +488,8 @@
   .sidebarRail,
   .toggleSwitch,
   .toggleKnob,
-  .closeBtn {
+  .closeBtn,
+  .resetBtn {
     transition: none;
   }
   /* sidebarRail 默认 transform: translateY(-50%) 用于垂直居中，

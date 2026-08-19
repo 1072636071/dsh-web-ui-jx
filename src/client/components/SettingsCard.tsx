@@ -7,6 +7,8 @@
  *     调 setFxEnabled 即时生效 + 写 localStorage('jx-fx') 持久化。
  *   - 素材管理：内嵌 ManagementUI（ImportPanel + AssetList），展开时 section
  *     body 内滚动（D6）。
+ * 设置卡底部含「重置浮层位置」次要按钮（工单 03，ADR-0006 决策 6）：调
+ * overlayPositionStore.reset() → 浮层回右下角 + 清 localStorage('jx-overlay-pos')。
  *
  * 折叠状态（D4）：皮肤默认展开 / 特效默认展开 / 管理默认折叠。
  * 折叠形态（D5）：一行标题栏 + ▸ 把手。切换瞬时无过渡（D9）。
@@ -30,6 +32,7 @@ import {
   setFxEnabled,
 } from "../fx/index.ts";
 import { getSkinEnabled, setSkinEnabled } from "../skin.ts";
+import { overlayPositionStore } from "../state-machine/overlay-position.ts";
 import { ManagementUI } from "./ManagementUI.tsx";
 import styles from "../styles/sidebar-settings.module.css";
 
@@ -107,6 +110,11 @@ export function SettingsCard({ className }: SettingsCardProps) {
   }, []);
   const handleToggleMgmtSection = useCallback(() => {
     setMgmtCollapsed((c) => !c);
+  }, []);
+
+  /** 重置浮层位置：调位置 store 的 reset()，浮层立即回右下角 + 清持久化（工单 03）. */
+  const handleResetPosition = useCallback(() => {
+    overlayPositionStore.reset();
   }, []);
 
   // 五类 FX 配置项（固定顺序，useMemo 避免重渲染时重建）
@@ -235,6 +243,18 @@ export function SettingsCard({ className }: SettingsCardProps) {
           </div>
         )}
       </section>
+
+      {/* 重置浮层位置按钮（工单 03，ADR-0006 决策 6）：调 overlayPositionStore.reset()
+          → 浮层回右下角 + 清 localStorage('jx-overlay-pos')。设置卡底部次要按钮。 */}
+      <div className={styles.resetRow}>
+        <button
+          type="button"
+          className={styles.resetBtn}
+          onClick={handleResetPosition}
+        >
+          重置浮层位置
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,10 +1,17 @@
 /**
  * CharacterOverlay 组件局部样式（CSS Module）。
  *
- * DESIGN.md §4 角色浮层专规：
+ * DESIGN.md §4 角色浮层专规 + ADR-0006 可拖动决策：
  *   - 透明无底：容器无 background / 无 box-shadow / 无 filter（光晕 / 背光）。
  *   - img { object-fit: contain; display: block }.
- *   - 装饰层 pointer-events: none，不拦截底层 UI 交互。
+ *   - ADR-0006 决策 1：整盒可拖，pointer-events: auto（反转原穿透原则）。
+ *   - ADR-0006 决策 2：left:0/top:0 + transform: translate3d(x,y,0)（JS 注入，
+ *     GPU 合成），由 right/bottom 改为 left/top + transform。
+ *   - ADR-0006 决策 5：cursor grab/grabbing；拖动中 opacity 0.85 提视；
+ *     transition 仅作用于 opacity，不作用于 transform（拖动跟手无延迟）；
+ *     prefers-reduced-motion 下无过渡。
+ *   - ADR-0006 决策 7：touch-action: none + user-select: none，触屏拖动
+ *     不触发页面滚动/文本选中。
  *
  * 浮层透明无底，不消费颜色令牌；深浅双主题下角色素材均正常呈现
  * （角色 webp alpha 透明，不受主题影响，无需主题选择器）。
@@ -12,16 +19,31 @@
 
 .overlay {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  left: 0;
+  top: 0;
   /* 高 z-index 常驻顶层（与 MinimalMark 同级或其下；不抢模态层） */
   z-index: 2147483646;
-  /* 装饰层不拦截指针：后续工单 05 的状态切换钮会单独设 pointer-events: auto */
-  pointer-events: none;
-  /* 透明无底：无 background / 无 box-shadow / 无 filter —— 不在此声明任何装饰属性 */
+  /* ADR-0006 决策 1：整盒可拖，反转原 pointer-events: none 穿透原则 */
+  pointer-events: auto;
+  /* ADR-0006 决策 5：悬停 grab，拖动中 grabbing（.dragging 类覆盖） */
+  cursor: grab;
+  /* ADR-0006 决策 7：触屏拖动不触发页面滚动（touch-action 始终 none）。
+   * user-select: none 移到 .dragging（拖动中），见 ADR-0006 决策 7 措辞。 */
+  touch-action: none;
   /* 默认尺寸（可由 props width/height 通过 inline style 覆盖） */
   width: 180px;
   height: 260px;
+  /* ADR-0006 决策 5：transition 仅作用于 opacity（提视），不作用于 transform
+   * （拖动跟手无延迟）。transform 由 JS 注入 translate3d + scale。 */
+  transition: opacity 150ms var(--ds-ease-in-out);
+}
+
+.overlay.dragging {
+  /* ADR-0006 决策 5：拖动中 grabbing + opacity 0.85 轻微提视 */
+  cursor: grabbing;
+  opacity: 0.85;
+  /* ADR-0006 决策 7：拖动中 user-select: none，触屏拖动不触发文本选中 */
+  user-select: none;
 }
 
 .image {
@@ -30,4 +52,13 @@
   height: 100%;
   object-fit: contain;
   /* 角色 webp alpha 透明，不加任何装饰（无阴影 / 无光晕 / 无背光） */
+}
+
+/* ============================================================
+ * prefers-reduced-motion：transition 全关（ADR-0006 决策 5）
+ * ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .overlay {
+    transition: none;
+  }
 }

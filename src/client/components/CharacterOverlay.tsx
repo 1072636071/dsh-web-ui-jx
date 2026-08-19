@@ -1,18 +1,30 @@
 /**
  * CharacterOverlay — 角色浮层组件。
  *
- * 右下角常驻定位（position: fixed），用 <img> 播放角色 webp 素材。
- * 接入 overlayStateMachine：状态机输出应播放的素材序列（过渡段 → 循环态），
- * CharacterOverlay 据此设 img src，过渡段播放一次（setTimeout durationMs）
- * 后推进到循环态，循环态持续循环。
+ * 用 <img> 播放角色 webp 素材。接入 overlayStateMachine：状态机输出应播放的
+ * 素材序列（过渡段 → 循环态），CharacterOverlay 据此设 img src，过渡段播放
+ * 一次（setTimeout durationMs）后推进到循环态，循环态持续循环。
  *
- * DESIGN.md §4 角色浮层专规：
+ * ADR-0006 可拖动决策（工单 02）：
+ *   - 整盒可拖：pointer-events: auto，按住任意位置可拖（Pointer Events +
+ *     setPointerCapture 统一鼠标/触控/触控笔）。
+ *   - 定位：left:0/top:0 + transform: translate3d(x,y,0)（GPU 合成），
+ *     位置由 overlayPositionStore 单例提供（读持久化或默认右下角）。
+ *   - 拖动实时跟手（pointermove → store.set），pointerup 提交钳制结果 + 持久化。
+ *   - window resize 监听 → store.setViewport 重钳制，浮层不跑到屏幕外。
+ *   - 悬停 cursor: grab，拖动中 cursor: grabbing + opacity 0.85 + scale 1.02 提视；
+ *     transition 仅作用于 opacity，不作用于 transform（跟手无延迟）；
+ *     prefers-reduced-motion 下无过渡。
+ *   - touch-action: none + user-select: none，触屏拖动不触发页面滚动/文本选中。
+ *   - pointerdown 命中交互子元素（[data-jx-interactive]，未来 StateSwitcher
+ *     按钮等）时不触发拖动。
+ *
+ * DESIGN.md §4 角色浮层专规（ADR-0006 更新后）：
  *   - 透明无底：img { object-fit: contain; display: block }，容器无 background /
  *     无 box-shadow / 无背光 / 无光晕（无 filter）。
- *   - 装饰层 pointer-events: none，不拦截底层 UI 交互；仅 StateSwitcher 的按钮
- *     单独设 pointer-events: auto。
+ *   - 整盒可拖、交互层（反转原 pointer-events: none 穿透原则）。
  *   - 台词气泡：淡入淡出（opacity + translateY），播放后自动隐去；
- *     pointer-events: none（工单 06）。
+ *     pointer-events: none（工单 06）；盒内绝对定位，随盒整体移动。
  *
  * 深浅双主题：角色 webp 本身 alpha 透明，不受主题影响；浮层无需主题选择器、
  * 不消费颜色令牌（透明无底）。StateSwitcher / SpeechBubble 消费语义别名。
@@ -27,7 +39,14 @@
  * @module dsh-web-ui-jx/client
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import styles from "../styles/overlay.module.css";
 import {
   subscribeOverlayStateMachine,
@@ -37,7 +56,31 @@ import {
   type StateMachineSnapshot,
   type PlaybackItem,
 } from "../state-machine/overlay-state-machine.ts";
+import {
+  subscribeOverlayPositionStore,
+  getOverlayPositionSnapshot,
+  overlayPositionStore,
+  dragStart,
+  dragMove,
+  dragEnd,
+  getViewportSize,
+  type DragSession,
+  type OverlayPosition,
+  type OverlaySize,
+  type ViewportSize,
+} from "../state-machine/overlay-position.ts";
 import { SpeechBubble, DEFAULT_BUBBLE_DURATION_MS } from "./SpeechBubble.tsx";
+
+/** 拖动中提视缩放（ADR-0006 决策 5：scale 1.02）. */
+const DRAG_SCALE = 1.02;
+
+/** 检测 prefers-reduced-motion: reduce 初始值（SSR 守卫）. */
+function initialReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
 
 /**
  * 各循环态的演示台词（状态切换时触发，工单 06 演示用）。
@@ -111,6 +154,119 @@ export function CharacterOverlay({
     getOverlayStateMachineSnapshot,
   );
 
+  // ADR-0006 决策 2：位置由 overlayPositionStore 单例提供（读持久化或默认右下角）。
+  const position: OverlayPosition = useSyncExternalStore(
+    subscribeOverlayPositionStore,
+    getOverlayPositionSnapshot,
+  );
+  // posRef 保存最新位置供 pointerdown 闭包读取（避免 callback 依赖 position 频繁重建）。
+  const posRef = useRef(position);
+  posRef.current = position;
+
+  // ADR-0006 决策 7：拖动会话 + 拖动中标志。dragging 驱动 cursor/opacity/scale 提视。
+  const [dragging, setDragging] = useState(false);
+  const dragSession = useRef<DragSession | null>(null);
+  // viewportRef 保存最新视口供 pointermove/up 读取（resize 时同步更新）。
+  const viewportRef = useRef<ViewportSize>(getViewportSize());
+  // 浮层尺寸（dragMove/dragEnd 钳制用，复用 OverlaySize 类型避免内联字面量重复）。
+  // useMemo 稳定引用，避免 handlePointerMove/Up 的 useCallback 每次渲染重建。
+  const overlaySize: OverlaySize = useMemo(
+    () => ({ width, height }),
+    [width, height],
+  );
+
+  // prefers-reduced-motion 响应式订阅（DESIGN.md §6「全关」精神：reduced-motion 下
+  // 禁用 scale 提视）。useState + useEffect 监听 matchMedia change，会话中切换即时更新。
+  const [reducedMotion, setReducedMotion] = useState<boolean>(
+    initialReducedMotion,
+  );
+
+  // ADR-0006 决策 4：window resize 监听 → store.setViewport 重钳制，浮层不跑到屏幕外。
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = (): void => {
+      const v = getViewportSize();
+      viewportRef.current = v;
+      overlayPositionStore.setViewport(v);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  // prefers-reduced-motion 变化监听（响应式更新 reducedMotion state）。
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const handler = (e: MediaQueryListEvent): void => setReducedMotion(e.matches);
+    mq.addEventListener("change", handler);
+    return () => {
+      mq.removeEventListener("change", handler);
+    };
+  }, []);
+
+  // ADR-0006 决策 7：pointerdown 启动拖动。命中交互子元素（[data-jx-interactive]，
+  // 未来 StateSwitcher 按钮等）时不启动（留给子元素处理）。
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const interactive =
+        e.target instanceof Element &&
+        e.target.closest("[data-jx-interactive]") !== null;
+      const start = dragStart(
+        { x: e.clientX, y: e.clientY },
+        posRef.current,
+        interactive,
+      );
+      if (!start.active) return;
+      dragSession.current = start.session;
+      setDragging(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    [],
+  );
+
+  // ADR-0006 决策 2/4：pointermove 跟手（dragMove 钳制到视口）→ store.move 仅内存
+  // 更新 + 通知（不写 localStorage，避免高频 I/O）。持久化在 pointerup 由 set 提交
+  // （ADR-0006 决策 3「拖动结束钳制后写入」）。
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const session = dragSession.current;
+      if (!session) return;
+      const next = dragMove(
+        session,
+        { x: e.clientX, y: e.clientY },
+        viewportRef.current,
+        overlaySize,
+      );
+      overlayPositionStore.move(next);
+    },
+    [overlaySize],
+  );
+
+  // ADR-0006 决策 2/3：pointerup 提交钳制结果（dragEnd）+ set 持久化，结束会话。
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const session = dragSession.current;
+      if (!session) return;
+      const next = dragEnd(
+        session,
+        { x: e.clientX, y: e.clientY },
+        viewportRef.current,
+        overlaySize,
+      );
+      overlayPositionStore.set(next);
+      dragSession.current = null;
+      setDragging(false);
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        // pointer capture 已释放或未设置，静默忽略。
+      }
+    },
+    [overlaySize],
+  );
+
   // 播放序列索引：跟踪当前播到第几个 playback 项。
   // snapshot 变化（切换）时重置为 0；transition 播完推进到下一个。
   const [index, setIndex] = useState(0);
@@ -171,10 +327,23 @@ export function CharacterOverlay({
     return () => clearTimeout(timer);
   }, [index, snapshot]);
 
+  // ADR-0006 决策 2/5：transform: translate3d(x,y,0) scale(s)，GPU 合成。
+  // scale 仅拖动时 1.02 提视；prefers-reduced-motion 下禁用 scale（对@see reducedMotion，
+  // 响应式订阅 matchMedia）。transform 无 transition（跟手无延迟，CSS 已声明）。
+  const scale = dragging && !reducedMotion ? DRAG_SCALE : 1;
+
   return (
     <div
-      className={`${styles.overlay}${className ? " " + className : ""}`}
-      style={{ width, height }}
+      className={`${styles.overlay}${dragging ? " " + styles.dragging : ""}${className ? " " + className : ""}`}
+      style={{
+        width,
+        height,
+        transform: `translate3d(${position.x}px, ${position.y}px, 0) scale(${scale})`,
+      }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
     >
       <img className={styles.image} src={item.url} alt="" draggable={false} />
       {bubble && (

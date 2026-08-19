@@ -78,7 +78,8 @@ L3 组件       : 只消费 --dsw-alias-* / --dsw-specific-*，禁止写颜色�
 
 - 透明无底：`img { object-fit: contain; display: block }`，容器无 background / 无 box-shadow / 无背光。
 - 状态：10 态（idle/thinking/reading/replying/working/error/welcome/done/permission/listening）→ `{state}.webp`（`<img>` 播放，非 video）。
-- 台词气泡：淡入淡出（opacity+translateY），播放后自动隐去；`pointer-events:none`（仅状态切换钮可点）。
+- 台词气泡：淡入淡出（opacity+translateY），播放后自动隐去；`pointer-events:none`。
+- **可拖动（ADR-0006）**：整个浮层盒可拖（`pointer-events:auto`，反转原「装饰层不拦截」原则），`left/top + transform` 定位，位置持久化 `localStorage('jx-overlay-pos')`，视口内钳制；拖动中 `cursor:grabbing` + 轻微提视（opacity/scale），`prefers-reduced-motion` 下无过渡；SettingsCard 提供重置入口。台词气泡随盒整体移动。
 
 ## 5. 特效系统（FX）
 
@@ -105,6 +106,6 @@ L3 组件       : 只消费 --dsw-alias-* / --dsw-specific-*，禁止写颜色�
 
 - 不用纯 `#fff` / `#000`；不用霓虹/高饱和渐变（唯一渐变是 `--jx-gold-foil` 与氛围渐变）。
 - 组件层不写颜色字面量、不含主题选择器。
-- 角色不加背景/光晕/背光；装饰层不拦截指针。
+- 角色不加背景/光晕/背光；装饰层不拦截指针（角色浮层除外，见 §4 ADR-0006 整盒可拖）。
 - 不在次要/长尾区域堆装饰。
 - 深/浅两套必须都覆盖（同一套令牌双值），缺一即违规。
