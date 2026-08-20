@@ -51,12 +51,46 @@
 }
 
 .image {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
   /* 角色 webp alpha 透明，圆角匹配舞台 */
   border-radius: 12px;
+  /* ADR-0008 决策 3：焦点切换 150ms 淡入（img key=focusNonce 重新挂载时播） */
+  animation: jx-focus-fade-in 150ms var(--ds-ease-in-out);
+}
+
+/* cross-fade 下层：焦点切换时旧画面淡出（ADR-0008 决策 3 淡入淡出） */
+.imageUnderlay {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+  animation: jx-focus-fade-out 150ms var(--ds-ease-in-out) forwards;
+}
+
+@keyframes jx-focus-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes jx-focus-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 /* ============================================================
@@ -65,5 +99,9 @@
 @media (prefers-reduced-motion: reduce) {
   .overlay {
     transition: none;
+  }
+  .image,
+  .imageUnderlay {
+    animation: none;
   }
 }

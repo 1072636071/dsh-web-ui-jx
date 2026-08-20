@@ -331,23 +331,6 @@ export function createOverlayStateMachine(
 }
 
 // ---------------------------------------------------------------------------
-// 模块级单例（供 CharacterOverlay 与 StateSwitcher 共享，不通过 Context/props）
-// ---------------------------------------------------------------------------
-
-/** 角色浮层状态机单例（CharacterOverlay 与 StateSwitcher 共享此实例）. */
-export const overlayStateMachine: OverlayStateMachine =
-  createOverlayStateMachine("idle");
-
-/** 稳定的 subscribe 引用（供 useSyncExternalStore，引用恒等避免重渲染）. */
-export const subscribeOverlayStateMachine = (
-  onChange: () => void,
-): (() => void) => overlayStateMachine.subscribe(onChange);
-
-/** 稳定的 getSnapshot 引用（供 useSyncExternalStore，引用恒等避免重渲染）. */
-export const getOverlayStateMachineSnapshot = (): StateMachineSnapshot =>
-  overlayStateMachine.getSnapshot();
-
-// ---------------------------------------------------------------------------
 // 宿主事件接入口（助手行为 → 状态意图）
 // ---------------------------------------------------------------------------
 

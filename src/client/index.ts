@@ -35,7 +35,8 @@ import { createRoot } from "react-dom/client";
 import { CharacterOverlay } from "./components/CharacterOverlay.tsx";
 import { SidebarEntry } from "./components/SidebarEntry.tsx";
 import { applyFx } from "./fx/index.ts";
-import { attachSessionFollow } from "./state-machine/session-follow.ts";
+import { createOverlaySessionRuntime } from "./state-machine/overlay-session-runtime.ts";
+import type { OverlaySessionRuntime } from "./state-machine/overlay-session-runtime.ts";
 import { initSkin } from "./skin.ts";
 import "./styles/base.css";
 import "./styles/jiangxiao.css";
@@ -50,15 +51,23 @@ export const inject: string[] = ["sessions"];
  * ADR-0004 起 ManagementUI 内嵌 SettingsCard 第三个 section，不再独立渲染，
  * RootApp 无需 managementVisible 状态。
  * ADR-0007：CharacterOverlay 接收 sessions prop 供会话气泡列订阅。
+ * ADR-0008：CharacterOverlay 接收 runtime prop（会话级状态机焦点会话 playback）。
  *
  * @param props.sessions - 会话数据源（传入 CharacterOverlay 供气泡列订阅）.
+ * @param props.runtime - 会话级状态机 runtime（焦点会话 playback 驱动浮层）.
  * @returns CharacterOverlay + SidebarEntry.
  */
-function RootApp({ sessions }: { sessions?: ISessions | undefined }) {
+function RootApp({
+  sessions,
+  runtime,
+}: {
+  sessions?: ISessions | undefined;
+  runtime?: OverlaySessionRuntime | undefined;
+}) {
   return createElement(
     Fragment,
     null,
-    createElement(CharacterOverlay, { sessions }),
+    createElement(CharacterOverlay, { sessions, runtime }),
     createElement(SidebarEntry),
   );
 }
@@ -87,18 +96,20 @@ export function apply(ctx: ClientContext): void {
   // 侧边栏入口，含设置卡 + 内嵌管理界面 section）。浮层与侧边栏均
   // position:fixed 自带定位，不参与容器流式布局，互不干扰。
   // ADR-0007：sessions 传入 CharacterOverlay 供会话气泡列订阅。
+  // ADR-0008：runtime 传入 CharacterOverlay，浮层订阅焦点会话 playback。
   const sessions = ctx.get("sessions");
-  root.render(createElement(RootApp, { sessions }));
+  const runtime =
+    sessions !== undefined ? createOverlaySessionRuntime(sessions) : undefined;
+  root.render(createElement(RootApp, { sessions, runtime }));
 
   // 启动 FX 特效系统。
   applyFx();
 
-  // 动画挂钩会话：订阅 ctx.sessions，差分快照驱动角色状态机
-  // （thinking/replying/working/error/permission… 跟随会话实时状态）。
-  if (sessions !== undefined) {
+  // ADR-0008：runtime 生命周期随 ctx.effect（dispose 释放全部订阅 + tick timer）。
+  if (runtime !== undefined) {
     ctx.effect(
-      () => attachSessionFollow(sessions),
-      "dsh-web-ui-jx: session follow",
+      () => runtime.dispose,
+      "dsh-web-ui-jx: overlay session runtime",
     );
   }
 }

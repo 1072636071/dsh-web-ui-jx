@@ -49,13 +49,15 @@ import {
 } from "react";
 import styles from "../styles/overlay.module.css";
 import {
-  subscribeOverlayStateMachine,
-  getOverlayStateMachineSnapshot,
   DEFAULT_TRANSITION_DURATION_MS,
+  loopAssetUrl,
   type OverlayState,
-  type StateMachineSnapshot,
   type PlaybackItem,
 } from "../state-machine/overlay-state-machine.ts";
+import {
+  type OverlaySessionRuntime,
+  type RuntimeSnapshot,
+} from "../state-machine/overlay-session-runtime.ts";
 import {
   subscribeOverlayPositionStore,
   getOverlayPositionSnapshot,
@@ -76,6 +78,19 @@ import type { ISessions } from "@deepseek-ai/dsh-client-runtime/client";
 
 /** 拖动中提视缩放（ADR-0006 决策 5：scale 1.02）. */
 const DRAG_SCALE = 1.02;
+
+/** runtime 未注入时的 idle 兜底快照（测试或未传 runtime 时使用）. */
+const IDLE_RUNTIME_SNAPSHOT: RuntimeSnapshot = {
+  focusSessionId: undefined,
+  currentState: "idle",
+  playback: [{ kind: "loop", state: "idle", url: loopAssetUrl("idle") }],
+  focusNonce: 0,
+};
+
+/** runtime 未注入时的 noop subscribe（useSyncExternalStore 兼容）. */
+function noopSubscribe(): () => void {
+  return () => {};
+}
 
 /** 检测 prefers-reduced-motion: reduce 初始值（SSR 守卫）. */
 function initialReducedMotion(): boolean {
@@ -123,6 +138,8 @@ export interface CharacterOverlayProps {
   speech?: SpeechTrigger | undefined;
   /** 会话数据源（ADR-0007：传入 ctx.sessions 供会话气泡列订阅）. */
   sessions?: ISessions | undefined;
+  /** 会话级状态机 runtime（ADR-0008：焦点会话 playback 驱动浮层）. */
+  runtime?: OverlaySessionRuntime | undefined;
 }
 
 /**
@@ -154,10 +171,13 @@ export function CharacterOverlay({
   className,
   speech,
   sessions,
+  runtime,
 }: CharacterOverlayProps) {
-  const snapshot: StateMachineSnapshot = useSyncExternalStore(
-    subscribeOverlayStateMachine,
-    getOverlayStateMachineSnapshot,
+  // ADR-0008：订阅会话级 runtime 快照（焦点会话 playback）。
+  // runtime 为 undefined 时（如测试或未注入）回落到 idle 兜底快照。
+  const snapshot: RuntimeSnapshot = useSyncExternalStore(
+    runtime?.subscribe ?? noopSubscribe,
+    runtime?.getSnapshot ?? (() => IDLE_RUNTIME_SNAPSHOT),
   );
 
   // ADR-0006 决策 2：位置由 overlayPositionStore 单例提供（读持久化或默认右下角）。
@@ -327,14 +347,16 @@ export function CharacterOverlay({
   // （index 在末尾 loop）不推进（循环态持续循环）。
   // 兜底 timer：解析期间先按回退时长起 timer，解析完成后未推进则改设真实
   // 时长——fetch 挂起/解析不落定时 800ms 后仍推进，播放链路不冻结。
+  // 工单 02 治理工单 01 遗留：effect 依赖 [index, item.url] 而非 [index, snapshot]，
+  // 快照引用变化但当前过渡项 url 不变时不重置计时。runtime 已隔离非焦点会话事件
+  // （只有焦点会话变化才 emit），此处用 item（由 snapshot.playback + index 派生）
+  // 而非直接读 snapshot.playback[index]，避免闭包 snapshot 但不列入依赖的 stale 风险。
   useEffect(() => {
-    if (index >= snapshot.playback.length - 1) return; // 停在末尾 loop
-    const current = snapshot.playback[index];
-    if (!current || current.kind !== "transition") return;
+    if (item.kind !== "transition") return; // loop 项或越界（currentItem 钳制到末尾 loop）
     let cancelled = false;
     const advance = () => setIndex((i) => i + 1);
     let timer = setTimeout(advance, DEFAULT_TRANSITION_DURATION_MS);
-    void loadWebpDurationMs(current.url).then((durationMs) => {
+    void loadWebpDurationMs(item.url).then((durationMs) => {
       if (cancelled) return;
       clearTimeout(timer);
       timer = setTimeout(advance, durationMs ?? DEFAULT_TRANSITION_DURATION_MS);
@@ -343,7 +365,30 @@ export function CharacterOverlay({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [index, snapshot]);
+  }, [index, item.url]);
+
+  // ADR-0008 决策 3：焦点切换 150ms 淡入淡出（cross-fade 双 img 层）。
+  // focusNonce 变化时，旧 item.url 作为 underlay 淡出，新 item.url 在上层淡入。
+  // underlay 160ms 后移除（CSS animation 150ms 淡出 + 10ms 余量）。
+  // render 期间 setState 模式（React 允许，见 React docs "storing information from
+  // previous renders"）：从 prevItemUrl 捕获旧 url，条件检查避免循环。
+  const prevFocusNonceRef = useRef(snapshot.focusNonce);
+  const prevItemUrlRef = useRef(item.url);
+  const [underlay, setUnderlay] = useState<{
+    url: string;
+    key: number;
+  } | null>(null);
+  if (snapshot.focusNonce !== prevFocusNonceRef.current) {
+    setUnderlay({ url: prevItemUrlRef.current, key: prevFocusNonceRef.current });
+    prevFocusNonceRef.current = snapshot.focusNonce;
+  }
+  prevItemUrlRef.current = item.url;
+
+  useEffect(() => {
+    if (underlay === null) return;
+    const t = setTimeout(() => setUnderlay(null), 160);
+    return () => clearTimeout(t);
+  }, [underlay]);
 
   // ADR-0006 决策 2/5：transform: translate3d(x,y,0) scale(s)，GPU 合成。
   // scale 仅拖动时 1.02 提视；prefers-reduced-motion 下禁用 scale（对@see reducedMotion，
@@ -364,7 +409,22 @@ export function CharacterOverlay({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
-      <img className={styles.image} src={item.url} alt="" draggable={false} />
+      {underlay && !reducedMotion && (
+        <img
+          key={underlay.key}
+          className={styles.imageUnderlay}
+          src={underlay.url}
+          alt=""
+          draggable={false}
+        />
+      )}
+      <img
+        key={snapshot.focusNonce}
+        className={styles.image}
+        src={item.url}
+        alt=""
+        draggable={false}
+      />
       <SessionBubbleList sessions={sessions} />
       {bubble && (
         <SpeechBubble
