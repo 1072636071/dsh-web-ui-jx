@@ -26,9 +26,11 @@
 2. **内容**：单行会话标题（超长省略号，无 title 回落 sessionId）+ 状态点：
    运行中 = `--jx-gold` 金色呼吸点（reduced-motion 下静态）、已完成 =
    `--dsw-alias-state-success-primary` 石绿实心点。
-3. **布局**：`position:absolute; left:0` 角色左侧竖排一列，`flex-direction:
-   column-reverse` 自下而上生长（列表顺序第一个在底部），随浮层盒整体移动。
-   台词气泡保留原位置（头顶右上），两层并存互不遮挡（已核实空间）。
+3. **布局**：`position:absolute` **整体置于角色盒外左侧**（`left:auto; right:
+   calc(100% + 8px)` 右缘贴盒左缘并留 8px 间隙，不叠加在角色本身上），
+   `bottom:0` + `flex-direction: column-reverse` 自下而上生长（列表顺序第一个
+   在底部），随浮层盒整体移动。台词气泡保留原位置（头顶右上），两层并存互不
+   遮挡（已核实空间）。
 4. **交互**：气泡本体 `pointer-events:auto` + `cursor:pointer`，点击调
    `sessions.open(id)` 跳转；气泡挂 `data-jx-interactive`，pointerdown 不
    触发整盒拖动（复用 ADR-0006 决策 7 的排除机制）。当前会话气泡

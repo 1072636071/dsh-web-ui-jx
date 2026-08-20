@@ -2,8 +2,9 @@
  * SessionBubble / SessionBubbleList 组件局部样式（CSS Module）。
  *
  * ADR-0007 会话气泡列：
- *   - 位置：角色左侧竖排一列（.bubbleList position:absolute; left:0），
- *     flex-direction: column-reverse 自下而上生长（列表顺序第一个在底部）。
+ *   - 位置：整体在角色盒外左侧竖排一列（.bubbleList position:absolute;
+ *     right: calc(100% + 8px)），bottom:0 + flex-direction: column-reverse
+ *     自下而上生长（列表顺序第一个在底部）。
  *   - 气泡本体可点击（pointer-events:auto + cursor:pointer），反转台词气泡穿透原则。
  *   - 气泡 132×24 单行、标题 text-overflow: ellipsis。
  *   - 状态点：运行中 --jx-gold 呼吸点（.dotRunning + @keyframes breathe）；
@@ -20,16 +21,17 @@
 
 .bubbleList {
   position: absolute;
-  /* 角色左侧 */
-  left: 0;
-  top: 0;
-  /* 自下而上生长：column-reverse 使列表顺序第一个在底部 */
+  /* 整体移到角色盒外左侧：右缘贴盒左缘并留 8px 间隙，不叠加在角色本身上 */
+  left: auto;
+  right: calc(100% + 8px);
+  /* 底部锚定 + column-reverse → 自下而上生长，列表顺序第一个在底部 */
+  bottom: 0;
   display: flex;
   flex-direction: column-reverse;
   gap: 4px;
   /* 气泡列本身不拦截指针，由各气泡本体自行 pointer-events:auto */
   pointer-events: none;
-  /* 列宽度由气泡内容撑出，限制最大宽度 */
+  /* 列宽度由气泡内容撑出 */
 }
 
 .bubble {

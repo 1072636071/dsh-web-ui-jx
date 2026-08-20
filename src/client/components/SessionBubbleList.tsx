@@ -2,6 +2,8 @@
  * SessionBubbleList — 会话气泡列组件（ADR-0007）。
  *
  * 角色浮层左侧竖排的常驻气泡列：一气泡 = 一运行中/已结束未查看会话。
+ * 气泡列整体位于角色盒外左侧（由 .bubbleList position:absolute;
+ * right: calc(100% + 8px) + bottom:0 + column-reverse 实现）。
  *
  * 数据源：`sessions?: ISessions` prop（由 CharacterOverlay 传入）。
  *   - 用 useSyncExternalStore 订阅 sessions.list（SnapshotStore<SessionListState>）。
@@ -24,8 +26,8 @@
  *   渲染 leaving class 触发 CSS exit 动画，BUBBLE_EXIT_MS 后移除。重排无动画。
  *   prefers-reduced-motion 全关。
  *
- * 布局（ADR-0007 决策 3）：position:absolute; left:0 角色左侧，flex-direction:
- * column-reverse 自下而上生长。随浮层盒整体移动（由父容器定位）。
+ * 布局（ADR-0007 决策 3）：整体在角色盒外左侧竖排（right: calc(100% + 8px)），
+ * bottom:0 + flex-direction: column-reverse 自下而上生长。随浮层盒整体移动。
  *
  * 样式只消费语义别名 + --jx-gold 专属轨，无颜色字面量、无主题选择器。
  *

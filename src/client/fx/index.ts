@@ -1,19 +1,20 @@
 /**
  * FX 特效系统入口 / 控制器。
  *
- * DESIGN.md §5：五类特效（shimmer/fall/grain/breathe/micro）由 `html` 上
+ * DESIGN.md §5：五类特效（shimmer/fall/grain/warp/micro）由 `html` 上
  * `fx-*` 类 + `localStorage('jx-fx')` 控制，每类独立开关，默认全开。
  *
  * 控制机制：
- *   - `html` 上 `fx-shimmer`/`fx-fall`/`fx-grain`/`fx-breathe`/`fx-micro` 类
- *     控制纯 CSS 特效（shimmer/grain/breathe/micro）的生效。
+ *   - `html` 上 `fx-shimmer`/`fx-fall`/`fx-grain`/`fx-warp`/`fx-micro` 类
+ *     控制纯 CSS 特效（shimmer/grain/micro）的生效，warp 的 html 类控制样式生效。
  *   - fall 特效额外需要 JS（Web Animations API），由 startFall/stopFall 驱动。
+ *   - warp 特效为鼠标交互驱动（pointermove），由 startWarp/stopWarp 驱动。
  *   - `localStorage('jx-fx')` 存 JSON 如
- *     `{"shimmer":true,"fall":true,"grain":true,"breathe":true,"micro":true}`，
+ *     `{"shimmer":true,"fall":true,"grain":true,"warp":true,"micro":true}`，
  *     applyFx 读取初始化；setFxEnabled 写入并即时生效。
  *
  * 全关判定：`html` 无任何 `fx-*` 类时，fx.css 中所有 `html.fx-*` 选择器不匹配，
- * 无样式生效；fall 装饰层被移除 → 与原版皮肤无差异。
+ * 无样式生效；fall/warp 装饰层被移除 → 与原版皮肤无差异。
  *
  * prefers-reduced-motion：applyFx 检测到 reduce 时不应用任何 fx-* 类（即使
  * localStorage 有值），并监听变化自动恢复。reduced-motion 不覆盖 localStorage
@@ -22,11 +23,11 @@
  * @module dsh-web-ui-jx/client
  */
 
-import { startBreathe, stopBreathe } from "./breathe.ts";
 import { startFall, stopFall } from "./fall.ts";
 import { startGrain, stopGrain } from "./grain.ts";
 import { startMicro, stopMicro } from "./micro.ts";
 import { startShimmer, stopShimmer } from "./shimmer.ts";
+import { startWarp, stopWarp } from "./warp.ts";
 
 /** localStorage 键名. */
 const FX_STORAGE_KEY = "jx-fx";
@@ -36,7 +37,7 @@ export const FX_NAMES = [
   "shimmer",
   "fall",
   "grain",
-  "breathe",
+  "warp",
   "micro",
 ] as const;
 
@@ -51,7 +52,7 @@ const FX_CLASS: Record<FxName, string> = {
   shimmer: "fx-shimmer",
   fall: "fx-fall",
   grain: "fx-grain",
-  breathe: "fx-breathe",
+  warp: "fx-warp",
   micro: "fx-micro",
 };
 
@@ -60,7 +61,7 @@ const FX_START: Record<FxName, () => void> = {
   shimmer: startShimmer,
   fall: startFall,
   grain: startGrain,
-  breathe: startBreathe,
+  warp: startWarp,
   micro: startMicro,
 };
 
@@ -69,7 +70,7 @@ const FX_STOP: Record<FxName, () => void> = {
   shimmer: stopShimmer,
   fall: stopFall,
   grain: stopGrain,
-  breathe: stopBreathe,
+  warp: stopWarp,
   micro: stopMicro,
 };
 
@@ -82,7 +83,7 @@ let reducedMotionMq: MediaQueryList | null = null;
  * DESIGN.md §5：所有特效默认开。
  */
 function defaultState(): FxState {
-  return { shimmer: true, fall: true, grain: true, breathe: true, micro: true };
+  return { shimmer: true, fall: true, grain: true, warp: true, micro: true };
 }
 
 /**
@@ -93,7 +94,7 @@ function allOffState(): FxState {
     shimmer: false,
     fall: false,
     grain: false,
-    breathe: false,
+    warp: false,
     micro: false,
   };
 }
@@ -158,7 +159,7 @@ function applyClasses(state: FxState): void {
 /**
  * 启动/停止需要 JS 的特效（fall）。
  *
- * 纯 CSS 特效（shimmer/grain/breathe/micro）由 html 类切换自动生效，
+ * 纯 CSS 特效（shimmer/grain/micro）由 html 类切换自动生效，
  * 无需 JS 调度；但为统一接口，对所有特效调用 start/stop（纯 CSS 的为 noop）。
  */
 function syncJsEffects(state: FxState): void {

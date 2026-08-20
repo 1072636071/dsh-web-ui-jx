@@ -1,4 +1,4 @@
-# ADR-0005：用 warp（鼠标光线扭曲）替换 breathe（墨光呼吸背景）
+# ADR-0005：用 warp（鼠标墨迹拖尾 + 涟漪）替换 breathe（墨光呼吸背景）
 
 **状态**: Accepted
 **日期**: 2026-08-18
@@ -23,30 +23,30 @@ FX 特效系统共 5 类（shimmer/fall/grain/breathe/micro），由 `src/client
 
 ### warp 特效定义
 
-- **语义**：鼠标光线扭曲特效——鼠标周围局部位移扭曲光圈，"找鼠标的小特效工具"。
-- **技术**：SVG `<filter>` 内 `feTurbulence`（生成扰流位移图）+ `feDisplacementMap`
-  （像素位移），挂在一个 fixed 定位的圆形元素上。filter 参数固定不重算，鼠标移动只
-  更新元素 `transform: translate(x,y)`（GPU 合成层，几乎零成本）。
-- **作用范围**：仅鼠标周围局部（默认半径 200px 圆内），用 `mask: radial-gradient`
-  限定。非全屏。
-- **生命周期**：`pointermove` 时显示并跟手，鼠标停下后 400ms 淡出隐藏。一动即现帮
-  定位，停下消失不挡视线。
-- **触发**：`pointermove` 监听，rAF coalesce 节流。无 hover 设备
-  （`pointer: coarse`）自动关，不消耗性能。
-- **美学**：位移扭曲为主 + 极微弱 `--jx-moon` 月色边缘光（opacity ~0.08）让光圈
-  可见。符合 DESIGN.md §7（禁霓虹/高饱和渐变，`--jx-moon` 是低饱和氛围族）。
-- **参数**：半径 `--jx-warp-radius: 200px`、`feDisplacementMap scale: 15`、淡出
-  400ms，用 CSS 自定义属性暴露，可在 fx.css 调。
-- **降级**：`prefers-reduced-motion: reduce` 全关，复用现有 `fx/index.ts` 机制。
+- **语义**：鼠标彗星粒子 + 涟漪——光标前方亮核，沿运动反方向抛出一串渐变粒子形成
+  彗尾（前大后小、首亮尾暗、逐颗延迟起步有流动感），按下（pointerdown）在落点绽开
+  一圈墨涟漪。只在运动时回应，停下即隐、不常驻、不挡内容，帮定位鼠标的"小工具"。
+- **技术**：粒子/涟漪节点池化复用，纯 transform + opacity（GPU 合成层）扩张淡出，
+  变形与淡出由 **Web Animations API（`el.animate()`）** 驱动（动画结束即回收回池，
+  取消残留动画后可持续重播），无 backdrop-filter / SVG filter / 每帧位移图计算。
+- **生命周期**：`pointermove` 沿运动反方向产彗星粒子链（位移节流，停下即停）；
+  `pointerdown` 绽涟漪（一次性"落笔"）。
+- **触发**：`pointermove` / `pointerdown` 监听。无 hover 设备（`pointer: coarse`）
+  自动关，不消耗性能。
+- **美学**：`--jx-moon` 亮核 + `box-shadow` 月色光晕，淡化散开无硬边、无模糊光斑。
+  符合 DESIGN.md §7（禁霓虹/高饱和渐变）。
+- **参数**：彗尾长度（粒子数/间距/亮核直径）与涟漪尺寸在 fx/warp.ts 与 fx.css 调；
+  位移节流阈值、池上限在 fx/warp.ts 调。
+- **降级**：`prefers-reduced-motion: reduce` 全关；`pointer: coarse` 不触发。
 
 ### FX 系统变更
 
 - `FX_NAMES`: `shimmer/fall/grain/breathe/micro` → `shimmer/fall/grain/warp/micro`
 - `FxName` 类型、`FX_CLASS`/`FX_START`/`FX_STOP` 映射相应更新
-- 删除 `src/client/fx/breathe.ts`，新增 `src/client/fx/warp.ts`（pointermove 监听 +
-  rAF 跟随 + 淡出定时器 + 元素创建/移除）
-- `src/client/styles/fx.css`：删除 breathe 段（L122–L152）+ reduced-motion breathe
-  段（L205–L209），新增 warp 段 + SVG filter 定义 + reduced-motion warp 段
+- 删除 `src/client/fx/breathe.ts`，新增 `src/client/fx/warp.ts`（pointermove/pointerdown
+  监听 + 节点池化 + 节流 + WAAPI 动画驱动 + 元素创建/移除）
+- `src/client/styles/fx.css`：删除 breathe 段 + reduced-motion breathe 段，新增 warp
+  彗星粒子外观段（纯视觉）+ 涟漪 keyframes + reduced-motion warp 段
 - `DESIGN.md` §5 FX 表：`breathe` 行 → `warp` 行
 - `localStorage('jx-fx')` 旧 `breathe` 字段被忽略（无害，向前兼容）
 
@@ -79,7 +79,6 @@ FX 特效系统共 5 类（shimmer/fall/grain/breathe/micro），由 `src/client
 - 移动端（`pointer: coarse`）无鼠标，warp 自动关，FX 系统在移动端实际 4 类生效。
 - `localStorage('jx-fx')` 旧用户的 `breathe: true` 字段被静默忽略，不报错；新用户
   写入 `warp` 字段。
-- 新增 SVG filter 元素需挂载到 DOM（`body` 下一个隐藏 SVG 或 inline filter 定义），
-  注意 SSR/宿主兼容。
-- 性能预算：pointermove rAF coalesce + transform GPU 合成 + filter 参数固定，预期
-  60fps 稳定；唯 SVG filter 首次创建有一次性开销。
+- 新增容器元素需挂载到 `body`，注意 SSR/宿主兼容与 z-index 分层。
+- 性能预算：pointermove/pointerdown 监听 + transform/opacity GPU 合成 + 节点池化，
+  预期 60fps 稳定；无 backdrop-filter / SVG filter / 每帧位移图计算开销。

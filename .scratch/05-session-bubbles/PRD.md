@@ -79,10 +79,11 @@ Status: ready-for-agent
 5. **交互**：点击调 `sessions.open(sessionId)`（与侧边栏同一入口）；气泡根元素挂
    `data-jx-interactive`（复用 ADR-0006 拖动排除机制 `CharacterOverlay.tsx:213-215`，
    该机制被首次实际消费）；当前会话气泡点击 no-op。
-6. **布局**：气泡列 `position: absolute; left: 0`（角色左侧），`flex-direction:
-   column-reverse` 自下而上；气泡 132×24 单行、标题 `text-overflow: ellipsis`；
-   「+N」在列视觉顶部（column-reverse 末位）；展开时原位变「收起」气泡。台词气泡
-   位置（`bottom:100%; right:0`）不动。
+6. **布局**：气泡列 `position: absolute`，整体置于角色盒外左侧（`left:auto;
+      right: calc(100% + 8px)`，右缘贴盒左缘留 8px 间隙，不叠加角色本体），
+   `bottom:0` + `flex-direction: column-reverse` 自下而上；气泡 132×24 单行、
+   标题 `text-overflow: ellipsis`；「+N」在列视觉顶部（column-reverse 末位）；
+   展开时原位变「收起」气泡。台词气泡位置（`bottom:100%; right:0`）不动。
 7. **上限与展开**：默认 5（可配置），`visible` 条 + 1 条「+N」（`moreCount > 0` 时）；
    展开态显示全部，再点收起。上限变化即时生效（配置与列表同源订阅）。
 8. **样式令牌**：气泡背景 `--dsw-specific-bubble`、文字 `--dsw-alias-label-primary`、

@@ -5,7 +5,7 @@
  *   - Ma Shan Zheng 楷体（base.css @font-face JX MashanZheng）
  *   - 金色边框（color-mix gold-deep 38%）+ 金色文字（--jx-gold-bright）
  *   - 不对称圆角 12px 12px 2px 12px（右下尖角，气泡从角色右上方伸出）
- *   - 右对齐 + 字间距 0.04em
+ *   - 文居中 + 字间距 0.04em，不限宽单行（nowrap + 自适应宽度，台词尽可能一行）
  *   - box-shadow 0 4px 16px surface-0 40%
  *   - 淡入淡出（opacity + translateY），pointer-events: none
  *
@@ -19,8 +19,8 @@
   /* 浮层上方，不遮挡角色 */
   bottom: 100%;
   right: 0;
-  /* 限制宽度 */
-  max-width: 220px;
+  /* 不限宽、单行，保证台词尽可能一行（nowrap + 自适应宽度） */
+  white-space: nowrap;
   padding: 8px 14px;
   /* 唐风设计：楷体 + 金色边框 + 金色文字 + 不对称圆角 */
   background: color-mix(in srgb, var(--jx-surface-2) 92%, transparent);
@@ -31,15 +31,13 @@
   font-family: var(--jx-font-display, "JX MashanZheng", "Kaiti SC", serif);
   font-size: 14px;
   line-height: 1.6;
-  text-align: right;
+  /* 文本居中 */
+  text-align: center;
   letter-spacing: 0.04em;
   box-shadow: 0 4px 16px
     color-mix(in srgb, var(--jx-surface-0) 40%, transparent);
   /* 气泡不拦截鼠标 */
   pointer-events: none;
-  /* 文本换行 */
-  word-break: break-word;
-  white-space: normal;
   /* 淡入动画 */
   animation: bubble-in 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }

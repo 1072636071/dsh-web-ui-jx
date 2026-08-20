@@ -7,7 +7,7 @@
 - **角色浮层 10 态切换**：右下角常驻透明角色层，`<img>` 播放 WebP 动画，支持 `idle / thinking / reading / replying / working / error / welcome / done / permission / listening` 共 10 态 + 36 个过渡 WebP（如 `transition-idle-thinking.webp`），由 `src/client/state-machine/overlay-state-machine.ts` 驱动状态机切换。
 - **台词气泡**：状态切换时淡入淡出台词气泡（opacity + translateY），`pointer-events: none` 不拦截指针，播放后自动隐去。
 - **唐风设计系统**：墨金卷轴（深色）/ 宣纸梅花（浅色）双主题，遵循官方三层 token 架构（L1 base → L2 skin remap → L3 组件），组件层只消费语义别名，禁止写颜色字面量。设计基准见 `DESIGN.md`。
-- **FX 五类特效**：`shimmer`（鎏金流光）/ `fall`（银杏·梅花飘落）/ `grain`（墨韵暗纹）/ `breathe`（墨光呼吸）/ `micro`（微交互），五类独立开关，默认全开，`prefers-reduced-motion` 下自动全关，全关 = 极致性能。
+- **FX 五类特效**：`shimmer`（鎏金流光）/ `fall`（银杏·梅花飘落）/ `grain`（墨韵暗纹）/ `warp`（鼠标彗星粒子）/ `micro`（微交互），五类独立开关，默认全开，`prefers-reduced-motion` 下自动全关，全关 = 极致性能。
 - **素材导入管理**：管理界面支持 zip 上传与本地目录两种来源，导入进度实时反馈，已导入素材列表可预览/删除。zip 包格式契约见 `docs/adr/0003-zip-asset-bundle-contract.md`。
 - **侧边栏入口 + 设置卡**：左侧边缘常驻入口，点击展开设置卡（含 FX 五类开关 + 进入管理界面入口），不抢占宿主主视图。
 
@@ -81,7 +81,7 @@ npm run build          # 产出 lib/index.js（host）+ lib/client.js（client�
 | `shimmer` | 鎏金流光顶线 + 标题烫金流动         | 静态金字    |
 | `fall`    | 银杏(暗)/梅花(浅)飘落 12 片         | 无飘落      |
 | `grain`   | 墨韵暗纹（静态 SVG turbulence）     | 无          |
-| `breathe` | 墨光呼吸背景（body::after opacity） | 静态        |
+| `warp`   | 鼠标彗星粒子 + 涟漪（跟手）      | 静态        |
 | `micro`   | 微交互 hover/active                 | 即时 on/off |
 
 - **持久化**：开关状态写入 `localStorage('jx-fx')`，刷新后保留。
@@ -218,7 +218,7 @@ npm run verify          # 运行 scripts/verify-release.mjs
 
 **检查**：
 
-1. `localStorage('jx-fx')` 值（应为 JSON 对象，含 `shimmer/fall/grain/breathe/micro` 五个布尔字段）。
+1. `localStorage('jx-fx')` 值（应为 JSON 对象，含 `shimmer/fall/grain/warp/micro` 五个布尔字段）。
 2. `document.documentElement`（`<html>`）上对应 `fx-*` 类是否增删（`applyFx` 函数）。
 3. `prefers-reduced-motion: reduce` 是否激活（系统级减少动效设置）—— 激活时全关是预期行为。
 4. `lib/client.js` 内联 CSS 含 `fx-shimmer` / `fx-fall` / ... 选择器（构建产物完整）。

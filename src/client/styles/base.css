@@ -2,8 +2,8 @@
  * L1 base 层 + @font-face + @property 声明。
  *
  * 按 DESIGN.md §2 的 L1 base 块，在 :root 声明字族/动效官方变量。
- * @property 注册可动画自定义属性（--gold-angle / --shimmer-x / --breathe），
- * 供 fx.css 的 shimmer / breathe 特效做平滑动画。
+ * @property 注册可动画自定义属性（--gold-angle / --shimmer-x），
+ * 供 fx.css 的 shimmer 特效做平滑动画。
  * 两个 woff2 字体（楷体/宋体）从素材路由 /api/dsh-jx/fonts/* 加载，
  * 不再 base64 内联。
  *
@@ -21,11 +21,6 @@
   syntax: "<percentage>";
   inherits: false;
   initial-value: 100%;
-}
-@property --breathe {
-  syntax: "<number>";
-  inherits: false;
-  initial-value: 1;
 }
 
 :root {
