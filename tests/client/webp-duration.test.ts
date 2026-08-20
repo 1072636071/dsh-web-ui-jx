@@ -6,8 +6,9 @@
  *
  * 覆盖：
  *   - 合成字节：帧时长累加、单帧、空帧（非动画）、非法容器、截断 chunk。
- *   - 真实素材（assets/character/）：46 个全量解析，过渡段两档（16 × 3484ms /
- *     20 × 5494ms），循环态 10 × 5025ms（权威值来自 sub-task/002 调查结论）。
+ *   - 真实素材（assets/character/）：55 个全量解析，过渡段原两档（16 × 3484ms /
+ *     20 × 5494ms）+ 6 个新增表情过渡段（6 × 766ms），原循环态 10 × 5025ms +
+ *     新增生活化表情循环态 3 × 5000ms（权威值来自 sub-task/002 调查结论 + ADR-0010 素材）。
  *   - 加载缓存：同 URL 只 fetch 一次；解析失败/网络失败回退 null 且不重复请求。
  */
 
@@ -103,7 +104,7 @@ describe("parseWebpDurationMs: 合成字节", () => {
 // parseWebpDurationMs：真实素材回归（权威值：sub-task/002 结论）
 // ---------------------------------------------------------------------------
 
-describe("parseWebpDurationMs: 现有 46 素材回归", () => {
+describe("parseWebpDurationMs: 现有 55 素材回归", () => {
   const assetsDir = resolve("assets/character");
   const files = readdirSync(assetsDir)
     .filter((f) => f.toLowerCase().endsWith(".webp"))
@@ -111,23 +112,34 @@ describe("parseWebpDurationMs: 现有 46 素材回归", () => {
   const transitions = files.filter((f) => f.startsWith("transition-"));
   const loops = files.filter((f) => !f.startsWith("transition-"));
 
-  it("素材总数 = 46（10 循环态 + 36 过渡段）", () => {
-    expect(files).toHaveLength(46);
-    expect(loops).toHaveLength(10);
-    expect(transitions).toHaveLength(36);
+  it("素材总数 = 55（13 循环态 + 42 过渡段）", () => {
+    expect(files).toHaveLength(55);
+    expect(loops).toHaveLength(13);
+    expect(transitions).toHaveLength(42);
   });
 
-  it("循环态 10 个全为 5025ms/圈", () => {
-    for (const f of loops) {
+  it("原循环态 10 个为 5025ms/圈，新增 3 个为 5000ms/圈", () => {
+    const baseLoops = ["idle", "thinking", "reading", "replying", "working", "error", "welcome", "done", "permission", "listening"];
+    const exprLoops = ["happy", "angry", "surprised"];
+    for (const name of baseLoops) {
+      const f = `${name}.webp`;
       const bytes = readFileSync(join(assetsDir, f));
       expect(
         parseWebpDurationMs(new Uint8Array(bytes)),
         `循环态 ${f}`,
       ).toBe(5025);
     }
+    for (const name of exprLoops) {
+      const f = `${name}.webp`;
+      const bytes = readFileSync(join(assetsDir, f));
+      expect(
+        parseWebpDurationMs(new Uint8Array(bytes)),
+        `循环态 ${f}`,
+      ).toBe(5000);
+    }
   });
 
-  it("过渡段 36 个只落两档：16 × 3484ms + 20 × 5494ms", () => {
+  it("过渡段 42 个：原两档（16 × 3484ms + 20 × 5494ms）+ 新增表情过渡 6 × 766ms", () => {
     const counts: Record<number, number> = {};
     for (const f of transitions) {
       const bytes = readFileSync(join(assetsDir, f));
@@ -135,7 +147,7 @@ describe("parseWebpDurationMs: 现有 46 素材回归", () => {
       expect(dur, `过渡段 ${f}`).toBeGreaterThan(0);
       if (dur !== null) counts[dur] = (counts[dur] ?? 0) + 1;
     }
-    expect(counts).toEqual({ 3484: 16, 5494: 20 });
+    expect(counts).toEqual({ 3484: 16, 5494: 20, 766: 6 });
   });
 
   it("抽样过渡段：idle-thinking 45 帧型 / reading-idle 75 帧型", () => {

@@ -2,19 +2,21 @@
  * overlay-state-machine — 角色浮层状态机（纯逻辑）。
  *
  * 工单 05：浮层状态机与 10 态切换。
+ * 工单 06：新增生活化表情循环态 happy/angry/surprised（ADR-0009 / ADR-0010）。
  *
- * 10 循环态节点：idle/thinking/reading/replying/working/error/welcome/done/
- * permission/listening，对应素材 {state}.webp（<img> 持续循环播放）。
+ * 13 循环态节点：idle/thinking/reading/replying/working/error/welcome/done/
+ * permission/listening + happy/angry/surprised，对应素材 {state}.webp（<img>
+ * 持续循环播放）。
  *
- * 36 过渡边：对应素材 transition-{from}-{to}.webp（<img> 播放一次后落入目标态）。
- * 其中 20 边连接 10 循环态，16 边连接循环态与 6 个中间态表情（shy-smile/shush/
+ * 42 过渡边：对应素材 transition-{from}-{to}.webp（<img> 播放一次后落入目标态）。
+ * 其中 20 边连接 10 原循环态，16 边连接循环态与 6 个中间态表情（shy-smile/shush/
  * nod-smile/frown-wave/chin-rest/cheek-rest，只出现在过渡段端点，无循环态素材，
- * 不作为切换意图目标）。
+ * 不作为切换意图目标），6 边连接 idle 与 3 个新增生活化表情循环态。
  *
  * 切换逻辑（A → B，A≠B）：
  *   - 若存在直接过渡段 transition-A-B：先播该过渡段一次，然后落入 B 循环态。
  *   - 否则经 idle 中转：先播 transition-A-idle，再播 transition-idle-B，然后落入 B。
- *   - 所有 10 循环态都有 X-idle 与 idle-X 过渡段，中转总是可行。
+ *   - 所有 13 循环态都有 X-idle 与 idle-X 过渡段，中转总是可行。
  *
  * 纯逻辑模块：不操作 DOM、不依赖 React。UI（CharacterOverlay）与宿主事件
  * （HostEventAdapter）只发意图（dispatch），不直接操作 DOM 切换。
@@ -26,7 +28,7 @@
 // 状态定义
 // ---------------------------------------------------------------------------
 
-/** 10 循环态节点（持续循环播放的稳态）. */
+/** 13 循环态节点（持续循环播放的稳态）. */
 export type OverlayState =
   | "idle"
   | "thinking"
@@ -37,9 +39,12 @@ export type OverlayState =
   | "welcome"
   | "done"
   | "permission"
-  | "listening";
+  | "listening"
+  | "happy"
+  | "angry"
+  | "surprised";
 
-/** 10 循环态有序列表. */
+/** 13 循环态有序列表. */
 export const OVERLAY_STATES: readonly OverlayState[] = [
   "idle",
   "thinking",
@@ -51,6 +56,9 @@ export const OVERLAY_STATES: readonly OverlayState[] = [
   "done",
   "permission",
   "listening",
+  "happy",
+  "angry",
+  "surprised",
 ] as const;
 
 /** 6 个中间态表情（只出现在过渡段端点，无循环态素材，不作为切换意图目标）. */
@@ -66,11 +74,11 @@ export type IntermediateState =
 export type TransitionEndpoint = OverlayState | IntermediateState;
 
 // ---------------------------------------------------------------------------
-// 36 过渡边（对应 assets/character/transition-{from}-{to}.webp）
+// 42 过渡边（对应 assets/character/transition-{from}-{to}.webp）
 // ---------------------------------------------------------------------------
 
 /**
- * 36 过渡边：from-to 对，对应 assets/character/transition-{from}-{to}.webp。
+ * 42 过渡边：from-to 对，对应 assets/character/transition-{from}-{to}.webp。
  *
  * 命名模式：transition-{from}-{to}.webp。from-to 映射：
  *   - idle ↔ 9 循环态（18 边）
@@ -81,7 +89,7 @@ export type TransitionEndpoint = OverlayState | IntermediateState;
 export const TRANSITION_EDGES: ReadonlyArray<
   readonly [TransitionEndpoint, TransitionEndpoint]
 > = [
-  // idle ↔ 9 循环态（18 边）
+  // idle ↔ 9 原循环态（18 边）
   ["idle", "thinking"],
   ["thinking", "idle"],
   ["idle", "reading"],
@@ -121,6 +129,13 @@ export const TRANSITION_EDGES: ReadonlyArray<
   ["nod-smile", "permission"],
   ["permission", "frown-wave"],
   ["frown-wave", "permission"],
+  // idle ↔ 3 新增生活化表情循环态（6 边，ADR-0009 / ADR-0010）
+  ["idle", "happy"],
+  ["happy", "idle"],
+  ["idle", "angry"],
+  ["angry", "idle"],
+  ["idle", "surprised"],
+  ["surprised", "idle"],
 ] as const;
 
 /** 边集合：`${from}|${to}` → true，用于 O(1) 查询. */
@@ -223,7 +238,7 @@ export const DEFAULT_TRANSITION_DURATION_MS = 800;
  * - 存在直接过渡段 transition-from-to：[transition-from-to, loop-to]。
  * - 否则经 idle 中转：[transition-from-idle, transition-idle-to, loop-to]。
  *
- * 所有 10 循环态都有 X-idle 与 idle-X 过渡段，中转总是可行。
+ * 所有 13 循环态都有 X-idle 与 idle-X 过渡段，中转总是可行。
  *
  * @param from - 起始循环态。
  * @param to - 目标循环态。
@@ -248,7 +263,7 @@ export function planSwitch(
     ];
   }
   // 经 idle 中转：from → idle → to
-  // 所有 10 循环态都有 X-idle 与 idle-X 过渡段（已由素材确认）
+  // 所有 13 循环态都有 X-idle 与 idle-X 过渡段（已由素材确认）
   return [
     {
       kind: "transition",

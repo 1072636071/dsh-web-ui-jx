@@ -3,7 +3,7 @@
  *
  * 侧边栏入口展开后显示的内容卡，含三个独立可折叠 section：
  *   - 皮肤开关：单个「唐风皮肤」toggle，调 setSkinEnabled 即时生效 + 持久化。
- *   - 特效开关：五类 FX（shimmer/fall/grain/breathe/micro）独立 toggle，
+ *   - 特效开关：五类 FX（shimmer/fall/grain/warp/micro）独立 toggle，
  *     调 setFxEnabled 即时生效 + 写 localStorage('jx-fx') 持久化。
  *   - 素材管理：内嵌 ManagementUI（ImportPanel + AssetList），展开时 section
  *     body 内滚动（D6）。
@@ -40,6 +40,10 @@ import {
   getMaxSessionBubbles,
   setMaxSessionBubbles,
 } from "../session-bubbles-config.ts";
+import {
+  getShowStateLabel,
+  setShowStateLabel,
+} from "../state-machine/overlay-settings.ts";
 import { ManagementUI } from "./ManagementUI.tsx";
 import styles from "../styles/sidebar-settings.module.css";
 
@@ -48,7 +52,7 @@ const FX_LABELS: Record<FxName, string> = {
   shimmer: "鎏金流光",
   fall: "银杏飘落",
   grain: "墨韵暗纹",
-  breathe: "墨光呼吸",
+  warp: "鼠标扭曲",
   micro: "微交互",
 };
 
@@ -57,7 +61,7 @@ const FX_DESCRIPTIONS: Record<FxName, string> = {
   shimmer: "顶线流光 + 标题烫金流动",
   fall: "银杏（暗）/ 梅花（浅）飘落",
   grain: "静态 SVG turbulence 暗纹",
-  breathe: "背景 opacity 呼吸",
+  warp: "鼠标移动时光线扭曲跟手",
   micro: "hover/active 微动效",
 };
 
@@ -99,6 +103,11 @@ export function SettingsCard({ className }: SettingsCardProps) {
     getMaxSessionBubbles(),
   );
 
+  // 状态文案标签可见性（ADR-0010，默认 true）
+  const [stateLabelVisible, setStateLabelVisible] = useState<boolean>(() =>
+    getShowStateLabel(),
+  );
+
   /** 切换皮肤总开关：setSkinEnabled 即时生效 + 持久化，并更新本地视图状态. */
   const handleToggleSkin = useCallback(() => {
     const next = !skinEnabled;
@@ -137,6 +146,13 @@ export function SettingsCard({ className }: SettingsCardProps) {
     },
     [],
   );
+
+  /** 切换状态文案标签可见性：调 setShowStateLabel 即时生效 + 持久化，并更新本地视图状态. */
+  const handleToggleStateLabel = useCallback(() => {
+    const next = !stateLabelVisible;
+    setShowStateLabel(next);
+    setStateLabelVisible(next);
+  }, [stateLabelVisible]);
 
   /** 重置浮层位置：调位置 store 的 reset()，浮层立即回右下角 + 清持久化（工单 03）. */
   const handleResetPosition = useCallback(() => {
@@ -265,6 +281,24 @@ export function SettingsCard({ className }: SettingsCardProps) {
         </div>
         {!charCollapsed && (
           <div className={styles.sectionBody}>
+            <div className={styles.fxItem}>
+              <div className={styles.fxLabelBox}>
+                <span className={styles.fxLabel}>显示姜晓状态标签</span>
+                <span className={styles.fxDesc}>
+                  角色下方显示当前正在做什么的文案
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={stateLabelVisible}
+                aria-label="切换姜晓状态标签"
+                className={`${styles.toggleSwitch}${stateLabelVisible ? " " + styles.toggleOn : ""}`}
+                onClick={handleToggleStateLabel}
+              >
+                <span className={styles.toggleKnob} />
+              </button>
+            </div>
             <div className={styles.fxItem}>
               <div className={styles.fxLabelBox}>
                 <span className={styles.fxLabel}>会话气泡数量上限</span>

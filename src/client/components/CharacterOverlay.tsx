@@ -36,6 +36,11 @@
  *   - 演示触发：currentState 变化时显示对应台词（STATE_SPEECH，idle 不弹）。
  *   - 外部触发：props.speech 的 nonce 变化即显示新台词（供后续工单调用）。
  *
+ * 状态文案标签（工单 06 追加）：
+ *   - 角色下方显示当前状态文案（STATE_LABEL）。
+ *   - 默认开启；可在 SettingsCard「角色」section 关闭。
+ *   - 持久化键：jx-state-label-visible。
+ *
  * @module dsh-web-ui-jx/client
  */
 
@@ -51,6 +56,7 @@ import styles from "../styles/overlay.module.css";
 import {
   DEFAULT_TRANSITION_DURATION_MS,
   loopAssetUrl,
+  type IntermediateState,
   type OverlayState,
   type PlaybackItem,
 } from "../state-machine/overlay-state-machine.ts";
@@ -71,6 +77,10 @@ import {
   type OverlaySize,
   type ViewportSize,
 } from "../state-machine/overlay-position.ts";
+import {
+  getShowStateLabel,
+  subscribeShowStateLabel,
+} from "../state-machine/overlay-settings.ts";
 import { SpeechBubble, DEFAULT_BUBBLE_DURATION_MS } from "./SpeechBubble.tsx";
 import { loadWebpDurationMs } from "../webp-duration.ts";
 import { SessionBubbleList } from "./SessionBubbleList.tsx";
@@ -100,6 +110,9 @@ function initialReducedMotion(): boolean {
   );
 }
 
+/** 当前可显示在浮层上的状态类型（循环态 + 中间态表情彩蛋）。 */
+type DisplayState = OverlayState | IntermediateState;
+
 /**
  * 各循环态的演示台词（状态切换时触发，工单 06 演示用）。
  * 匹配设计 demo 的唐风角色语气。idle 不配台词（切回 idle 不弹气泡）。
@@ -114,6 +127,35 @@ const STATE_SPEECH: Partial<Record<OverlayState, string>> = {
   done: "此事已毕，大人过目。",
   permission: "此事需大人首肯。",
   listening: "姜晓静候大人示下。",
+  happy: "大人笑了，姜晓也欢喜。",
+  angry: "久候无应，姜晓有些不耐。",
+  surprised: "咦？可是吓到大人了？",
+};
+
+/**
+ * 角色下方状态文案标签。
+ * 包含 13 个循环态 + 6 个中间态表情（彩蛋期间显示）。
+ */
+const STATE_LABEL: Partial<Record<DisplayState, string>> = {
+  idle: "候命中",
+  thinking: "思量中",
+  reading: "阅卷中",
+  replying: "回复中",
+  working: "遵命，吾这就去办",
+  error: "此事有蹊跷",
+  welcome: "大人来了",
+  done: "此事已毕",
+  permission: "需大人首肯",
+  listening: "静候示下",
+  happy: "甚好",
+  angry: "久候无应",
+  surprised: "何人",
+  "shy-smile": "害羞",
+  shush: "噤声",
+  "nod-smile": "颔首",
+  "frown-wave": "皱眉",
+  "chin-rest": "托腮",
+  "cheek-rest": "倚脸",
 };
 
 /** 外部触发的台词（通过 props 注入，供后续工单调用）. */
@@ -207,6 +249,11 @@ export function CharacterOverlay({
     initialReducedMotion,
   );
 
+  // 状态文案标签可见性订阅
+  const [showStateLabel, setShowStateLabel] = useState<boolean>(
+    () => getShowStateLabel(),
+  );
+
   // ADR-0006 决策 4：window resize 监听 → store.setViewport 重钳制，浮层不跑到屏幕外。
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -230,6 +277,12 @@ export function CharacterOverlay({
     return () => {
       mq.removeEventListener("change", handler);
     };
+  }, []);
+
+  // 状态文案标签开关变化监听
+  useEffect(() => {
+    if (typeof window === "undefined") return () => {};
+    return subscribeShowStateLabel((visible) => setShowStateLabel(visible));
   }, []);
 
   // ADR-0006 决策 7：pointerdown 启动拖动。命中交互子元素（[data-jx-interactive]，
@@ -313,10 +366,10 @@ export function CharacterOverlay({
 
   // 演示触发：currentState 变化时显示对应台词（idle 不弹）。
   // 与 snapshotRef 同模式：render 期间检测变化并同步 ref，避免 useEffect 闭包陈旧。
-  const prevStateRef = useRef<OverlayState>(snapshot.currentState);
+  const prevStateRef = useRef<DisplayState>(snapshot.currentState);
   if (snapshot.currentState !== prevStateRef.current) {
     prevStateRef.current = snapshot.currentState;
-    const speechText = STATE_SPEECH[snapshot.currentState];
+    const speechText = STATE_SPEECH[snapshot.currentState as OverlayState];
     if (speechText) {
       bubbleKeyRef.current += 1;
       setBubble({
@@ -395,6 +448,10 @@ export function CharacterOverlay({
   // 响应式订阅 matchMedia）。transform 无 transition（跟手无延迟，CSS 已声明）。
   const scale = dragging && !reducedMotion ? DRAG_SCALE : 1;
 
+  const stateLabel = showStateLabel
+    ? STATE_LABEL[snapshot.currentState]
+    : undefined;
+
   return (
     <div
       className={`${styles.overlay}${dragging ? " " + styles.dragging : ""}${className ? " " + className : ""}`}
@@ -426,6 +483,9 @@ export function CharacterOverlay({
         draggable={false}
       />
       <SessionBubbleList sessions={sessions} />
+      {stateLabel && (
+        <div className={styles.stateLabel}>{stateLabel}</div>
+      )}
       {bubble && (
         <SpeechBubble
           key={bubble.key}

@@ -1,11 +1,11 @@
 /**
- * overlay-session-runtime 纯逻辑测试（工单 06-02 验收，seam）。
+ * overlay-session-runtime 纯逻辑测试（工单 06-02 验收 + ADR-0010，seam）。
  *
  * seam：输入（会话注册/注销、快照差分事件、焦点变化、时钟推进）
  * → 断言输出（焦点会话、playback 序列、currentState、focusNonce）。
  * 纯逻辑，不依赖 DOM、不依赖 React（vitest node 环境）。
  *
- * 覆盖（对齐工单 02 验收标准 + ADR-0008）：
+ * 覆盖（对齐工单 02 验收标准 + ADR-0008 + ADR-0010）：
  *   - 注册：sessions.list 出现新 id → 自动创建实例并挂订阅
  *   - 注销：ids 移除 → 销毁实例并释放订阅（无泄漏）
  *   - 焦点跟随：current 变化 → focusSessionId 跟随
@@ -15,12 +15,15 @@
  *   - 无会话：focusSessionId=undefined，playback=[loop-idle]
  *   - 时间驱动：thinking 超 READING_THRESHOLD_MS → reading（注入时钟）
  *   - 时间驱动：done 驻留 DONE_HOLD_MS → idle（注入时钟）
- *   - 紧急抢焦与手动切焦留给工单 03，本工单焦点 = 当前打开会话
+ *   - 焦点层防抖：工作态（thinking/reading/replying/working）防抖 FOCUS_DEBOUNCE_MS
+ *   - 多会话并行驻留：≥2 running 且至少一个非 idle → 显示 working
+ *   - 紧急抢焦：非焦点会话 permission/error 抢焦，消退后交还
  */
 
 import { describe, expect, it } from "vitest";
 import {
   createOverlaySessionRuntime,
+  FOCUS_DEBOUNCE_MS,
   type RuntimeSnapshot,
 } from "../../src/client/state-machine/overlay-session-runtime.ts";
 import {
@@ -269,9 +272,16 @@ describe("overlay-session-runtime: 注册与生命周期", () => {
   });
 
   it("从列表移除 → 销毁实例，焦点回 undefined", () => {
+    let now = 1000;
     const sessions = createMockSessions(makeListState([A], A));
-    const runtime = createOverlaySessionRuntime(sessions);
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+    });
     sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    // thinking 走防抖，需推进超过 FOCUS_DEBOUNCE_MS 后经 tick 落态
+    now += FOCUS_DEBOUNCE_MS + 1;
+    runtime.__tick();
     expect(runtime.getSnapshot().currentState).toBe("thinking");
     sessions.__pushList(makeListState([], undefined));
     const s = runtime.getSnapshot();
@@ -311,10 +321,17 @@ describe("overlay-session-runtime: 焦点跟随", () => {
   });
 
   it("焦点切换不播过渡（直接切目标会话当前 loop）", () => {
+    let now = 1000;
     const sessions = createMockSessions(makeListState([A, B], A));
-    const runtime = createOverlaySessionRuntime(sessions);
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+    });
     sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    now += FOCUS_DEBOUNCE_MS + 1;
+    runtime.__tick();
     expect(runtime.getSnapshot().currentState).toBe("thinking");
+    // 切焦时 flush pending → 新焦点 B（idle）直接显示，无 transition
     sessions.__pushList(makeListState([A, B], B));
     const s = runtime.getSnapshot();
     expect(s.currentState).toBe("idle");
@@ -351,15 +368,30 @@ describe("overlay-session-runtime: 焦点跟随", () => {
 // ---------------------------------------------------------------------------
 
 describe("overlay-session-runtime: 每会话独立", () => {
-  it("A thinking、B error 互不干扰", () => {
+  it("每会话 SM 独立 + B error 抢焦、消退交还", () => {
+    let now = 1000;
     const sessions = createMockSessions(makeListState([A, B], A));
-    const runtime = createOverlaySessionRuntime(sessions);
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+    });
     sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
-    expect(runtime.getSnapshot().currentState).toBe("thinking");
+    now += FOCUS_DEBOUNCE_MS + 1;
+    runtime.__tick();
+    expect(runtime.getSnapshot().currentState).toBe("thinking"); // A 焦点 thinking
+
+    // B error → 抢焦浮层（ADR-0008 / ADR-0010 D7）
     sessions.__session(B)?.__push(makeSnapshot(B, { hasError: true }));
+    expect(runtime.getSnapshot().currentState).toBe("error"); // B 抢焦
+
+    // B error 消退 → 交还 A（A SM 仍为 thinking）
+    sessions.__session(B)?.__push(makeSnapshot(B, { running: false }));
     expect(runtime.getSnapshot().currentState).toBe("thinking");
+
+    // 手动切焦 B：B 已 idle
     sessions.__pushList(makeListState([A, B], B));
-    expect(runtime.getSnapshot().currentState).toBe("error");
+    expect(runtime.getSnapshot().currentState).toBe("idle");
+    // 切回 A：A SM 仍 thinking
     sessions.__pushList(makeListState([A, B], A));
     expect(runtime.getSnapshot().currentState).toBe("thinking");
     runtime.dispose();
@@ -379,8 +411,14 @@ describe("overlay-session-runtime: 时间驱动", () => {
       tickIntervalMs: 100,
     });
     sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    // 先 flush 防抖让 thinking 落态
+    now += FOCUS_DEBOUNCE_MS + 1;
+    runtime.__tick();
     expect(runtime.getSnapshot().currentState).toBe("thinking");
+    // 超 READING_THRESHOLD_MS → 推导 reading；reading 本身也是防抖工作态，需再等窗口
     now += READING_THRESHOLD_MS + 1;
+    runtime.__tick();
+    now += FOCUS_DEBOUNCE_MS + 1;
     runtime.__tick();
     expect(runtime.getSnapshot().currentState).toBe("reading");
     runtime.dispose();
@@ -469,9 +507,16 @@ describe("overlay-session-runtime: 素材 URL", () => {
   });
 
   it("会话内 thinking→error 过渡段 URL 对齐 transitionAssetUrl", () => {
+    let now = 1000;
     const sessions = createMockSessions(makeListState([A], A));
-    const runtime = createOverlaySessionRuntime(sessions);
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+    });
     sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    now += FOCUS_DEBOUNCE_MS + 1;
+    runtime.__tick();
+    // 此刻 thinking 已落态；再 error 硬切 → thinking→idle→error 两段过渡
     sessions.__session(A)?.__push(makeSnapshot(A, { hasError: true }));
     const s = runtime.getSnapshot();
     const transitions = s.playback.filter((p) => p.kind === "transition");
@@ -488,3 +533,120 @@ describe("overlay-session-runtime: 素材 URL", () => {
 
 // 防止未使用导入告警
 void DEFAULT_TRANSITION_DURATION_MS;
+
+// ---------------------------------------------------------------------------
+// ADR-0010：焦点层防抖
+// ---------------------------------------------------------------------------
+
+describe("overlay-session-runtime: 焦点层防抖（ADR-0010）", () => {
+  it("工作态（thinking）切换后不立即生效，需超 FOCUS_DEBOUNCE_MS 才落", () => {
+    let now = 1000;
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+    });
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    // 防抖窗口内：still idle
+    expect(runtime.getSnapshot().currentState).toBe("idle");
+    now += FOCUS_DEBOUNCE_MS - 1;
+    runtime.__tick();
+    expect(runtime.getSnapshot().currentState).toBe("idle");
+    now += 2;
+    runtime.__tick();
+    expect(runtime.getSnapshot().currentState).toBe("thinking");
+    runtime.dispose();
+  });
+
+  it("防抖窗口内目标反复变，只按最新 pending 落一次", () => {
+    let now = 1000;
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+    });
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true })); // thinking
+    now += 500;
+    runtime.__tick();
+    // 切到 working（runningCallsCount>0 → working）
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true, runningCallsCount: 2 }));
+    now += 500;
+    runtime.__tick();
+    // 防抖尚未到点：始终 idle
+    expect(runtime.getSnapshot().currentState).toBe("idle");
+    // 超过最后一次更新的窗口
+    now += FOCUS_DEBOUNCE_MS + 1;
+    runtime.__tick();
+    expect(runtime.getSnapshot().currentState).toBe("working");
+    runtime.dispose();
+  });
+
+  it("permission/error 硬切：不接受防抖直接落态", () => {
+    let now = 1000;
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+    });
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true })); // thinking（未落，防抖中）
+    sessions.__session(A)?.__push(makeSnapshot(A, { hasError: true })); // error 硬切
+    // error 硬切：立即显示 error
+    expect(runtime.getSnapshot().currentState).toBe("error");
+    runtime.dispose();
+  });
+
+  it("done/idle 直接落：不经防抖", () => {
+    let now = 1000;
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+    });
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true })); // thinking 防抖中
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: false })); // done 直接落
+    expect(runtime.getSnapshot().currentState).toBe("done");
+    runtime.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0010：多会话并行驻留 working
+// ---------------------------------------------------------------------------
+
+describe("overlay-session-runtime: 多会话并行驻留（ADR-0010）", () => {
+  it("≥2 会话 running 且至少一个非 idle → 浮层显示 working 驻留", () => {
+    let now = 1000;
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+      random: () => 0.5,
+    });
+    // A thinking（焦点），B 也进入 running working
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true, runningCallsCount: 1 }));
+    sessions.__pushList(makeListState([A, B], A));
+    sessions.__session(B)?.__push(makeSnapshot(B, { running: true, runningCallsCount: 2 }));
+    // 并行判定只看底层目标（pendingTarget），即使焦点 A 防抖未落
+    expect(runtime.getSnapshot().currentState).toBe("working");
+    runtime.dispose();
+  });
+
+  it("只剩一个 running 会话 → 恢复焦点会话跟随", () => {
+    let now = 1000;
+    const sessions = createMockSessions(makeListState([A, B], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+      random: () => 0.5,
+    });
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true, runningCallsCount: 1 }));
+    sessions.__session(B)?.__push(makeSnapshot(B, { running: true, runningCallsCount: 2 }));
+    expect(runtime.getSnapshot().currentState).toBe("working");
+    // B 结束 → 只剩 A running → 恢复焦点跟随
+    sessions.__session(B)?.__push(makeSnapshot(B, { running: false }));
+    now += FOCUS_DEBOUNCE_MS + 1;
+    runtime.__tick();
+    expect(runtime.getSnapshot().currentState).toBe("working"); // A 焦点工作态（working）
+    runtime.dispose();
+  });
+});

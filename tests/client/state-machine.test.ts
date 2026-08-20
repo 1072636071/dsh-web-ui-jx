@@ -1,12 +1,12 @@
 /**
- * 角色浮层状态机纯逻辑测试（工单 05 验收，seam 2）。
+ * 角色浮层状态机纯逻辑测试（工单 05 + 06 验收，seam 2）。
  *
  * seam 2：输入意图断言输出（当前态、过渡序列、落入的循环态）。
  * 纯逻辑测试，不依赖 DOM、不依赖 React（vitest node 环境）。
  *
  * 覆盖：
- *   - 36 过渡边确认（命名模式 + from-to 映射 + 无重复）。
- *   - 10 循环态互通：每对 (A, B) A≠B，dispatch switch to B 后 currentState=B，
+ *   - 42 过渡边确认（命名模式 + from-to 映射 + 无重复）。
+ *   - 13 循环态互通：每对 (A, B) A≠B，dispatch switch to B 后 currentState=B，
  *     playback 末尾是 loop-B。
  *   - 过渡只播一次：playback 里 transition 项不重复，loop 项只有一个在末尾。
  *   - 直接过渡 vs idle 中转：有直接过渡段的切换 playback=[transition, loop]；
@@ -62,9 +62,9 @@ function finalLoopOf(
 // 36 过渡边确认
 // ---------------------------------------------------------------------------
 
-describe("overlay-state-machine: 36 过渡边", () => {
-  it("TRANSITION_EDGES 恰好 36 条", () => {
-    expect(TRANSITION_EDGES).toHaveLength(36);
+describe("overlay-state-machine: 42 过渡边", () => {
+  it("TRANSITION_EDGES 恰好 42 条", () => {
+    expect(TRANSITION_EDGES).toHaveLength(42);
   });
 
   it("每条边对应素材 URL 命名模式 transition-{from}-{to}.webp", () => {
@@ -77,10 +77,10 @@ describe("overlay-state-machine: 36 过渡边", () => {
 
   it("无重复边", () => {
     const keys = new Set(TRANSITION_EDGES.map(([f, t]) => `${f}|${t}`));
-    expect(keys.size).toBe(36);
+    expect(keys.size).toBe(42);
   });
 
-  it("idle 与其他 9 循环态双向互通（18 边）", () => {
+  it("idle 与其他 12 循环态双向互通（24 边）", () => {
     const others = OVERLAY_STATES.filter((s) => s !== "idle");
     for (const s of others) {
       expect(hasTransitionEdge("idle", s)).toBe(true);
@@ -174,7 +174,7 @@ describe("planSwitch: 切换计划构造", () => {
 // 10 循环态互通 + 过渡只播一次
 // ---------------------------------------------------------------------------
 
-describe("createOverlayStateMachine: 10 循环态互通", () => {
+describe("createOverlayStateMachine: 13 循环态互通", () => {
   it("每对 (A,B) A≠B：dispatch switch to B 后 currentState=B，playback 末尾 loop-B", () => {
     for (const from of OVERLAY_STATES) {
       for (const to of OVERLAY_STATES) {
@@ -193,7 +193,7 @@ describe("createOverlayStateMachine: 10 循环态互通", () => {
     }
   });
 
-  it("10 态两两组合（90 对 A≠B）全部可达", () => {
+  it("13 态两两组合（156 对 A≠B）全部可达", () => {
     let count = 0;
     for (const from of OVERLAY_STATES) {
       for (const to of OVERLAY_STATES) {
@@ -204,7 +204,7 @@ describe("createOverlayStateMachine: 10 循环态互通", () => {
         expect(sm.getSnapshot().currentState).toBe(to);
       }
     }
-    expect(count).toBe(90); // 10*9
+    expect(count).toBe(156); // 13*12
   });
 });
 

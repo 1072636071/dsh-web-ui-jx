@@ -1,7 +1,7 @@
 /**
  * CharacterOverlay 组件局部样式（CSS Module）。
  *
- * DESIGN.md §4 角色浮层专规 + ADR-0006 可拖动决策 + 唐风金光背光：
+ * DESIGN.md §4 角色浮层专规 + ADR-0006 可拖动决策：
  *   - 透明无底：容器无 background / 无 box-shadow / 无 filter（光晕 / 背光）。
  *   - img { object-fit: cover; display: block; border-radius: 12px }.
  *   - ADR-0006 决策 1：整盒可拖，pointer-events: auto（反转原穿透原则）。
@@ -11,8 +11,6 @@
  *     transition 仅作用于 opacity，不作用于 transform；prefers-reduced-motion 下无过渡。
  *   - ADR-0006 决策 7：touch-action: none + user-select: none，触屏拖动
  *     不触发页面滚动/文本选中。
- *   - 唐风金色背光由 fx.css 的 [data-jx-character] 选择器提供（drop-shadow + ::before，
- *     其 inset:-24px 在元素外，故本盒不设 overflow:hidden 以免裁切背光）。
  *
  * 浮层透明无底，不消费颜色令牌；深浅双主题下角色素材均正常呈现
  * （角色 webp alpha 透明，不受主题影响，无需主题选择器）。
@@ -37,8 +35,7 @@
   /* ADR-0006 决策 5：transition 仅作用于 opacity（提视），不作用于 transform
    * （拖动跟手无延迟）。transform 由 JS 注入 translate3d + scale。 */
   transition: opacity 150ms var(--ds-ease-in-out);
-  /* 唐风舞台圆角（与 .image 协调）；金色背光由 fx.css [data-jx-character] 提供，
-   * 其 ::before inset:-24px 在元素外，故不设 overflow:hidden 以免裁切背光 */
+  /* 唐风舞台圆角（与 .image 协调） */
   border-radius: 12px;
 }
 
@@ -91,6 +88,25 @@
   to {
     opacity: 0;
   }
+}
+
+/* 状态文案标签：角色下方居中显示，半透明小字，pointer-events: none */
+.stateLabel {
+  position: absolute;
+  left: 50%;
+  bottom: -28px;
+  transform: translateX(-50%);
+  padding: 2px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--dsw-alias-text-primary, #fff);
+  background: var(--dsw-alias-bg-tertiary, rgba(0, 0, 0, 0.45));
+  border-radius: 12px;
+  pointer-events: none;
+  user-select: none;
+  backdrop-filter: blur(2px);
+  opacity: 0.9;
 }
 
 /* ============================================================
