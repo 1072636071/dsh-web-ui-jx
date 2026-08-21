@@ -20,10 +20,12 @@
  *   - 紧急抢焦：非焦点会话 permission/error 抢焦，消退后交还
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createOverlaySessionRuntime,
   FOCUS_DEBOUNCE_MS,
+  POKE_EXIT_MS,
+  POKE_HOLD_MS,
   type RuntimeSnapshot,
 } from "../../src/client/state-machine/overlay-session-runtime.ts";
 import {
@@ -648,5 +650,91 @@ describe("overlay-session-runtime: 多会话并行驻留（ADR-0010）", () => {
     runtime.__tick();
     expect(runtime.getSnapshot().currentState).toBe("working"); // A 焦点工作态（working）
     runtime.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0011：点击惊吓 poke（显示层覆盖）
+// ---------------------------------------------------------------------------
+
+describe("overlay-session-runtime: 点击惊吓 poke（ADR-0011）", () => {
+  it("无会话 idle 下点击 → 惊吓入场（idle→surprised 过渡 + 惊吓循环），focusNonce 不变", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([], undefined));
+    const runtime = createOverlaySessionRuntime(sessions, { tickIntervalMs: 100 });
+    const n0 = runtime.getSnapshot().focusNonce;
+    runtime.poke();
+    const s = runtime.getSnapshot();
+    expect(s.currentState).toBe("surprised");
+    expect(s.focusNonce).toBe(n0); // poke 不递增 focusNonce（与彩蛋一致，无淡入淡出）
+    const transitions = s.playback.filter((p) => p.kind === "transition");
+    expect(transitions.length).toBe(1);
+    if (transitions[0].kind === "transition") {
+      expect(transitions[0].url).toBe(transitionAssetUrl("idle", "surprised"));
+    }
+    expect(finalLoopState(s)).toBe("surprised");
+    runtime.dispose();
+    vi.useRealTimers();
+  });
+
+  it("冷却：poke 播放中重复点击忽略（不重启动画，播放计划引用不变）", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([], undefined));
+    const runtime = createOverlaySessionRuntime(sessions, { tickIntervalMs: 100 });
+    runtime.poke();
+    const p1 = runtime.getSnapshot().playback;
+    runtime.poke();
+    expect(runtime.getSnapshot().playback).toBe(p1);
+    runtime.dispose();
+    vi.useRealTimers();
+  });
+
+  it("播放推进：驻留 POKE_HOLD_MS 后进入回落（回 returnState），再 POKE_EXIT_MS 后恢复", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([], undefined));
+    const runtime = createOverlaySessionRuntime(sessions, { tickIntervalMs: 100 });
+    runtime.poke();
+    expect(runtime.getSnapshot().currentState).toBe("surprised");
+    // 驻留结束 → 回落：currentState 回到 returnState（idle）
+    vi.advanceTimersByTime(POKE_HOLD_MS);
+    expect(runtime.getSnapshot().currentState).toBe("idle");
+    // 回落结束 → poke 清除，恢复 idle
+    vi.advanceTimersByTime(POKE_EXIT_MS);
+    const s = runtime.getSnapshot();
+    expect(s.currentState).toBe("idle");
+    expect(finalLoopState(s)).toBe("idle");
+    runtime.dispose();
+    vi.useRealTimers();
+  });
+
+  it("紧急态（error）存在时不触发 poke", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, { tickIntervalMs: 100 });
+    sessions.__session(A)?.__push(makeSnapshot(A, { hasError: true }));
+    expect(runtime.getSnapshot().currentState).toBe("error");
+    runtime.poke();
+    expect(runtime.getSnapshot().currentState).toBe("error");
+    runtime.dispose();
+  });
+
+  it("并行驻留 working 下点击 → 惊吓 → 回落回 working", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      tickIntervalMs: 100,
+      random: () => 0.5,
+    });
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true, runningCallsCount: 1 }));
+    sessions.__pushList(makeListState([A, B], A));
+    sessions.__session(B)?.__push(makeSnapshot(B, { running: true, runningCallsCount: 2 }));
+    expect(runtime.getSnapshot().currentState).toBe("working");
+    runtime.poke();
+    expect(runtime.getSnapshot().currentState).toBe("surprised");
+    vi.advanceTimersByTime(POKE_HOLD_MS);
+    expect(runtime.getSnapshot().currentState).toBe("working"); // 回落回 working
+    vi.advanceTimersByTime(POKE_EXIT_MS);
+    expect(runtime.getSnapshot().currentState).toBe("working");
+    runtime.dispose();
+    vi.useRealTimers();
   });
 });

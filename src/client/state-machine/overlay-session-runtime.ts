@@ -96,6 +96,12 @@ const EASTER_EGG_HOLD_MS = 3000;
 /** 彩蛋退出动画时长 ms（表情 → idle → working）。 */
 const EASTER_EGG_EXIT_MS = 5000;
 
+/** poke 惊吓循环驻留时长 ms（惊吓循环态展示后开始回落，ADR-0011）。 */
+export const POKE_HOLD_MS = 3000;
+
+/** poke 回落（惊吓→idle→当前态）窗口 ms（ADR-0011）。 */
+export const POKE_EXIT_MS = 5000;
+
 /** 表情循环态集合（拥有 {state}.webp 循环素材）。 */
 const EXPRESSION_LOOP_STATES: ReadonlySet<OverlayState> = new Set([
   "happy",
@@ -153,10 +159,12 @@ interface SessionEntry {
 
 /** overlay-session-runtime 实例。 */
 export interface OverlaySessionRuntime {
-  /** 取当前快照（供 useSyncExternalStore 等订阅机制读取）。 */
+  /** 取当前快照（供 useExternalStore 等订阅机制读取）。 */
   getSnapshot(): RuntimeSnapshot;
   /** 订阅快照变化；返回取消订阅函数。 */
   subscribe(listener: (snapshot: RuntimeSnapshot) => void): () => void;
+  /** 点击惊吓：触发一次「当前态→idle→惊吓→惊吓循环→idle→当前态」（ADR-0011）。 */
+  poke(): void;
   /** 释放全部订阅（list + 各会话 binding.session + tick timer）。 */
   dispose(): void;
   /** 测试用：手动触发一次 tick（时间驱动判定）。 */
@@ -209,6 +217,13 @@ export function createOverlaySessionRuntime(
   let easterEggExitTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   let easterEggState: OverlayState | IntermediateState | undefined = undefined;
   let easterEggExiting = false;
+
+  // 点击惊吓（poke，ADR-0011）相关
+  let pokeState: OverlayState | undefined = undefined;
+  let pokeExiting = false;
+  let pokeReturnState: OverlayState = IDLE;
+  let pokeHoldTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  let pokeExitTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
   let cachedSnapshot: RuntimeSnapshot = computeSnapshot();
   let disposed = false;
@@ -276,6 +291,35 @@ export function createOverlaySessionRuntime(
     return seq;
   }
 
+  /**
+   * poke 入场 playback：当前显示态 → idle → 惊吓 →（惊吓循环驻留）。
+   * 当前态为 idle 时省略「当前态→idle」段（ADR-0011 D2）。
+   */
+  function pokeEntryPlayback(
+    returnState: OverlayState,
+  ): readonly PlaybackItem[] {
+    const seq: PlaybackItem[] = [];
+    if (returnState !== "idle") {
+      seq.push(...transitionPlayback(returnState, "idle"));
+    }
+    seq.push(...transitionPlayback("idle", "surprised"));
+    seq.push({ kind: "loop", state: "surprised", url: loopAssetUrl("surprised") });
+    return seq;
+  }
+
+  /** poke 回落 playback：惊吓 → idle → 当前态 →（当前态循环，ADR-0011 D6）。 */
+  function pokeExitPlayback(
+    returnState: OverlayState,
+  ): readonly PlaybackItem[] {
+    const seq: PlaybackItem[] = [];
+    seq.push(...transitionPlayback("surprised", "idle"));
+    if (returnState !== "idle") {
+      seq.push(...transitionPlayback("idle", returnState));
+    }
+    seq.push(...loopPlayback(returnState));
+    return seq;
+  }
+
   // ---------------------------------------------------------------------------
   // 焦点仲裁与快照
   // ---------------------------------------------------------------------------
@@ -313,19 +357,18 @@ export function createOverlaySessionRuntime(
     return runningCount >= 2 && hasNonIdle;
   }
 
+  /** poke 触发时的回落目标显示态（取消彩蛋后的基础显示态，ADR-0011 D6）。 */
+  function baseDisplayState(): OverlayState {
+    if (currentFocusSessionId === undefined) return IDLE;
+    if (isParallelHold()) return "working";
+    const entry = entries.get(currentFocusSessionId);
+    if (entry === undefined) return IDLE;
+    return entry.stateMachine.getSnapshot().currentState;
+  }
+
   /** 计算当前快照。 */
   function computeSnapshot(): RuntimeSnapshot {
-    // 1. 无焦点会话
-    if (currentFocusSessionId === undefined) {
-      return {
-        focusSessionId: undefined,
-        currentState: IDLE,
-        playback: IDLE_PLAYBACK,
-        focusNonce,
-      };
-    }
-
-    // 2. 紧急抢焦：显示 emergency 会话的 SM 快照
+    // 1. 紧急抢焦：显示 emergency 会话的 SM 快照（优先于 poke，紧急打断由 reconcileFocus 取消 poke）
     const emergencyId = findEmergencySessionId();
     if (emergencyId !== undefined) {
       const entry = entries.get(emergencyId);
@@ -338,6 +381,28 @@ export function createOverlaySessionRuntime(
           focusNonce,
         };
       }
+    }
+
+    // 1.5 点击惊吓（poke）：显示层覆盖（ADR-0011），无会话时也可用
+    if (pokeState !== undefined) {
+      return {
+        focusSessionId: currentFocusSessionId,
+        currentState: pokeExiting ? pokeReturnState : "surprised",
+        playback: pokeExiting
+          ? pokeExitPlayback(pokeReturnState)
+          : pokeEntryPlayback(pokeReturnState),
+        focusNonce,
+      };
+    }
+
+    // 2. 无焦点会话
+    if (currentFocusSessionId === undefined) {
+      return {
+        focusSessionId: undefined,
+        currentState: IDLE,
+        playback: IDLE_PLAYBACK,
+        focusNonce,
+      };
     }
 
     // 3. 并行驻留
@@ -395,6 +460,7 @@ export function createOverlaySessionRuntime(
   function reconcileFocus(): void {
     const emergencyId = findEmergencySessionId();
     if (emergencyId !== undefined) {
+      cancelPoke(); // 紧急事件打断进行中的点击惊吓（ADR-0011 D7）
       setCurrentFocus(emergencyId);
       return;
     }
@@ -531,6 +597,64 @@ export function createOverlaySessionRuntime(
     if (easterEggState === undefined && !easterEggExiting && easterEggTimer === undefined) {
       scheduleEasterEgg();
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 点击惊吓（poke，ADR-0011）
+  // ---------------------------------------------------------------------------
+
+  function clearPokeTimers(): void {
+    if (pokeHoldTimer !== undefined) {
+      clearTimeout(pokeHoldTimer);
+      pokeHoldTimer = undefined;
+    }
+    if (pokeExitTimer !== undefined) {
+      clearTimeout(pokeExitTimer);
+      pokeExitTimer = undefined;
+    }
+  }
+
+  function cancelPoke(): void {
+    if (pokeState === undefined && !pokeExiting) return;
+    clearPokeTimers();
+    pokeState = undefined;
+    pokeExiting = false;
+  }
+
+  /**
+   * 点击惊吓：用户点击姜晓时触发一次「当前态→idle→惊吓→惊吓循环→idle→当前态」。
+   * - 冷却：poke 播放中（含回落）重复调用忽略（ADR-0011 D8）。
+   * - 紧急态（permission/error）存在时不触发；播放中遇紧急事件由 reconcileFocus 取消（D7）。
+   * - 触发时取消进行中的摸鱼彩蛋，避免显示层覆盖叠加（D9）。
+   */
+  function poke(): void {
+    if (disposed) return;
+    if (pokeState !== undefined || pokeExiting) return; // 冷却
+    // 紧急态不触发：非焦点会话抢焦，或焦点会话自身处于 permission/error（ADR-0011 D7）
+    if (findEmergencySessionId() !== undefined) return;
+    const focusEntry = focusSessionIdToEntry(currentFocusSessionId);
+    if (focusEntry !== undefined && isEmergencyState(focusEntry.lastState)) return;
+    // 取消摸鱼彩蛋，避免显示层覆盖叠加
+    clearEasterEggTimers();
+    easterEggState = undefined;
+    easterEggExiting = false;
+
+    pokeReturnState = baseDisplayState();
+    pokeState = "surprised";
+    pokeExiting = false;
+    pokeHoldTimer = setTimeout(() => {
+      pokeHoldTimer = undefined;
+      pokeExiting = true;
+      pokeExitTimer = setTimeout(() => {
+        pokeExitTimer = undefined;
+        pokeState = undefined;
+        pokeExiting = false;
+        reconcileFocus();
+        emit();
+      }, POKE_EXIT_MS);
+      emit();
+    }, POKE_HOLD_MS);
+    emit();
   }
 
   // ---------------------------------------------------------------------------
@@ -781,6 +905,7 @@ export function createOverlaySessionRuntime(
     listUnsub();
     clearDebounceTimer();
     clearEasterEggTimers();
+    clearPokeTimers();
     for (const entry of entries.values()) {
       entry.unsub?.();
       entry.unsub = undefined;
@@ -793,6 +918,7 @@ export function createOverlaySessionRuntime(
   return {
     getSnapshot,
     subscribe,
+    poke,
     dispose,
     __tick: tick,
   };
