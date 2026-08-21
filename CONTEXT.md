@@ -8,8 +8,10 @@
 | 术语           | 定义                                                                                                                                                                |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | dsh-web-ui-jx  | 本项目（`dsh-web-ui-jx`）：一个**独立 DSH Bundle 插件**，实现姜晓角色素材 UI。参考 `dsh-web-ui` 的 jiangxiao 皮肤做法，但**不复用 dsh-web-ui 任何包**（ADR-0001）。 |
-| 素材（assets） | 插件运行所需的真实资源，存放于本仓库 `assets/`：`character/`（46 角色 webp）、`fonts/`（2 woff2）、`preview/`（2 png）。全部进 git。                                |
-| 角色浮层       | client 半区注入的透明角色层，播放 10 态 WebP，可 10 态切换 + 台词气泡；**整盒可拖动**（ADR-0006）：`pointer-events:auto` 反转穿透原则，`transform` 定位 + `localStorage('jx-overlay-pos')` 持久化 + 视口内钳制，SettingsCard 提供重置入口。 |
+| 素材（assets） | 插件运行所需的真实资源，存放于本仓库 `assets/`：`character/`（角色 webp：13 循环态 + 42 过渡段 + 6 变体）、`fonts/`（2 woff2）、`preview/`（2 png）。全部进 git。        |
+| 角色浮层       | client 半区注入的透明角色层，播放 13 态 WebP，可态切换 + 台词气泡；**整盒可拖动**（ADR-0006）：`pointer-events:auto` 反转穿透原则，`transform` 定位 + `localStorage('jx-overlay-pos')` 持久化 + 视口内钳制，SettingsCard 提供重置入口；待机/工作态支持**变体动作轮换**（ADR-0013）。 |
+| 变体动作       | 同一循环态的多段可轮换动作（ADR-0013）：形状「中性姿态→动作→中性姿态」，只播一遍，运行期随机不重复抽取串成播放列表；正式命名 `{state}-vN.webp`（主素材为 v1）；首批覆盖 idle（v2–v4）与 working（v2–v4），SettingsCard「角色」section 开关默认开。 |
+| 中性帧         | 变体拼接的共享锚点（ADR-0013）：某状态主素材第一帧（= 过渡段落下姿态），所有变体首尾帧与其一致；参考图由主素材第一帧导出，供素材生成做首帧 conditioning。 |
 | 会话气泡列     | 角色浮层左侧竖排的常驻气泡列（ADR-0007），自下而上生长：一气泡 = 一运行中（`running`）/已结束未查看（`completed`）会话，标题 + 状态点（运行中金呼吸 / 已完成石绿）；气泡本体可点击（反转台词气泡穿透原则），点击经 `sessions.open(id)` 跳转会话；当前会话金描边；数量上限默认 5（1-10 可配置，SettingsCard「角色」section），超出折叠为「+N」原地展开。 |
 | 中间态表情     | 状态机过渡段端点表情（ADR-0009 活化前）：shy-smile/shush/nod-smile/frown-wave/chin-rest/cheek-rest 6 个，素材 16 边（idle↔6 表情 12 边 + permission↔nod-smile/frown-wave 4 边）；ADR-0009 起活化：permission 情绪化 + idle 低频随机点缀（30–60s 一次「idle→表情→idle」）。 |
 | 生活化表情     | ADR-0009 新增 3 表情（各 `idle↔表情` 2 边新素材）：happy = 会话完成（done）触发；angry = 授权/工具等待 10s 未响应触发；shocked = 被点击/拖动触发一次播完即回。 |
@@ -57,5 +59,9 @@
 | ADR-0007 | 角色浮层会话气泡列（常驻 + 可点击跳转）。气泡范围 = `running`/`completed` 会话，左侧竖排自下而上，点击 `sessions.open(id)` 跳转；反转「气泡不拦截指针」规（仅气泡本体）；上限默认 5 可配置（SettingsCard「角色」section），超出折叠「+N」展开。 |
 | ADR-0008 | 会话级状态机 + 焦点仲裁（多会话适配）。`Map<sessionId, SM>` 每会话一实例，随 `list.ids` 同步生命周期；焦点 = 当前打开会话最优先，error/permission 紧急抢焦、消退即交还；跨会话切换不播状态机过渡（直接切 loop + 150ms 淡入淡出）；过渡段时长播放期 ANMF 解析按素材缓存、失败回退 800ms（800ms 假设仅覆盖真实时长 15–23%，截断缺陷）。 |
 | ADR-0009 | 表情体系扩展。现有 6 中间态表情活化（permission 情绪化 + idle 随机点缀）；新增 3 生活化表情（happy=done、angry=pending 10s、shocked=点击一次播完即回），各 2 边新素材；台词扩展见 `docs/character-lines.md`。 |
+| ADR-0010 | 焦点层防抖 + 并行驻留 + 摸鱼彩蛋。工作态（thinking/reading/replying/working）目标稳定 3000ms 才切一次（pending 挂起）；permission/error 恒硬切（仍播过渡段）；≥2 会话并行时浮层驻留 working；驻留期 2–5 分钟随机触发彩蛋表情。 |
+| ADR-0011 | 点击惊吓（poke）显示层覆盖。pointerup 位移 <5px 且 ≤300ms 判点击；runtime 显示层覆盖惊吓序列（不在焦点 SM 上 dispatch），驻留 3s 回落；点击路径显式弹台词、抑制自动双弹；紧急态优先并可打断 poke。 |
+| ADR-0012 | 循环缺陷资产侧修复。happy/angry/surprised 整段倒放烘焙（裁淡入残留 + 裁死定格 + 镜像帧）；working 符咒爆亮局部镜像（回落段反演合成渐起段）；运行期零改动；修复资产降采样 360×640 重编码，原件备份 `bak/` 不进 git。 |
+| ADR-0013 | 多动作变体播放列表拼接。idle/working 变体「中性帧→动作→中性帧」只播一遍，随机不重复抽取串成无限列表，段间中性帧停 ~400ms；主素材入池；打断后重抽；SettingsCard 开关默认开；命名 `{state}-vN.webp`。 |
 
 详见 `docs/adr/`。

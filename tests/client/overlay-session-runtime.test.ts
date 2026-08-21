@@ -654,6 +654,77 @@ describe("overlay-session-runtime: 多会话并行驻留（ADR-0010）", () => {
 });
 
 // ---------------------------------------------------------------------------
+// permission 消退（授权完成）：下降沿补边 + 紧急态退出不经防抖
+// ---------------------------------------------------------------------------
+
+describe("overlay-session-runtime: permission 消退（授权完成）", () => {
+  it("授权完成 → 立即离开 permission 落 working（不经防抖、不推进时钟）", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      tickIntervalMs: 100,
+    });
+    // 工具调用中请求授权 → permission 硬切
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1, pending: true }),
+    );
+    expect(runtime.getSnapshot().currentState).toBe("permission");
+    // 授权完成（pending 落、工具调用继续）→ 立即落 working，无需等防抖窗口
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1, pending: false }),
+    );
+    const s = runtime.getSnapshot();
+    expect(s.currentState).toBe("working");
+    expect(finalLoopState(s)).toBe("working");
+    runtime.dispose();
+  });
+
+  it("拒绝/中止 → done（回合结束边沿）", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      tickIntervalMs: 100,
+    });
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1, pending: true }),
+    );
+    expect(runtime.getSnapshot().currentState).toBe("permission");
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: false, runningCallsCount: 1, pending: false }),
+    );
+    expect(runtime.getSnapshot().currentState).toBe("done");
+    runtime.dispose();
+  });
+
+  it("非焦点会话 permission 抢焦，授权完成后交还用户焦点", () => {
+    let now = 1000;
+    const sessions = createMockSessions(makeListState([A, B], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 100,
+    });
+    // A 焦点 thinking（防抖后落态）
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    now += FOCUS_DEBOUNCE_MS + 1;
+    runtime.__tick();
+    expect(runtime.getSnapshot().currentState).toBe("thinking");
+    // B 非焦点请求授权 → 抢焦
+    sessions.__session(B)?.__push(
+      makeSnapshot(B, { running: true, runningCallsCount: 1, pending: true }),
+    );
+    expect(runtime.getSnapshot().currentState).toBe("permission");
+    expect(runtime.getSnapshot().focusSessionId).toBe(B);
+    // B 授权完成 → 紧急态消退，交还 A
+    sessions.__session(B)?.__push(
+      makeSnapshot(B, { running: true, runningCallsCount: 1, pending: false }),
+    );
+    const s = runtime.getSnapshot();
+    expect(s.focusSessionId).toBe(A);
+    // 交还后 A、B 双会话并行 running（B 工具调用继续）→ 按 ADR-0010 D5 驻留 working
+    expect(s.currentState).toBe("working");
+    runtime.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // ADR-0011：点击惊吓 poke（显示层覆盖）
 // ---------------------------------------------------------------------------
 

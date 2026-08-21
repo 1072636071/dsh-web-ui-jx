@@ -40,6 +40,13 @@ import {
   DONE_HOLD_MS,
   type SnapshotCore,
 } from "./session-follow.ts";
+import {
+  isRotatableState,
+  pickNextVariant,
+  rotationPeriodMs,
+  rotationPool,
+  type RotatableState,
+} from "./variant-rotation.ts";
 
 // ---------------------------------------------------------------------------
 // 常量
@@ -67,11 +74,6 @@ const DIRECT_STATES: ReadonlySet<OverlayState> = new Set(["done", "idle"]);
 
 /** 无会话时浮层停留的初始态。 */
 const IDLE: OverlayState = "idle";
-
-/** 无会话时的空闲 playback。 */
-const IDLE_PLAYBACK: readonly PlaybackItem[] = [
-  { kind: "loop", state: "idle", url: loopAssetUrl("idle") },
-];
 
 /** 摸鱼彩蛋状态池（6 中间态表情 + 3 新增生活化表情循环态，ADR-0010 D7）。 */
 const EASTER_EGG_POOL: ReadonlyArray<OverlayState | IntermediateState> = [
@@ -169,6 +171,11 @@ export interface OverlaySessionRuntime {
   dispose(): void;
   /** 测试用：手动触发一次 tick（时间驱动判定）。 */
   __tick(): void;
+  /**
+   * 重新评估显示层（变体轮换开关变化时由接线层调用，ADR-0013 D7）：
+   * 丢弃进行中的轮换位置并重算快照。
+   */
+  refresh(): void;
 }
 
 /** runtime 选项。 */
@@ -182,6 +189,11 @@ export interface CreateOverlaySessionRuntimeOptions {
    * 返回 [0,1) 之间浮点数；默认 Math.random。
    */
   random?: () => number;
+  /**
+   * 变体轮换开关读取器（ADR-0013 D7）。
+   * 未注入时变体轮换禁用（纯测试环境默认行为与现状一致）。
+   */
+  variantRotationEnabled?: () => boolean;
 }
 
 /**
@@ -225,6 +237,14 @@ export function createOverlaySessionRuntime(
   let pokeHoldTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   let pokeExitTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
+  // 变体轮换（ADR-0013）相关：当前轮换段 + 推进计时。
+  // 打断（状态切换/彩蛋/poke/紧急态）时丢弃位置，回落后重抽（D9）。
+  let rotationSegment:
+    | { state: RotatableState; url: string }
+    | undefined = undefined;
+  let rotationTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const rotationEnabled = opts?.variantRotationEnabled ?? (() => false);
+
   let cachedSnapshot: RuntimeSnapshot = computeSnapshot();
   let disposed = false;
 
@@ -250,9 +270,69 @@ export function createOverlaySessionRuntime(
     ];
   }
 
-  /** working 驻留态的循环 playback。 */
-  function workingHoldPlayback(): readonly PlaybackItem[] {
-    return loopPlayback("working");
+  // -------------------------------------------------------------------------
+  // 变体轮换（ADR-0013）
+  // -------------------------------------------------------------------------
+
+  /** 停止轮换：丢弃当前位置与推进计时（打断语义，D9）。 */
+  function stopRotation(): void {
+    if (rotationTimer !== undefined) {
+      clearTimeout(rotationTimer);
+      rotationTimer = undefined;
+    }
+    rotationSegment = undefined;
+  }
+
+  /** 排程当前轮换段的推进：名义时长 + 段间停顿后抽下一段。 */
+  function scheduleRotationAdvance(): void {
+    if (rotationSegment === undefined) return;
+    if (rotationTimer !== undefined) clearTimeout(rotationTimer);
+    const period = rotationPeriodMs(rotationSegment.url);
+    rotationTimer = setTimeout(() => {
+      rotationTimer = undefined;
+      if (rotationSegment === undefined) return;
+      const state = rotationSegment.state;
+      const next = pickNextVariant(
+        rotationPool(state),
+        rotationSegment.url,
+        random,
+      );
+      if (next === undefined) return;
+      rotationSegment = { state, url: next };
+      scheduleRotationAdvance();
+      emit();
+    }, period);
+  }
+
+  /**
+   * 确保某可轮换状态有进行中的轮换段，返回其 playback（ADR-0013 D4/D9）。
+   *
+   * - 开关关闭：停止轮换，回退基础循环。
+   * - 首次进入该状态：随机抽一个变体起播（过渡段已落在中性姿，帧级衔接）；
+   *   无变体可抽（池只有主素材）时回退基础循环。
+   * - 已在轮换中：沿用当前段。
+   */
+  function ensureRotation(state: RotatableState): readonly PlaybackItem[] {
+    if (!rotationEnabled()) {
+      stopRotation();
+      return loopPlayback(state);
+    }
+    if (
+      rotationSegment === undefined ||
+      rotationSegment.state !== state
+    ) {
+      stopRotation();
+      const pool = rotationPool(state);
+      // 首次进入抽变体（跳过基础主素材，直接打破单调）；无变体则用主素材。
+      const firstPick =
+        pool.length > 1
+          ? pickNextVariant(pool.slice(1), undefined, random)
+          : pool[0];
+      if (firstPick === undefined) return loopPlayback(state);
+      rotationSegment = { state, url: firstPick };
+      scheduleRotationAdvance();
+    }
+    return [{ kind: "loop", state, url: rotationSegment.url }];
   }
 
   /**
@@ -374,6 +454,7 @@ export function createOverlaySessionRuntime(
       const entry = entries.get(emergencyId);
       if (entry !== undefined) {
         const sm = entry.stateMachine.getSnapshot();
+        stopRotation(); // 紧急态打断轮换，回落后重抽（D9）
         return {
           focusSessionId: emergencyId,
           currentState: sm.currentState,
@@ -385,6 +466,7 @@ export function createOverlaySessionRuntime(
 
     // 1.5 点击惊吓（poke）：显示层覆盖（ADR-0011），无会话时也可用
     if (pokeState !== undefined) {
+      stopRotation(); // poke 打断轮换，回落后重抽（D9）
       return {
         focusSessionId: currentFocusSessionId,
         currentState: pokeExiting ? pokeReturnState : "surprised",
@@ -400,7 +482,7 @@ export function createOverlaySessionRuntime(
       return {
         focusSessionId: undefined,
         currentState: IDLE,
-        playback: IDLE_PLAYBACK,
+        playback: ensureRotation("idle"),
         focusNonce,
       };
     }
@@ -408,6 +490,7 @@ export function createOverlaySessionRuntime(
     // 3. 并行驻留
     if (isParallelHold()) {
       if (easterEggState !== undefined) {
+        stopRotation(); // 彩蛋打断轮换，回落后重抽（D9）
         return {
           focusSessionId: currentFocusSessionId,
           currentState: easterEggExiting ? "working" : easterEggState,
@@ -420,7 +503,7 @@ export function createOverlaySessionRuntime(
       return {
         focusSessionId: currentFocusSessionId,
         currentState: "working",
-        playback: workingHoldPlayback(),
+        playback: ensureRotation("working"),
         focusNonce,
       };
     }
@@ -431,11 +514,23 @@ export function createOverlaySessionRuntime(
       return {
         focusSessionId: currentFocusSessionId,
         currentState: IDLE,
-        playback: IDLE_PLAYBACK,
+        playback: ensureRotation("idle"),
         focusNonce,
       };
     }
     const sm = entry.stateMachine.getSnapshot();
+    // 循环态已落稳且为可轮换状态：接入变体轮换；过渡中或其他状态：停止轮换。
+    const settledLoop =
+      sm.playback.length === 1 && sm.playback[0].kind === "loop";
+    if (settledLoop && isRotatableState(sm.currentState)) {
+      return {
+        focusSessionId: currentFocusSessionId,
+        currentState: sm.currentState,
+        playback: ensureRotation(sm.currentState),
+        focusNonce,
+      };
+    }
+    stopRotation();
     return {
       focusSessionId: currentFocusSessionId,
       currentState: sm.currentState,
@@ -489,10 +584,19 @@ export function createOverlaySessionRuntime(
    * 对焦点会话应用目标态。
    * - permission/error：立即硬切（取消防抖）。
    * - done/idle：立即落。
+   * - permission 下降沿补态（force）：立即落，不等防抖窗口（授权完成应即刻恢复工作呈现）。
    * - 工作态：防抖 3000ms，窗口内只保留最新 pending。
    */
-  function applyFocusTarget(entry: SessionEntry, target: OverlayState): void {
-    if (HARD_CUT_STATES.has(target) || DIRECT_STATES.has(target)) {
+  function applyFocusTarget(
+    entry: SessionEntry,
+    target: OverlayState,
+    force = false,
+  ): void {
+    if (
+      force ||
+      HARD_CUT_STATES.has(target) ||
+      DIRECT_STATES.has(target)
+    ) {
       clearDebounceTimer();
       debouncePendingTarget = undefined;
       if (entry.lastState !== target) {
@@ -681,11 +785,14 @@ export function createOverlaySessionRuntime(
   function processSnapshot(entry: SessionEntry, snapshot: ConversationSnapshot): void {
     const currCore = extractCore(snapshot);
     const target = diffTarget(entry.prevCore, currCore);
+    // permission 下降沿（授权完成）：补出的目标态立即落，不经防抖
+    const permissionFalling =
+      entry.prevCore !== null && entry.prevCore.pending && !currCore.pending;
     if (currCore.hasVisibleChunk || !currCore.running) entry.thinkingSince = undefined;
     if (target !== null) {
       setUnderlyingTarget(entry, target);
       if (focusSessionIdToEntry(currentFocusSessionId) === entry) {
-        applyFocusTarget(entry, target);
+        applyFocusTarget(entry, target, permissionFalling);
       } else {
         // 非焦点会话直接落（不可见，无需防抖）
         if (entry.lastState !== target) {
@@ -906,6 +1013,7 @@ export function createOverlaySessionRuntime(
     clearDebounceTimer();
     clearEasterEggTimers();
     clearPokeTimers();
+    stopRotation();
     for (const entry of entries.values()) {
       entry.unsub?.();
       entry.unsub = undefined;
@@ -915,11 +1023,19 @@ export function createOverlaySessionRuntime(
     listeners.clear();
   }
 
+  /** 重新评估显示层（变体轮换开关变化时调用，ADR-0013 D7）。 */
+  function refresh(): void {
+    if (disposed) return;
+    stopRotation();
+    emit();
+  }
+
   return {
     getSnapshot,
     subscribe,
     poke,
     dispose,
     __tick: tick,
+    refresh,
   };
 }

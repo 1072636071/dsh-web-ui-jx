@@ -93,6 +93,13 @@ export function diffTarget(
   if (curr.hasError && (prev === null || !prev.hasError)) return "error";
   // 2. permission
   if (curr.pending && (prev === null || !prev.pending)) return "permission";
+  // 2.5 permission 下降沿：授权完成（pending 落）且回合仍在进行 → 按现场补目标态，
+  //     否则角色会卡在 permission（此时 3/4/5 的上升沿条件均不满足）。
+  if (prev !== null && prev.pending && !curr.pending && curr.running) {
+    if (curr.runningCallsCount > 0) return "working";
+    if (curr.hasVisibleChunk) return "replying";
+    return "thinking";
+  }
   // 3. working
   if (curr.runningCallsCount > 0 && (prev === null || prev.runningCallsCount === 0)) {
     return "working";

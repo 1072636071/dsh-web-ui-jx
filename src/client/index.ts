@@ -37,6 +37,10 @@ import { SidebarEntry } from "./components/SidebarEntry.tsx";
 import { applyFx } from "./fx/index.ts";
 import { createOverlaySessionRuntime } from "./state-machine/overlay-session-runtime.ts";
 import type { OverlaySessionRuntime } from "./state-machine/overlay-session-runtime.ts";
+import {
+  getVariantRotationEnabled,
+  subscribeVariantRotationEnabled,
+} from "./state-machine/overlay-settings.ts";
 import { initSkin } from "./skin.ts";
 import "./styles/base.css";
 import "./styles/jiangxiao.css";
@@ -99,16 +103,28 @@ export function apply(ctx: ClientContext): void {
   // ADR-0008：runtime 传入 CharacterOverlay，浮层订阅焦点会话 playback。
   const sessions = ctx.get("sessions");
   const runtime =
-    sessions !== undefined ? createOverlaySessionRuntime(sessions) : undefined;
+    sessions !== undefined
+      ? createOverlaySessionRuntime(sessions, {
+          // ADR-0013 D7：动作轮换开关由设置存储提供（默认开）。
+          variantRotationEnabled: getVariantRotationEnabled,
+        })
+      : undefined;
   root.render(createElement(RootApp, { sessions, runtime }));
 
   // 启动 FX 特效系统。
   applyFx();
 
   // ADR-0008：runtime 生命周期随 ctx.effect（dispose 释放全部订阅 + tick timer）。
+  // ADR-0013：开关变化触发 runtime.refresh() 重评估轮换。
   if (runtime !== undefined) {
+    const unsubVariantRotation = subscribeVariantRotationEnabled(() => {
+      runtime.refresh();
+    });
     ctx.effect(
-      () => runtime.dispose,
+      () => {
+        unsubVariantRotation();
+        return runtime.dispose;
+      },
       "dsh-web-ui-jx: overlay session runtime",
     );
   }

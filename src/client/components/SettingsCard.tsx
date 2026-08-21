@@ -43,6 +43,8 @@ import {
 import {
   getShowStateLabel,
   setShowStateLabel,
+  getVariantRotationEnabled,
+  setVariantRotationEnabled,
 } from "../state-machine/overlay-settings.ts";
 import { ManagementUI } from "./ManagementUI.tsx";
 import styles from "../styles/sidebar-settings.module.css";
@@ -108,6 +110,11 @@ export function SettingsCard({ className }: SettingsCardProps) {
     getShowStateLabel(),
   );
 
+  // 动作轮换开关（ADR-0013 D7，默认 true）
+  const [variantRotationOn, setVariantRotationOn] = useState<boolean>(() =>
+    getVariantRotationEnabled(),
+  );
+
   /** 切换皮肤总开关：setSkinEnabled 即时生效 + 持久化，并更新本地视图状态. */
   const handleToggleSkin = useCallback(() => {
     const next = !skinEnabled;
@@ -153,6 +160,13 @@ export function SettingsCard({ className }: SettingsCardProps) {
     setShowStateLabel(next);
     setStateLabelVisible(next);
   }, [stateLabelVisible]);
+
+  /** 切换动作轮换：调 setVariantRotationEnabled 即时生效 + 持久化，并更新本地视图状态. */
+  const handleToggleVariantRotation = useCallback(() => {
+    const next = !variantRotationOn;
+    setVariantRotationEnabled(next);
+    setVariantRotationOn(next);
+  }, [variantRotationOn]);
 
   /** 重置浮层位置：调位置 store 的 reset()，浮层立即回右下角 + 清持久化（工单 03）. */
   const handleResetPosition = useCallback(() => {
@@ -295,6 +309,24 @@ export function SettingsCard({ className }: SettingsCardProps) {
                 aria-label="切换姜晓状态标签"
                 className={`${styles.toggleSwitch}${stateLabelVisible ? " " + styles.toggleOn : ""}`}
                 onClick={handleToggleStateLabel}
+              >
+                <span className={styles.toggleKnob} />
+              </button>
+            </div>
+            <div className={styles.fxItem}>
+              <div className={styles.fxLabelBox}>
+                <span className={styles.fxLabel}>动作轮换</span>
+                <span className={styles.fxDesc}>
+                  待机/工作时长驻动作随机轮换，不再单一循环
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={variantRotationOn}
+                aria-label="切换动作轮换"
+                className={`${styles.toggleSwitch}${variantRotationOn ? " " + styles.toggleOn : ""}`}
+                onClick={handleToggleVariantRotation}
               >
                 <span className={styles.toggleKnob} />
               </button>

@@ -104,7 +104,7 @@ describe("parseWebpDurationMs: 合成字节", () => {
 // parseWebpDurationMs：真实素材回归（权威值：sub-task/002 结论）
 // ---------------------------------------------------------------------------
 
-describe("parseWebpDurationMs: 现有 55 素材回归", () => {
+describe("parseWebpDurationMs: 现有 61 素材回归", () => {
   const assetsDir = resolve("assets/character");
   const files = readdirSync(assetsDir)
     .filter((f) => f.toLowerCase().endsWith(".webp"))
@@ -112,15 +112,21 @@ describe("parseWebpDurationMs: 现有 55 素材回归", () => {
   const transitions = files.filter((f) => f.startsWith("transition-"));
   const loops = files.filter((f) => !f.startsWith("transition-"));
 
-  it("素材总数 = 55（13 循环态 + 42 过渡段）", () => {
-    expect(files).toHaveLength(55);
-    expect(loops).toHaveLength(13);
+  it("素材总数 = 61（13 循环态 + 6 变体 + 42 过渡段）", () => {
+    expect(files).toHaveLength(61);
+    expect(loops).toHaveLength(19);
     expect(transitions).toHaveLength(42);
   });
 
-  it("原循环态 10 个为 5025ms/圈，新增 3 个为 5000ms/圈", () => {
-    const baseLoops = ["idle", "thinking", "reading", "replying", "working", "error", "welcome", "done", "permission", "listening"];
-    const exprLoops = ["happy", "angry", "surprised"];
+  it("循环态时长：9 经典态 5025ms；working 修复后 5762ms；3 表情倒放烘焙后各不同；6 变体 5025ms", () => {
+    // memorial 008 前：10 经典态均 5025ms。修复后 working 局部镜像 86 帧。
+    const baseLoops = ["idle", "thinking", "reading", "replying", "error", "welcome", "done", "permission", "listening"];
+    const exprLoops: Record<string, number> = {
+      // memorial 008 整段倒放烘焙（裁淡入 + 裁死定格 + 镜像）后的单圈时长
+      happy: 7524,    // 228 帧 × 33ms
+      angry: 6204,    // 188 帧 × 33ms
+      surprised: 5214, // 158 帧 × 33ms
+    };
     for (const name of baseLoops) {
       const f = `${name}.webp`;
       const bytes = readFileSync(join(assetsDir, f));
@@ -129,13 +135,29 @@ describe("parseWebpDurationMs: 现有 55 素材回归", () => {
         `循环态 ${f}`,
       ).toBe(5025);
     }
-    for (const name of exprLoops) {
+    {
+      const bytes = readFileSync(join(assetsDir, "working.webp"));
+      expect(
+        parseWebpDurationMs(new Uint8Array(bytes)),
+        "循环态 working.webp（局部镜像修复后 86 帧）",
+      ).toBe(5762);
+    }
+    for (const [name, ms] of Object.entries(exprLoops)) {
       const f = `${name}.webp`;
       const bytes = readFileSync(join(assetsDir, f));
       expect(
         parseWebpDurationMs(new Uint8Array(bytes)),
         `循环态 ${f}`,
-      ).toBe(5000);
+      ).toBe(ms);
+    }
+    // memorial 008 变体素材：75 帧 × 67ms
+    for (const name of ["idle-v2", "idle-v3", "idle-v4", "working-v2", "working-v3", "working-v4"]) {
+      const f = `${name}.webp`;
+      const bytes = readFileSync(join(assetsDir, f));
+      expect(
+        parseWebpDurationMs(new Uint8Array(bytes)),
+        `变体 ${f}`,
+      ).toBe(5025);
     }
   });
 
