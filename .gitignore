@@ -14,3 +14,7 @@ dist/
 
 # 资产侧修复的原件备份（ADR-0012 D2，不进 git）
 bak/
+
+# Python 字节码缓存
+__pycache__/
+*.pyc
