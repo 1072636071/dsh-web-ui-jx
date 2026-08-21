@@ -48,7 +48,7 @@ CONVERSIONS = {
 
 # 质检阈值（2026-08-22 实测校准）
 GOLD_MIN_PX = 40          # 工作变体每帧最少金色像素（缩到 96 宽后）
-POP_ABS_CAP = 140.0       # 局部突变绝对上限：修复 alpha 计算后实测合法快速运动 ≤136（画横弧扫），超过判闪烁故障
+POP_ABS_CAP = 165.0       # 局部突变绝对上限：去溢色升级后合法弧扫帧实测 ≤158（同批运动帧），超过判闪烁故障
 NEUTRAL_WARN = 30.0       # 首尾帧 vs 中性帧 报告阈值（匹配对实测 ~24、错配对 ~30，
                           # 分离度不足做硬闸，最终以目检条为闸）
 
@@ -67,23 +67,41 @@ def extract_frames(video_path):
 
 
 def chroma_key(img, green):
-    """色度键：绿色主导度坡道转 alpha + 半透明区去溢色（numpy 向量化）。"""
-    # int32：int16 平方会溢出（255²=65025 > 32767）产生 NaN
-    arr = np.asarray(img.convert("RGBA"), dtype=np.int32)
+    """色度键：绿色距离坡道转 alpha + 边缘去污染 + 全局绿溢色压制。
+
+    - 坡道：距绿幕底色 ≤42 全透明，≥105 全不透明，中间线性（软边）。
+    - 边缘去污染：半透明像素预乘还原 c' = (c - (1-a)*bg)/a，剥离绿幕
+      底色对发丝等软边的绿色贡献（绿边主因）。
+    - 全局绿溢色：低饱和像素（白发/浅色织物）中绿色显著占优时压回
+      红蓝均值；阈值 + 饱和度条件保护金饰等高饱和固有色。
+    """
+    arr = np.asarray(img.convert("RGB"), dtype=np.float32)
     gr, gg, gb = green
     dist = np.sqrt(
         (arr[:, :, 0] - gr) ** 2
         + (arr[:, :, 1] - gg) ** 2
         + (arr[:, :, 2] - gb) ** 2
     )
-    alpha = np.clip((dist - 42) / (105 - 42) * 255, 0, 255).astype(np.uint8)
-    out = arr.astype(np.uint8).copy()
-    out[:, :, 3] = alpha
-    # 半透明区去溢色：g = min(g, max(r,b)+8)
-    semi = alpha < 240
-    max_rb = np.maximum(out[:, :, 0], out[:, :, 2]).astype(np.int16)
-    g_clipped = np.minimum(out[:, :, 1].astype(np.int16), max_rb + 8)
-    out[:, :, 1] = np.where(semi, g_clipped, out[:, :, 1]).astype(np.uint8)
+    alpha = np.clip((dist - 42) / (105 - 42), 0, 1)
+
+    # 边缘去污染（预乘还原）
+    bg = np.array([gr, gg, gb], dtype=np.float32)
+    a_safe = np.maximum(alpha, 0.05)
+    rgb = (arr - (1 - alpha)[:, :, None] * bg) / a_safe[:, :, None]
+    rgb = np.clip(rgb, 0, 255)
+
+    # 全局绿溢色压制：绿色高出红蓝均值时压回——
+    #   a. 低饱和像素（sat<50，白发/浅色织物的绿染）；
+    #   b. 靠近绿幕底色的像素（dist<190，发丝边缘的高饱和绿混合；
+    #      金饰等固有色距绿幕底色 >200，不受影响）。
+    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+    sat = rgb.max(axis=2) - rgb.min(axis=2)
+    mean_rb = (r + b) / 2
+    near_bg = dist < 190
+    spill = (g > mean_rb + 4) & ((sat < 50) | near_bg)
+    rgb[:, :, 1] = np.where(spill, mean_rb, g)
+
+    out = np.dstack([rgb, alpha * 255]).astype(np.uint8)
     return Image.fromarray(out, "RGBA")
 
 

@@ -197,4 +197,9 @@
 3. **运行期**：`variant-rotation.ts`（池配置 + 随机不重复抽取 + 周期常量）；runtime 接入 ensureRotation/stopRotation（分支级打断语义 D9）；设置存储 `jx-variant-rotation`（默认开）+ SettingsCard「角色」section 开关；client 入口接线 + refresh。
 4. **顺手修复既有缺陷**（HEAD 已有 5 个失败测试）：`session-follow.diffTarget` 补 permission 下降沿规则（授权完成后按现场补 working/replying/thinking，否则卡在 permission）；下降沿补态不经防抖（applyFocusTarget force）；一处测试预期与 ADR-0010 D5 并行驻留冲突，修正为 working。
 5. **验收**：206/206 测试全绿；typecheck 通过；`npm run build` 双半区产出；`npm run verify` 21/21 通过。
+6. **补充修复（用户反馈：头发绿色没处理干净）**：旧去溢色只对半透明像素钳制 `g≤max(r,b)+8`，对白发绿染（低饱和不透明像素）与发丝边缘高饱和绿混合无效。升级 `chroma_key`：
+   - 半透明边缘预乘还原 `c' = (c-(1-a)·bg)/a`，剥离绿幕底色对软边的贡献；
+   - 绿溢色压制双条件：低饱和（sat<50）或靠近绿幕底色（RGB 距离<190），且绿色高出红蓝均值 4 以上 → 压回红蓝均值；金饰固有色距绿幕底色 >200 不受影响；
+   - 效果：待机三段半透明绿溢 4400–4700→220–314（-93%）、亮部绿染 900–1000→62–96；工作三段→39–62/0–6；绿底白底双衬目检发丝无绿边；
+   - 质检上限再校准：去溢色后边缘更锐，同批弧扫帧块差 136→158，POP_ABS_CAP 140→165。
 
