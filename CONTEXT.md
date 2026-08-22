@@ -15,7 +15,8 @@
 | 中性帧         | 变体拼接的共享锚点（ADR-0013）：某状态主素材第一帧（= 过渡段落下姿态），所有变体首尾帧与其一致；参考图由主素材第一帧导出，供素材生成做首帧 conditioning。 |
 | 会话气泡列     | 角色浮层左侧竖排的常驻气泡列（ADR-0007），自下而上生长：一气泡 = 一运行中（`running`）/已结束未查看（`completed`）会话，标题 + 状态点（运行中金呼吸 / 已完成石绿）；气泡本体可点击（反转台词气泡穿透原则），点击经 `sessions.open(id)` 跳转会话；当前会话金描边；数量上限默认 5（1-10 可配置，SettingsCard「角色」section），超出折叠为「+N」原地展开。 |
 | 中间态表情     | 状态机过渡段端点表情（ADR-0009 活化前）：shy-smile/shush/nod-smile/frown-wave/chin-rest/cheek-rest 6 个，素材 16 边（idle↔6 表情 12 边 + permission↔nod-smile/frown-wave 4 边）；ADR-0009 起活化：permission 情绪化 + idle 低频随机点缀（30–60s 一次「idle→表情→idle」）。 |
-| 生活化表情     | ADR-0009 新增 3 表情（各 `idle↔表情` 2 边新素材）：happy = 会话完成（done）触发；angry = 授权/工具等待 10s 未响应触发；shocked = 被点击/拖动触发一次播完即回。 |
+| 智能体等待     | runningCalls>0（工作态）持续顶着不动视为「等待交互/审批」的时间判据（ADR-0014）：镜像 thinkingSince/doneSince tick 先例，每会话记 blockedSince；卡住 ≥10s 进 permission，≥30s 升级 angry；目标变化即清零。 |
+| 生活化表情     | ADR-0009 新增 3 表情（各 `idle↔表情` 2 边新素材）：happy = 会话完成（done）触发；angry = 审批等待升级线（ADR-0014：卡住 ≥30s）触发；shocked = 被点击/拖动触发一次播完即回。 |
 | 角色 section    | SettingsCard 的第四个可折叠 section（ADR-0007 起）：会话气泡数量上限配置（数字输入，持久化 `localStorage('jx-max-session-bubbles')`），后续角色相关设置归属地。 |
 | 侧边栏入口     | client 半区注入的左侧边缘 rail（`SidebarEntry`），收起为 36px 竖条，展开为 380px 设置卡（ADR-0004 加宽，原 320px）。含 ESC 监听 + 遮罩点击 + X 关闭。              |
 | 设置卡         | `SidebarEntry` 展开后的内容卡（`SettingsCard`），含三个独立可折叠 section：皮肤开关 / 特效开关 / 管理界面（ADR-0004）。                                            |
@@ -59,10 +60,12 @@
 | ADR-0006 | 角色浮层可拖动（整盒可拖 + 位置持久化 + 视口钳制 + SettingsCard 重置入口）。反转 DESIGN.md §4 的「装饰层不拦截指针」原则，整盒 `pointer-events:auto`，`transform` 定位，`localStorage('jx-overlay-pos')` 持久化，resize 重钳制。 |
 | ADR-0007 | 角色浮层会话气泡列（常驻 + 可点击跳转）。气泡范围 = `running`/`completed` 会话，左侧竖排自下而上，点击 `sessions.open(id)` 跳转；反转「气泡不拦截指针」规（仅气泡本体）；上限默认 5 可配置（SettingsCard「角色」section），超出折叠「+N」展开。 |
 | ADR-0008 | 会话级状态机 + 焦点仲裁（多会话适配）。`Map<sessionId, SM>` 每会话一实例，随 `list.ids` 同步生命周期；焦点 = 当前打开会话最优先，error/permission 紧急抢焦、消退即交还；跨会话切换不播状态机过渡（直接切 loop + 150ms 淡入淡出）；过渡段时长播放期 ANMF 解析按素材缓存、失败回退 800ms（800ms 假设仅覆盖真实时长 15–23%，截断缺陷）。 |
-| ADR-0009 | 表情体系扩展。现有 6 中间态表情活化（permission 情绪化 + idle 随机点缀）；新增 3 生活化表情（happy=done、angry=pending 10s、shocked=点击一次播完即回），各 2 边新素材；台词扩展见 `docs/character-lines.md`。 |
+| ADR-0009 | 表情体系扩展。现有 6 中间态表情活化（permission 情绪化 + idle 随机点缀）；新增 3 生活化表情（happy=done、angry=审批等待升级线 30s、shocked=点击一次播完即回），各 2 边新素材；台词扩展见 `docs/character-lines.md`。 |
 | ADR-0010 | 焦点层防抖 + 并行驻留 + 摸鱼彩蛋。工作态（thinking/reading/replying/working）目标稳定 3000ms 才切一次（pending 挂起）；permission/error 恒硬切（仍播过渡段）；≥2 会话并行时浮层驻留 working；驻留期 2–5 分钟随机触发彩蛋表情。 |
 | ADR-0011 | 点击惊吓（poke）显示层覆盖。pointerup 位移 <5px 且 ≤300ms 判点击；runtime 显示层覆盖惊吓序列（不在焦点 SM 上 dispatch），驻留 3s 回落；点击路径显式弹台词、抑制自动双弹；紧急态优先并可打断 poke。 |
 | ADR-0012 | 循环缺陷资产侧修复。happy/angry/surprised 整段倒放烘焙（裁淡入残留 + 裁死定格 + 镜像帧）；working 符咒爆亮局部镜像（回落段反演合成渐起段）；运行期零改动；修复资产降采样 360×640 重编码，原件备份 `bak/` 不进 git。 |
 | ADR-0013 | 多动作变体播放列表拼接。idle/working 变体「中性帧→动作→中性帧」只播一遍，随机不重复抽取串成无限列表，段间中性帧停 ~400ms；主素材入池；打断后重抽；SettingsCard 开关默认开；命名 `{state}-vN.webp`。 |
+| ADR-0014 | 审批等待时间启发式判据。`snapshot.pending` 上升沿保留为即时快路径；另以 runningCalls 卡住时间兜底：每会话 blockedSince，卡住 ≥10s 进 permission（硬切），≥30s 升级 angry，目标变化即清零；0→10s 窗口维持 working。angry 触发语义由 ADR-0009「10s」修正为升级线。「无法区分审批与工具长跑」系启发式固有代价，阈值可配。 |
+| ADR-0015 | 10 经典循环态全部烘焙正反倒放（重启突兀）。首尾缝只度量姿态差、度量不到「方向单调素材循环点处速度瞬间反向」；`anim_loop_repair.py --pingpong-classic` 真循环不裁帧整段镜像（9 段 148 帧 9916ms、working 170 帧 11390ms），降采样 360×640、原件备份 `bak/`；`variant-rotation.ts` 基础段时长改按状态表对齐烘焙后单圈。 |
 
 详见 `docs/adr/`。

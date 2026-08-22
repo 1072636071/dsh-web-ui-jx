@@ -81,8 +81,19 @@ export function pickNextVariant(
   return next;
 }
 
-/** 基础主素材单圈时长 ms（75 帧 × 67ms）。 */
-export const BASE_SEGMENT_MS = 5025;
+/**
+ * 基础主素材（v1）单圈时长 ms，按状态区分。
+ *
+ * memorial 008 补充：10 经典态已由 `tools/anim_loop_repair.py --pingpong-classic`
+ * 全部烘焙成正反倒放，单圈 = 2n-2 帧 × 67ms——idle 148 帧 9916ms、
+ * working（局部镜像版再整段烘焙）170 帧 11390ms。轮换周期必须等于烘焙后
+ * 的单圈时长：偏早会把回程段拦腰切到下一段首帧（可见跳变），偏晚则循环
+ * 已回卷、切段落在动作中段（同样可见）。
+ */
+export const BASE_SEGMENT_MS: Record<RotatableState, number> = {
+  idle: 9916,
+  working: 11390,
+};
 
 /** 变体段名义时长 ms（76 帧 × 67ms，覆盖 5.06s 源视频转帧上界）。 */
 export const VARIANT_SEGMENT_MS = 5092;
@@ -105,6 +116,11 @@ export function isBaseLoopUrl(url: string): boolean {
  * @returns 轮换周期 ms。
  */
 export function rotationPeriodMs(url: string): number {
-  const segment = isBaseLoopUrl(url) ? BASE_SEGMENT_MS : VARIANT_SEGMENT_MS;
+  const segment =
+    url === loopAssetUrl("idle")
+      ? BASE_SEGMENT_MS.idle
+      : url === loopAssetUrl("working")
+        ? BASE_SEGMENT_MS.working
+        : VARIANT_SEGMENT_MS;
   return segment + ROTATION_HOLD_MS;
 }

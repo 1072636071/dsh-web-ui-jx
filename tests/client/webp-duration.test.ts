@@ -7,8 +7,10 @@
  * 覆盖：
  *   - 合成字节：帧时长累加、单帧、空帧（非动画）、非法容器、截断 chunk。
  *   - 真实素材（assets/character/）：55 个全量解析，过渡段原两档（16 × 3484ms /
- *     20 × 5494ms）+ 6 个新增表情过渡段（6 × 766ms），原循环态 10 × 5025ms +
- *     新增生活化表情循环态 3 × 5000ms（权威值来自 sub-task/002 调查结论 + ADR-0010 素材）。
+ *     20 × 5494ms）+ 6 个新增表情过渡段（6 × 766ms），循环态：10 经典态
+ *     --pingpong-classic 正反倒放烘焙后（9 × 9916ms + working 11390ms）+
+ *     新增生活化表情循环态 3 × 各异（权威值来自 sub-task/002 调查结论 +
+ *     ADR-0010/0012/0015 素材）。
  *   - 加载缓存：同 URL 只 fetch 一次；解析失败/网络失败回退 null 且不重复请求。
  */
 
@@ -118,29 +120,34 @@ describe("parseWebpDurationMs: 现有 61 素材回归", () => {
     expect(transitions).toHaveLength(42);
   });
 
-  it("循环态时长：9 经典态 5025ms；working 修复后 5762ms；3 表情倒放烘焙后各不同；6 变体 5025ms", () => {
-    // memorial 008 前：10 经典态均 5025ms。修复后 working 局部镜像 86 帧。
-    const baseLoops = ["idle", "thinking", "reading", "replying", "error", "welcome", "done", "permission", "listening"];
+  it("循环态时长：10 经典态正反倒放烘焙后（9×9916ms + working 11390ms）；3 表情倒放烘焙后各不同；6 变体 5025ms", () => {
+    // memorial 008 补充：10 经典态 --pingpong-classic 整段烘焙（端点不重复，
+    // 单圈 2n-2 帧 × 67ms）。此前：9 经典态 5025ms、working 局部镜像 5762ms。
+    const classicPingpong: Record<string, number> = {
+      idle: 9916,      // 148 帧 × 67ms
+      thinking: 9916,
+      reading: 9916,
+      replying: 9916,
+      error: 9916,
+      welcome: 9916,
+      done: 9916,
+      permission: 9916,
+      listening: 9916,
+      working: 11390,  // splice 版 86 帧 → 170 帧 × 67ms
+    };
     const exprLoops: Record<string, number> = {
       // memorial 008 整段倒放烘焙（裁淡入 + 裁死定格 + 镜像）后的单圈时长
       happy: 7524,    // 228 帧 × 33ms
       angry: 6204,    // 188 帧 × 33ms
       surprised: 5214, // 158 帧 × 33ms
     };
-    for (const name of baseLoops) {
+    for (const [name, ms] of Object.entries(classicPingpong)) {
       const f = `${name}.webp`;
       const bytes = readFileSync(join(assetsDir, f));
       expect(
         parseWebpDurationMs(new Uint8Array(bytes)),
         `循环态 ${f}`,
-      ).toBe(5025);
-    }
-    {
-      const bytes = readFileSync(join(assetsDir, "working.webp"));
-      expect(
-        parseWebpDurationMs(new Uint8Array(bytes)),
-        "循环态 working.webp（局部镜像修复后 86 帧）",
-      ).toBe(5762);
+      ).toBe(ms);
     }
     for (const [name, ms] of Object.entries(exprLoops)) {
       const f = `${name}.webp`;

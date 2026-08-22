@@ -33,6 +33,7 @@ pip install Pillow numpy imageio-ffmpeg
 | 任务 | 脚本 | 何时用 |
 |------|------|--------|
 | 修循环缺陷（单向动作/局部爆亮） | `anim_loop_repair.py` | 素材首尾缝 > 5 或局部突变（如符咒爆亮） |
+| 经典态烘焙正反倒放（重启突兀） | `anim_loop_repair.py --pingpong-classic` | 姿态回起点但动作方向单调、循环点速度反向可见（ADR-0015） |
 | 把绿幕视频转成变体 webp | `variant_video_convert.py` | 用户交付新动作视频，要进角色轮换池 |
 | 判断现有素材是真循环还是单向动作 | `diag_classic_motion.py` | 决定是否要烘焙倒放 |
 
@@ -45,7 +46,8 @@ pip install Pillow numpy imageio-ffmpeg
 
 **典型循环修复流程**：
 1. 跑 `python tools/diag_classic_motion.py` 看每个素材的 motion profile 和 verdict。
-2. 单向动作 → 加入 `REPAIRS` 走 `pingpong` 模式；局部爆亮 → 走 `splice` 模式。
+2. 单向动作 → 加入 `REPAIRS` 走 `pingpong` 模式；局部爆亮 → 走 `splice` 模式；
+   方向单调的真循环（重启突兀）→ `--pingpong-classic`（ADR-0015）。
 3. 跑 `python tools/anim_loop_repair.py --dry-run` 看计划，确认后 `python tools/anim_loop_repair.py`。
 4. 原件自动备份到仓库根 `bak/`（.gitignore 已加）。
 5. 复验：`python tools/diag_classic_motion.py` 看首尾缝（应 ≤ 1.0）+ 面积曲线对称。
@@ -56,17 +58,22 @@ pip install Pillow numpy imageio-ffmpeg
 
 ### 作用
 
-修复循环动画的两种典型缺陷：
+修复循环动画的三种典型缺陷：
 - **单向动作**：动作是「中性→峰值→停在峰值」，简单循环时末帧跳回首帧会突兀。
   修法：整段倒放烘焙（正放帧 + 反放帧拼接），让循环首尾连续。
 - **局部爆亮/硬弹出**：某帧局部物件（符咒/光效）瞬间变大，不对称。
   修法：用回落段的时间反演合成渐起段，让爆亮变「渐起→峰→渐落」对称。
+- **重启突兀（方向单调的真循环）**：首尾缝虽小（姿态回起点）但动作方向
+  单调（reading 翻页/working 画符），循环点处「速度瞬间反向」肉眼可辨
+  （ADR-0015）。修法：`--pingpong-classic` 整段正反倒放、不裁帧、端点不重复。
 
 ### 用法
 
 ```bash
 python tools/anim_loop_repair.py            # 修 REPAIRS 中所有素材
 python tools/anim_loop_repair.py happy      # 只修 happy
+python tools/anim_loop_repair.py --pingpong-classic          # 10 经典态全烘焙正反倒放
+python tools/anim_loop_repair.py --pingpong-classic reading  # 只烘焙一个经典态
 python tools/anim_loop_repair.py --dry-run  # 只报告，不落盘
 ```
 
@@ -117,8 +124,8 @@ REPAIRS = {
 ### 作用
 
 把用户交付的绿幕 `.mp4` 转成一次性播放（`loops=1`）的角色变体 webp。完整
-流水线：ffmpeg 抽帧+重定时 → 色度键 + 边缘去污染 + 全局去溢色 → 水印擦除
-→ 三道质检门 → 缩放到 360×640 → 写 webp。
+流水线：ffmpeg 抽帧+重定时 → 色度键 + 边缘去污染 + 全局去溢色 → 全片统一
+自动白平衡 → 水印擦除 → 三道质检门 → 缩放到 360×640 → 写 webp。
 
 ### 用法
 
@@ -166,6 +173,15 @@ NEUTRAL_WARN = 30.0  # 首尾帧 vs 中性帧 报告阈值（仅报告，不硬�
    - 距离阈值 190 保护金饰等固有色（金饰 RGB 距绿幕底色 >200，不受影响）。
    - 饱和度阈值 50 保护高饱和纹样（如金符咒的饱和暖色）。
 
+**全片统一自动白平衡**（`estimate_white_scales` / `video_white_scales` /
+`apply_white_balance`）：AI 生成源常有整体暖偏（working 批次白像素 G-R≈-9）。
+1. **参考白点**：每帧取不透明区（alpha>0.5）亮度前 5% 分位以上、sat<25 的像素
+   （发丝/浅色织物高光），两轮迭代求通道缩放把参考集均值拉到中性；
+2. **全片统一**：对全部帧的候选缩放取逐分量中位数，一次应用到所有帧——
+   逐帧独立白平衡会让爆亮段参考点被金色场景光带偏，产生帧间色温波动；
+3. **安全阀**：任一轮缩放超出 0.85–1.18、或有效帧不足 1/4 → 放弃白平衡
+  （宁欠勿过）。符咒爆亮等场景光的相对变化原样保留（那是内容，不是偏色）。
+
 **水印擦除**（`erase_watermark`）：固定区域（x>0.72w & y>0.92h）置透明。
 实测水印永远落在这个矩形内，与角色裙摆完全分离。
 
@@ -208,6 +224,12 @@ NEUTRAL_WARN = 30.0  # 首尾帧 vs 中性帧 报告阈值（仅报告，不硬�
   被放过。
 - **QC-b 上限反复校准**：升级去溢色后边缘更锐，合法弧扫帧从 136 升到 158，
   上限从 140 提到 165。未来升级图像处理可能再次触发校准。
+- **源视频整体暖偏（新素材「白偏红」）**：2026-08-22 working 批次生成结果
+  白像素 G-R≈-9（idle 批次仅 -3.5），符咒爆亮段金色场景光把白像素推到
+  B-R≈-40；全局去溢色压绿后暖感进一步暴露。第一版修复用逐帧独立白平衡，
+  爆亮帧参考点被金光带偏、只修掉一半且有帧间波动；改为全片统一中位数缩放
+  （见「关键算法 · 全片统一自动白平衡」）。诊断脚本留档
+  `.temp/scripts/diag_white_cast_round3.py`（全链路测量）等。
 
 ---
 

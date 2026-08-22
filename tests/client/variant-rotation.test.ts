@@ -244,12 +244,15 @@ describe("variant-rotation 模块", () => {
   });
 
   it("rotationPeriodMs：基础段与变体段周期 = 名义时长 + 段间停顿", () => {
+    // memorial 008 补充：经典态正反倒放烘焙后，idle/working 单圈不同（148/170 帧）
     expect(rotationPeriodMs(loopAssetUrl("idle"))).toBe(
-      BASE_SEGMENT_MS + ROTATION_HOLD_MS,
+      BASE_SEGMENT_MS.idle + ROTATION_HOLD_MS,
     );
     expect(rotationPeriodMs(loopAssetUrl("working"))).toBe(
-      BASE_SEGMENT_MS + ROTATION_HOLD_MS,
+      BASE_SEGMENT_MS.working + ROTATION_HOLD_MS,
     );
+    expect(BASE_SEGMENT_MS.idle).toBe(9916); // 148 帧 × 67ms
+    expect(BASE_SEGMENT_MS.working).toBe(11390); // 170 帧 × 67ms
     expect(rotationPeriodMs(`${CHARACTER_ASSET_PREFIX}/idle-v2.webp`)).toBe(
       VARIANT_SEGMENT_MS + ROTATION_HOLD_MS,
     );
