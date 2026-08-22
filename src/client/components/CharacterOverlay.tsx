@@ -54,12 +54,11 @@ import {
 } from "react";
 import styles from "../styles/overlay.module.css";
 import {
-  DEFAULT_TRANSITION_DURATION_MS,
   loopAssetUrl,
   type IntermediateState,
   type OverlayState,
-  type PlaybackItem,
 } from "../state-machine/overlay-state-machine.ts";
+import { createPlaybackCursor } from "../state-machine/playback-cursor.ts";
 import {
   type OverlaySessionRuntime,
   type RuntimeSnapshot,
@@ -206,21 +205,6 @@ export interface CharacterOverlayProps {
   sessions?: ISessions | undefined;
   /** 会话级状态机 runtime（ADR-0008：焦点会话 playback 驱动浮层）. */
   runtime?: OverlaySessionRuntime | undefined;
-}
-
-/**
- * 从播放计划取当前应播的项（index 越界则停在末尾 loop）。
- *
- * @param playback - 播放计划序列。
- * @param index - 当前播放索引。
- * @returns 当前应播的 playback 项。
- */
-function currentItem(
-  playback: readonly PlaybackItem[],
-  index: number,
-): PlaybackItem {
-  const safeIndex = Math.min(index, playback.length - 1);
-  return playback[safeIndex];
 }
 
 /**
@@ -437,14 +421,29 @@ export function CharacterOverlay({
     [overlaySize],
   );
 
-  // 播放序列索引：跟踪当前播到第几个 playback 项。
-  // snapshot 变化（切换）时重置为 0；transition 播完推进到下一个。
-  const [index, setIndex] = useState(0);
-  const [snapshotRef, setSnapshotRef] = useState(snapshot);
-  if (snapshot !== snapshotRef) {
-    setSnapshotRef(snapshot);
-    setIndex(0);
-  }
+  // ADR-0016 播放游标：计划结构等价门槛吸收 runtime 快照引用抖动——
+  // 只有计划内容（长度 + 各项 kind/url）真正变化才重置播放进度；
+  // 过渡段按素材真实时长推进（时长回填走 resolveDuration 缓存）。
+  // render 期同步计划：onPlan 对同内容幂等（不重置、不通知），审批等待
+  // 期间的高频会话帧不再打断入场过渡链。
+  const cursor = useMemo(() => createPlaybackCursor(), []);
+  useEffect(() => () => cursor.dispose(), [cursor]);
+  cursor.onPlan(snapshot.playback);
+  const item = useSyncExternalStore(cursor.subscribe, cursor.getSnapshot);
+
+  // 过渡段时长解析回填：解析完成写入游标缓存；若游标正等待该 url 的过渡
+  // 段推进，则以完整真实时长重排。未命中缓存前游标已按回退默认值起推进
+  // （fetch 挂起/解析不落定时 800ms 后仍推进），播放链路不冻结。
+  useEffect(() => {
+    if (item.kind !== "transition") return;
+    let cancelled = false;
+    void loadWebpDurationMs(item.url).then((durationMs) => {
+      if (!cancelled) cursor.resolveDuration(item.url, durationMs);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cursor, item]);
 
   // 演示触发：currentState 变化时显示对应台词（idle 不弹）。
   // 与 snapshotRef 同模式：render 期间检测变化并同步 ref，避免 useEffect 闭包陈旧。
@@ -481,33 +480,6 @@ export function CharacterOverlay({
       key: bubbleKeyRef.current,
     });
   }
-
-  const item = currentItem(snapshot.playback, index);
-
-  // 过渡段播放完毕推进：transition 项按真实素材时长（webp 素材 ANMF 解析，
-  // 工单 01）setTimeout 后 index++；解析失败回退默认时长。停在其他情况
-  // （index 在末尾 loop）不推进（循环态持续循环）。
-  // 兜底 timer：解析期间先按回退时长起 timer，解析完成后未推进则改设真实
-  // 时长——fetch 挂起/解析不落定时 800ms 后仍推进，播放链路不冻结。
-  // 工单 02 治理工单 01 遗留：effect 依赖 [index, item.url] 而非 [index, snapshot]，
-  // 快照引用变化但当前过渡项 url 不变时不重置计时。runtime 已隔离非焦点会话事件
-  // （只有焦点会话变化才 emit），此处用 item（由 snapshot.playback + index 派生）
-  // 而非直接读 snapshot.playback[index]，避免闭包 snapshot 但不列入依赖的 stale 风险。
-  useEffect(() => {
-    if (item.kind !== "transition") return; // loop 项或越界（currentItem 钳制到末尾 loop）
-    let cancelled = false;
-    const advance = () => setIndex((i) => i + 1);
-    let timer = setTimeout(advance, DEFAULT_TRANSITION_DURATION_MS);
-    void loadWebpDurationMs(item.url).then((durationMs) => {
-      if (cancelled) return;
-      clearTimeout(timer);
-      timer = setTimeout(advance, durationMs ?? DEFAULT_TRANSITION_DURATION_MS);
-    });
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [index, item.url]);
 
   // ADR-0008 决策 3：焦点切换 150ms 淡入淡出（cross-fade 双 img 层）。
   // focusNonce 变化时，旧 item.url 作为 underlay 淡出，新 item.url 在上层淡入。

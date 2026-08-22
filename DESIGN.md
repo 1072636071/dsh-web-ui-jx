@@ -79,7 +79,7 @@ L3 组件       : 只消费 --dsw-alias-* / --dsw-specific-*，禁止写颜色�
 - 透明无底：`img { object-fit: contain; display: block }`，容器无 background / 无 box-shadow / 无背光。
 - 状态：10 态（idle/thinking/reading/replying/working/error/welcome/done/permission/listening）→ `{state}.webp`（`<img>` 播放，非 video）。
 - 台词气泡：淡入淡出（opacity+translateY），播放后自动隐去；`pointer-events:none`；头顶右上（`bottom:100%; right:0`）。
-- **会话气泡列（ADR-0007）**：角色左侧竖排、自下而上生长；一气泡 = 一运行中/已结束未查看会话（标题 + 状态点：运行中金呼吸点 / 已完成石绿实心点）；**气泡本体可点击**（`pointer-events:auto` + `cursor:pointer`，反转台词气泡穿透原则，仅限气泡本体），点击经 `sessions.open(id)` 跳转对应会话；当前会话气泡 `--jx-gold` 金描边高亮；数量上限默认 5（1-10 可配置，SettingsCard「角色」section），超出折叠为「+N」点击原地展开；出现 150ms 淡入 / 消失 100ms 淡出，`prefers-reduced-motion` 全关；随盒整体移动。
+- **会话气泡列（ADR-0007/0018）**：角色左侧竖排、自下而上生长；**归组模型**：一归组气泡 = 一顶层会话及其全部 subagent 后代（沿 `parentId` 上溯至根祖先，孤儿自成顶层）；气泡 = 标题 + 状态点（运行中金呼吸点 / 已完成石绿实心点）+ **子代理徽标**（`▸N`/`▾N` 计后代总数，有运行中后代时前缀金呼吸迷你点）；点击气泡本体经 `sessions.open(id)` 跳转对应会话（`pointer-events:auto` + `cursor:pointer`，反转台词气泡穿透原则，仅限气泡本体与徽标）；点击徽标原地展开子气泡列表（向左缩进 12px + 弱化背景 + 左竖连接线，再点收起）；当前会话气泡 `--jx-gold` 金描边高亮，current 在后代中时描边传播至根祖先且该组强制展开；数量上限默认 5（1-10 可配置，SettingsCard「角色」section）只约束顶层归组气泡，溢出折叠为「+N」点击原地展开；出现 150ms 淡入 / 消失 100ms 淡出，`prefers-reduced-motion` 全关；随盒整体移动。
 - **可拖动（ADR-0006）**：整个浮层盒可拖（`pointer-events:auto`，反转原「装饰层不拦截」原则），`left/top + transform` 定位，位置持久化 `localStorage('jx-overlay-pos')`，视口内钳制；拖动中 `cursor:grabbing` + 轻微提视（opacity/scale），`prefers-reduced-motion` 下无过渡；SettingsCard 提供重置入口。台词气泡与会话气泡列随盒整体移动；可点交互子元素（会话气泡等）挂 `data-jx-interactive` 不触发拖动。
 
 ## 5. 特效系统（FX）

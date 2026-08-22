@@ -15,7 +15,7 @@
  * @module dsh-web-ui-jx/host/asset-routes
  */
 
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, normalize, relative } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Context } from "@deepseek-ai/cordis";
@@ -115,11 +115,25 @@ async function handleAssetRequest(
 
   const filePath = join(ASSETS_ROOT, subpath);
   try {
-    const data = await readFile(filePath);
+    // ETag 取自 size + mtime：素材会随修复/重生成原地更新（同名同 URL），
+    // 曾用 `immutable, max-age=86400` 强缓存导致浏览器最长 24h 看不到新字节
+    // （2026-08-22 白偏红修复踩坑）。改为每次复验（max-age=0, must-revalidate），
+    // 未变化回 304 零载荷，已变化即取新字节。
+    const [data, st] = await Promise.all([readFile(filePath), stat(filePath)]);
+    const etag = `W/"${st.size}-${Math.round(st.mtimeMs)}"`;
+    const cacheHeaders: Record<string, string> = {
+      "cache-control": "public, max-age=0, must-revalidate",
+      etag,
+    };
+    if (req.headers["if-none-match"] === etag) {
+      res.writeHead(304, cacheHeaders);
+      res.end();
+      return;
+    }
     res.writeHead(200, {
       "content-type": contentType,
       "content-length": String(data.length),
-      "cache-control": "public, max-age=86400, immutable",
+      ...cacheHeaders,
     });
     if (req.method === "HEAD") {
       res.end();

@@ -49,10 +49,37 @@ describe("dsh-jx asset routes — /api/dsh-jx/* (real HTTP seam)", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toBe("image/webp");
     expect(res.headers["content-length"]).toBe(String(res.body.length));
-    expect(res.headers["cache-control"]).toContain("immutable");
+    // 缓存策略（2026-08-22 起）：素材原地更新（同名同 URL），immutable 强缓存
+    // 会让浏览器最长 24h 看不到新字节 → 改为每次复验（max-age=0 +
+    // must-revalidate）+ 弱 ETag，未变化回 304。
+    expect(res.headers["cache-control"]).toContain("max-age=0");
+    expect(res.headers["cache-control"]).toContain("must-revalidate");
+    expect(typeof res.headers.etag).toBe("string");
     // webp magic: "RIFF"
     expect(res.body.subarray(0, 4).toString("latin1")).toBe("RIFF");
     expect(res.body.length).toBeGreaterThan(0);
+  });
+
+  it("revalidates with etag: unchanged asset returns 304 with empty body", async () => {
+    const first = await request(
+      port,
+      "GET",
+      `${ASSET_ROUTE_PREFIX}/character/idle.webp`,
+    );
+    expect(first.status).toBe(200);
+    const etag = first.headers.etag;
+    expect(typeof etag).toBe("string");
+
+    const second = await request(
+      port,
+      "GET",
+      `${ASSET_ROUTE_PREFIX}/character/idle.webp`,
+      undefined,
+      { "if-none-match": etag as string },
+    );
+    expect(second.status).toBe(304);
+    expect(second.body.length).toBe(0);
+    expect(second.headers["cache-control"]).toContain("must-revalidate");
   });
 
   it("serves a woff2 font with font/woff2 and wOF2 magic bytes", async () => {

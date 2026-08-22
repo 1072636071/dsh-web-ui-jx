@@ -3,7 +3,7 @@
 
 绿幕视频 → 一次性动画 webp 变体素材：
   1. 解码抽帧并重定时到 67ms/帧（对齐经典态节奏）；
-  2. 色度键去绿幕（软边 alpha 坡道 + 半透明区去溢色）；
+  2. 色度键去绿幕（软边 alpha 坡道 + 半透明区去溢色）+ 全片统一自动白平衡；
   3. 自动检测并擦除右下角「千问AI生成」水印（底部亮色低饱和文字块）；
   4. 三道质检门：
      a. 工作变体符咒全程在场（金色像素追踪）；
@@ -101,8 +101,122 @@ def chroma_key(img, green):
     spill = (g > mean_rb + 4) & ((sat < 50) | near_bg)
     rgb[:, :, 1] = np.where(spill, mean_rb, g)
 
+    spill = (g > mean_rb + 4) & ((sat < 50) | (dist < 190))
+    rgb[:, :, 1] = np.where(spill, mean_rb, g)
+
+    # 光雾衰减：金色物件（符咒）的光晕落在绿幕上形成大片半透明暖色像素
+    # （爆亮段最坏帧可达 2 万 px、占不透明区 18%），预乘还原会进一步放大其
+    # 饱和度——中灰目检条上像自然辉光，浅色页面上一律呈橙红雾（2026-08-22
+    # 「还是偏红」主因之二）。按「到实心区（alpha>0.9）的距离」指数衰减：
+    # 金核/人物边缘一圈保留自然辉光，远处雾霭压到近透明；只作用于半透明
+    # （alpha<0.85）且显著偏暖（R-B>20）的像素，冷色调发丝软边不受影响。
+    solid = alpha > 0.9
+    keep = np.ones_like(alpha)
+    cur = solid.copy()
+    factors = (0.85, 0.70, 0.58, 0.47, 0.38, 0.30, 0.24, 0.19)
+    for f in factors:
+        grown = cur.copy()
+        grown[1:, :] |= cur[:-1, :]
+        grown[:-1, :] |= cur[1:, :]
+        grown[:, 1:] |= cur[:, :-1]
+        grown[:, :-1] |= cur[:, 1:]
+        grown[1:, 1:] |= cur[:-1, :-1]
+        grown[1:, :-1] |= cur[:-1, 1:]
+        grown[:-1, 1:] |= cur[1:, :-1]
+        grown[:-1, :-1] |= cur[1:, 1:]
+        ring = grown & ~cur
+        keep[ring] = f
+        cur = grown
+    keep[~cur] = 0.12
+
+    warm_semi = (
+        (alpha > 0.05) & (alpha < 0.85)
+        & ((rgb[:, :, 0] - rgb[:, :, 2]) > 20)
+    )
+    if bool(warm_semi.any()):
+        fade = 0.25 + 0.75 * np.clip((alpha - 0.05) / 0.80, 0, 1)
+        alpha = np.where(warm_semi, alpha * fade * keep, alpha)
+        lum = rgb.mean(axis=2)
+        soft = lum[:, :, None] + (rgb - lum[:, :, None]) * 0.60
+        rgb = np.where(warm_semi[:, :, None], soft, rgb)
+
     out = np.dstack([rgb, alpha * 255]).astype(np.uint8)
     return Image.fromarray(out, "RGBA")
+
+
+def _frame_anchor_scales(rgb, alpha):
+    """单帧锚定缩放候选：保守参考白点（不透明、亮、低饱和）拉向中性。
+
+    参考集=发丝/浅色织物高光（天然近中性）；爆亮帧参考点被金色场景光占据、
+    低饱和像素不足时候选失效，由上层中位数天然忽略该帧。"""
+    lum = rgb.mean(axis=2)
+    m = (alpha > 0.9) & (lum > 180) & ((rgb.max(axis=2) - rgb.min(axis=2)) < 28)
+    if int(m.sum()) < 100:
+        return None
+    ref = [float(rgb[:, :, i][m].mean()) for i in range(3)]
+    target = sum(ref) / 3
+    s = np.array([target / max(v, 1) for v in ref], dtype=np.float32)
+    return s if all(0.85 < x < 1.18 for x in s) else None
+
+
+def _frame_trim_ratios(rgb, alpha):
+    """单帧微调比例候选：宽口径高亮白像素（不限饱和度）均值对中性之比。
+
+    口径与白偏红验收指标一致（alpha>0.94 且亮度>170），直接消掉去溢色压绿等
+    造成的基线残余；爆亮段金色光下的高饱和像素也被计入该帧候选，但只占少数帧，
+    由上层中位数过滤——场景光相对变化保留。"""
+    lum = rgb.mean(axis=2)
+    m = (alpha > 0.94) & (lum > 170)
+    if int(m.sum()) < 500:
+        return None
+    ref = [float(rgb[:, :, i][m].mean()) for i in range(3)]
+    target = sum(ref) / 3
+    return np.array([target / max(v, 1) for v in ref], dtype=np.float32)
+
+
+def video_white_scales(keyed):
+    """全片统一白平衡缩放 = 锚定 × 微调，两级各取逐帧候选的分量中位数。
+
+    逐帧独立白平衡会造成帧间色温波动（爆亮段尤其明显），故两级都只在全片
+    尺度求一组常数：
+    1. 锚定：校正源视频整体暖偏（working 批次白像素 G-R≈-9）；
+    2. 微调：收紧基线残余（阀 0.97–1.03，异常即放弃）。
+    锚定级有效帧不足 1/4 或最终缩放越阀（0.85–1.20）→ 返回 None 跳过白平衡。
+    """
+    pairs = []
+    for im in keyed:
+        arr = np.asarray(im.convert("RGB"), dtype=np.float32)
+        a = np.asarray(im, dtype=np.float32)[:, :, 3] / 255.0
+        pairs.append((arr, a))
+    n = len(pairs)
+    min_ok = max(3, n // 4)
+
+    cands = []
+    for rgb, a in pairs:
+        s = _frame_anchor_scales(rgb, a)
+        if s is not None:
+            cands.append(s)
+    if len(cands) < min_ok:
+        return None
+    total = np.array([median([float(s[i]) for s in cands]) for i in range(3)],
+                     dtype=np.float32)
+
+    trims = [r for r in (_frame_trim_ratios(rgb * total[None, None, :], a)
+                         for rgb, a in pairs) if r is not None]
+    if len(trims) >= min_ok:
+        trim = np.array([median([float(s[i]) for s in trims]) for i in range(3)],
+                        dtype=np.float32)
+        if all(0.97 < x < 1.03 for x in trim):
+            total = total * trim
+
+    return total if all(0.85 < x < 1.20 for x in total) else None
+
+
+def apply_white_balance(img, scales):
+    """对 RGBA Image 的 RGB 通道应用缩放。"""
+    arr = np.asarray(img, dtype=np.float32).copy()
+    arr[:, :, :3] = np.clip(arr[:, :, :3] * scales[None, None, :], 0, 255)
+    return Image.fromarray(arr.astype(np.uint8), "RGBA")
 
 
 def green_of(img):
@@ -193,10 +307,20 @@ def convert(name, dry_run=False):
     wm = (int(w0 * 0.72), int(h0 * 0.92), w0 - 1, h0 - 1)
     print(f"  帧数={n} 绿幕底={green} 水印区={wm}")
 
-    keyed = []
-    for f in frames:
-        k = chroma_key(f, green)
-        keyed.append(erase_watermark(k, wm))
+    keyed = [chroma_key(f, green) for f in frames]
+
+    # 全片统一自动白平衡：源视频常有整体暖偏（working 批次白像素 G-R≈-9），
+    # 以各帧「亮度前5%分位且低饱和」参考白点的通道缩放中位数一次应用到全部帧，
+    # 消除逐帧独立白平衡的帧间色温波动；符咒爆亮等场景光相对变化保留。
+    scales = video_white_scales(keyed)
+    if scales is not None:
+        print(f"  [白平衡] 统一 scales=[{scales[0]:.3f}, {scales[1]:.3f}, "
+              f"{scales[2]:.3f}]（{os.path.basename(video_path)}）")
+        keyed = [apply_white_balance(k, scales) for k in keyed]
+    else:
+        print("  [白平衡] 参考白点不足，跳过")
+
+    keyed = [erase_watermark(k, wm) for k in keyed]
 
     # 质检门 a：工作变体符咒全程在场
     ok = True

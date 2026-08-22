@@ -13,7 +13,10 @@
 | 角色浮层       | client 半区注入的透明角色层，播放 13 态 WebP，可态切换 + 台词气泡；**整盒可拖动**（ADR-0006）：`pointer-events:auto` 反转穿透原则，`transform` 定位 + `localStorage('jx-overlay-pos')` 持久化 + 视口内钳制，SettingsCard 提供重置入口；待机/工作态支持**变体动作轮换**（ADR-0013）。 |
 | 变体动作       | 同一循环态的多段可轮换动作（ADR-0013）：形状「中性姿态→动作→中性姿态」，只播一遍，运行期随机不重复抽取串成播放列表；正式命名 `{state}-vN.webp`（主素材为 v1）；首批覆盖 idle（v2–v4）与 working（v2–v4），SettingsCard「角色」section 开关默认开。 |
 | 中性帧         | 变体拼接的共享锚点（ADR-0013）：某状态主素材第一帧（= 过渡段落下姿态），所有变体首尾帧与其一致；参考图由主素材第一帧导出，供素材生成做首帧 conditioning。 |
-| 会话气泡列     | 角色浮层左侧竖排的常驻气泡列（ADR-0007），自下而上生长：一气泡 = 一运行中（`running`）/已结束未查看（`completed`）会话，标题 + 状态点（运行中金呼吸 / 已完成石绿）；气泡本体可点击（反转台词气泡穿透原则），点击经 `sessions.open(id)` 跳转会话；当前会话金描边；数量上限默认 5（1-10 可配置，SettingsCard「角色」section），超出折叠为「+N」原地展开。 |
+| 会话气泡列     | 角色浮层左侧竖排的常驻气泡列（ADR-0007 建立平铺模型；**ADR-0018 起改为归组模型**），自下而上生长：一**归组气泡** = 一顶层会话及其全部 running/completed subagent 后代，气泡 = 标题 + 状态点 + 子代理徽标；气泡本体可点击（反转台词气泡穿透原则）经 `sessions.open(id)` 跳转，徽标可点击展开/收起组内子气泡列表（左缩进弱化样式）；当前会话金描边，current 在后代中时描边传播至根祖先并强制展开该组；数量上限默认 5（1-10 可配置，SettingsCard「角色」section）只约束顶层归组气泡，超出折叠为「+N」原地展开。 |
+| 根祖先         | 归组的锚点会话（ADR-0018）：从任一会话沿 `parentId` 向上溯，停在第一个 `origin ≠ 'subagent'` 的会话；上溯中断（父行不在列表中或成环）以停留节点为根，若其本身是 subagent 则自成顶层归组气泡。普通 fork 截断谱系传播（fork 出的会话不是任何人的后代）。 |
+| 归组气泡       | 气泡列的基本单元（ADR-0018）：一个根祖先 + 其全部 subagent 后代的合称。顶层归组气泡数受 maxVisible 约束；组内子气泡展开不占名额、不受上限限制。各组独立维护手动展开态；`effectiveExpanded = manualExpanded ∥ containsCurrent`。 |
+| 子代理徽标     | 归组气泡上的计数片（ADR-0018）：`▸N`/`▾N` 显示后代总数，存在运行中后代时前缀金呼吸迷你点（复用 `.dotRunning` 视觉语义）；点击切换该组子气泡列表展开/收起（stopPropagation 不触发跳转，`data-jx-interactive` 不触发拖动）。 |
 | 中间态表情     | 状态机过渡段端点表情（ADR-0009 活化前）：shy-smile/shush/nod-smile/frown-wave/chin-rest/cheek-rest 6 个，素材 16 边（idle↔6 表情 12 边 + permission↔nod-smile/frown-wave 4 边）；ADR-0009 起活化：permission 情绪化 + idle 低频随机点缀（30–60s 一次「idle→表情→idle」）。 |
 | 智能体等待     | runningCalls>0（工作态）持续顶着不动视为「等待交互/审批」的时间判据（ADR-0014）：镜像 thinkingSince/doneSince tick 先例，每会话记 blockedSince；卡住 ≥10s 进 permission，≥30s 升级 angry；目标变化即清零。 |
 | 生活化表情     | ADR-0009 新增 3 表情（各 `idle↔表情` 2 边新素材）：happy = 会话完成（done）触发；angry = 审批等待升级线（ADR-0014：卡住 ≥30s）触发；shocked = 被点击/拖动触发一次播完即回。 |
@@ -23,7 +26,12 @@
 | 管理界面       | 素材管理面板（`ImportPanel` + `AssetList`），ADR-0004 起内嵌于 `SettingsCard` 第三个 section，不再作为右上角 `position:fixed` 浮层。                              |
 | 会话级状态机   | 角色浮层状态机重构形态（ADR-0008）：`Map<sessionId, SM>`，每会话一个状态机实例 + `binding(id).session` 订阅，随 `sessions.list.ids` 同步创建/销毁；浮层只渲染焦点会话的 playback。 |
 | 焦点会话       | 焦点仲裁的胜者（ADR-0008）：当前打开的会话（`sessions.list.current`）最优先；error（hasError）/ permission（pending）可紧急抢焦，事件消退即自动交还，用户手动切焦则保留手动焦点。 |
+| 快照引用抖动   | runtime 的 `processSnapshot`/`handleListChange` 无条件 `emit()` 导致的现象：即使会话帧内容无变化，每次也产生新的 `RuntimeSnapshot` 引用。UI 若按引用重置播放进度会被其打断（issue 08 根因）。 |
+| 播放计划结构等价 | UI 播放索引的重置门槛（ADR-0016）：新旧 `playback` 长度相同且各项 `kind`/`url` 逐项相同 ⇒ 同一计划，沿用索引继续推进；否则归零重播。必须结构比较而非裸引用比较——poke/彩蛋/并行驻留分支每次重建数组（新引用同内容）。playback **内容**由此成为渲染契约：强制重播必须改变计划内容。 |
+| 状态身份倒挂   | 反模式现象名（issue 08 症状）：某状态的造型仅在离开该状态的过渡首帧可见（permission 因过渡链被打断，批准后退场才被看到）。 |
 | 姜晓（角色设定）| 浮层角色人设（`docs/character-profile.md`）：古风、贵族、少女、剑士、很聪明、冷冽；异时间线赛博大明的智能助手。台词场景表见 `docs/character-lines.md`。                     |
+| 插件重载        | 宿主运行期对 client 插件的热替换机制（ADR-0017）：client-hmr 监听 `/plugins/events` SSE，收到本插件 `rebuilt` 帧即「作废模块 → 拉取新 bundle → 排空旧 fiber 的 effect disposers → 移除自有样式标签 → `entry.refresh()` 重新物化 → **重跑 `apply()`**」，全程不刷新页面；动态包 runner 有同型 invalidate + 重建路径。**apply 可重入是 client 插件存活的硬约束。** |
+| 孤儿浮层        | 旧 apply 挂载、fiber 已死但 DOM 滞留的 React 树（ADR-0017 根因现象）：缺 unmount 清理时 `<img>` webp 自主循环、气泡订阅宿主 services 继续更新，视觉表现为多只完整姜晓同位重叠；多会话并行工作 → 文件 churn 密集 → 重载频繁，叠加加速。ADR-0019 起清扫覆盖两类：带 `data-dsh-jx-root` 标记的规范残留 + 旧版**无标记**浮层残留（ADR-0017 标记选择器覆盖不住的「逃逸容器」，修硬刷新后仍多只）。 |
 
 ## 设计系统
 
@@ -67,5 +75,9 @@
 | ADR-0013 | 多动作变体播放列表拼接。idle/working 变体「中性帧→动作→中性帧」只播一遍，随机不重复抽取串成无限列表，段间中性帧停 ~400ms；主素材入池；打断后重抽；SettingsCard 开关默认开；命名 `{state}-vN.webp`。 |
 | ADR-0014 | 审批等待时间启发式判据。`snapshot.pending` 上升沿保留为即时快路径；另以 runningCalls 卡住时间兜底：每会话 blockedSince，卡住 ≥10s 进 permission（硬切），≥30s 升级 angry，目标变化即清零；0→10s 窗口维持 working。angry 触发语义由 ADR-0009「10s」修正为升级线。「无法区分审批与工具长跑」系启发式固有代价，阈值可配。 |
 | ADR-0015 | 10 经典循环态全部烘焙正反倒放（重启突兀）。首尾缝只度量姿态差、度量不到「方向单调素材循环点处速度瞬间反向」；`anim_loop_repair.py --pingpong-classic` 真循环不裁帧整段镜像（9 段 148 帧 9916ms、working 170 帧 11390ms），降采样 360×640、原件备份 `bak/`；`variant-rotation.ts` 基础段时长改按状态表对齐烘焙后单圈。 |
+| ADR-0016 | 播放计划结构等价门槛（修审批动画延迟）。UI 播放索引只在 playback 内容（长度+各项 kind/url）变化时归零，吸收 runtime 无条件 emit 的快照引用抖动；runtime emit 语义保留（runtime 层去抖被否决）；紧急态 cross-fade 即达增强缓议（issue 11）。与 ADR-0014 互补：彼管「何时进 permission」，此管「进了能否走出来被看见」。 |
+| ADR-0017 | client apply 可重入（修多只姜晓重叠）。`apply()` 挂载的 React root 与 `[data-dsh-jx-root]` 容器在 ctx.effect 清理器中补全卸载（root.unmount + 容器移除）；入口防御性清扫残留容器（容器上暂存 root 引用供跨模块闭包 unmount）后再挂载。否决「仅规范清理」（HMR 失败窗口旧 fiber 未走 disposers 仍叠）与「发现即拒绝」（旧实例状态永远无人清理）。 |
+| ADR-0019 | 清扫加固：按浮层特征兜底识别无标记残留 root（修硬刷新后仍多只）。ADR-0017 的标记选择器只清理带 `data-dsh-jx-root` 的容器；旧版本 bundle 生成的 React root 容器**不打标记**，逃逸清扫、持续渲染姜晓叠加。加固：`sweepResidualRoots` 再遍历 body 直接子元素，凡不带标记却内含 `[data-jx-character]` 浮层的元素一律 unmount + 移除。识别只用浮层特征（不依赖 `__reactContainer$`，其在 jsdom/真实 DOM 的 `Object.keys` 可见性不稳定）。否决「仅凭 React 内部键判别」（测试即踩坑）。 |
+| ADR-0018 | 会话气泡列子代理归组（根祖先锚定折叠，治多代理工作流霸榜占满）。一归组气泡 = 根祖先 + 其全部 subagent 后代；徽标 `▸N`/`▾N` + 金呼吸点示运行中后代；点徽标原地展开子气泡（左缩进弱化样式）；maxVisible 只管顶层；current 在后代 ⇒ 根气泡金描边 + 强制展开；孤儿回退自成顶层；否决直接隐藏（丢导航）与缩进树（不治本）。 |
 
 详见 `docs/adr/`。

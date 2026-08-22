@@ -1,0 +1,73 @@
+{
+  "name": "jx-bubble-grouping",
+  "id": "jx-bubble-grouping",
+  "description": "实现 .scratch/09-subagent-bubble-grouping 的四张工单：会话气泡列子代理归组（ADR-0018）——纯逻辑引擎、分组渲染、展开交互、发布验收；完成后代码审查并提交。",
+  "captainSessionId": "session-ca6c1ea5-a9c8-4369-a344-3e952377d81e",
+  "createdAt": 1787401878944,
+  "members": [
+    {
+      "id": "caf148c2-a754-4e3a-b396-d4b89a9a0fee",
+      "name": "engineer",
+      "role": "engineer",
+      "provider": "opencode1",
+      "model": "x-preview-f-free",
+      "joinedAt": 1787401933464,
+      "status": "working"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "工单01 归组纯函数与投影扩展",
+      "description": "实现工单 .scratch/09-subagent-bubble-grouping/issues/01-grouping-pure-logic.md：在 session-bubbles 纯逻辑模块新增 buildBubbleGroups()（根祖先锚定归组，含孤儿回退/fork 截断/current 传播/containsCurrent 标记），投影扩展 parentId/origin 两字段；vitest 覆盖 PRD 测试决策全部 8 组用例（含平铺回归护栏）；npm run build 通过。验收标准以工单文件为准。完成后 update_task 输出摘要。",
+      "status": "in_progress",
+      "assignee": "engineer",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1787401933491,
+      "updatedAt": 1787401980042,
+      "attemptId": "bfac9323-b4b5-41d3-80ad-811027e4ba89",
+      "reassigning": false
+    },
+    {
+      "id": "t2",
+      "subject": "工单02 分组渲染上线",
+      "description": "实现工单 .scratch/09-subagent-bubble-grouping/issues/02-grouped-render.md：SessionBubbleList 改为按 buildBubbleGroups 分组渲染——一条工作流只占一个顶层气泡，徽标 ▸N + 金呼吸迷你点实时反映，current 向上传播金描边；上限只管顶层；移除被取代的旧平铺导出与过时测试（收缩步）；人工视觉验证项记录到任务输出。验收标准以工单文件为准。",
+      "status": "pending",
+      "assignee": "engineer",
+      "dependencies": [
+        "t1"
+      ],
+      "attempt": 0,
+      "createdAt": 1787401946728,
+      "updatedAt": 1787401946728
+    },
+    {
+      "id": "t3",
+      "subject": "工单03 展开交互与子气泡呈现",
+      "description": "实现工单 .scratch/09-subagent-bubble-grouping/issues/03-expand-interaction.md：徽标点击展开/收起（各组独立、阻断冒泡、data-jx-interactive 防拖动）、effectiveExpanded = 手动 ∥ containsCurrent 及回落、子气泡左缩进 12px + 弱化背景 + 左竖连接线样式、点击子气泡跳转、150/100ms 动效复用 leaving 机制、键盘激活与 aria-label、reduced-motion 全关。验收标准以工单文件为准。",
+      "status": "pending",
+      "assignee": "engineer",
+      "dependencies": [
+        "t2"
+      ],
+      "attempt": 0,
+      "createdAt": 1787401953724,
+      "updatedAt": 1787401953724
+    },
+    {
+      "id": "t4",
+      "subject": "工单04 文案同步与发布验收",
+      "description": "实现工单 .scratch/09-subagent-bubble-grouping/issues/04-copy-and-release-verify.md：SettingsCard「角色」section 上限描述更新为「顶层归组气泡数」语义；核对 CONTEXT.md / DESIGN.md §4 / ADR-0018 与实现一致（发现漂移先修文档）；npm run build && npm run verify 21 项全通过。验收标准以工单文件为准。",
+      "status": "pending",
+      "assignee": "engineer",
+      "dependencies": [
+        "t3"
+      ],
+      "attempt": 0,
+      "createdAt": 1787401970258,
+      "updatedAt": 1787401970258
+    }
+  ],
+  "taskSeq": 4
+}
