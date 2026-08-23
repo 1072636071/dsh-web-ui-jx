@@ -1,6 +1,6 @@
 # npm 发布与安装验收
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 05, 06, 08, 10
 
@@ -15,3 +15,5 @@
 - [ ] README 含安装、使用、排障说明（对齐 DSH 自定义插件排障流程）
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——npm 发布/安装链路验收通过，并固化为 AGENTS.md「构建与部署约束」（npm run build + npm run verify 21 项），后续多轮特性发布均沿用此基线。状态由 ready-for-agent 补记为 resolved。

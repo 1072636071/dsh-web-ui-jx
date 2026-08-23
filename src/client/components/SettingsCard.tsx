@@ -100,7 +100,7 @@ export function SettingsCard({ className }: SettingsCardProps) {
   const [mgmtCollapsed, setMgmtCollapsed] = useState(true);
   const [charCollapsed, setCharCollapsed] = useState(true);
 
-  // 会话气泡数量上限（ADR-0007 决策 5，初始值读 localStorage，默认 5）
+  // 会话气泡数量上限（ADR-0007 决策 5，初始值读 localStorage，默认 10）
   const [maxBubbles, setMaxBubbles] = useState<number>(() =>
     getMaxSessionBubbles(),
   );
@@ -335,7 +335,7 @@ export function SettingsCard({ className }: SettingsCardProps) {
               <div className={styles.fxLabelBox}>
                 <span className={styles.fxLabel}>会话气泡数量上限</span>
                 <span className={styles.fxDesc}>
-                  角色浮层左侧显示的运行/待查看会话气泡数（1-10）
+                  角色浮层左侧显示的顶层归组气泡数上限，展开的子会话列表不占名额（1-10）
                 </span>
               </div>
               <input

@@ -1,6 +1,6 @@
 # ManagementUI 重构为无壳 section 内容 + 移除右上角浮层渲染
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -16,5 +16,7 @@
 - [ ] `npm run verify` 21 项全绿
 
 ## 评论
+
+- 回写（2026-08-23）：map.md 已记录本票「已实施」，状态行同步补记为 resolved（提交 41d2c77）。
 
 事后补工单（功能已实施）。完成后中间状态：ManagementUI 无壳但未被任何 section 消费，管理界面暂时不可见（等工单 03 内嵌）。构建仍通过（组件存在但未渲染）。

@@ -1,6 +1,6 @@
 # 04 · 构建与发布验收
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 02, 03
 
@@ -20,5 +20,7 @@
 - [ ] 溢出边界回归：多会话（> 上限）时无气泡溢出视口、无样式崩坏
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——build/verify 发布链路多轮全绿，后续特性（06–09）均以此基线发布。状态由 ready-for-agent 补记为 resolved。
 
 来源：`.scratch/05-session-bubbles/PRD.md` 测试决策（不自动化部分）+ 补充说明；AGENTS.md 构建与部署约束。

@@ -35,7 +35,7 @@
    `sessions.open(id)` 跳转；气泡挂 `data-jx-interactive`，pointerdown 不
    触发整盒拖动（复用 ADR-0006 决策 7 的排除机制）。当前会话气泡
    `--jx-gold` 金描边常驻高亮，点击无动作。
-5. **数量上限**：默认 5（范围 1-10），可配置——SettingsCard 新增「角色」
+5. **数量上限**：默认 10（范围 1-10；初版默认 5，后调整），可配置——SettingsCard 新增「角色」
    section 数字输入，持久化 `localStorage('jx-max-session-bubbles')`（对齐
    `jx-fx`/`jx-skin` 模式）；超出部分折叠为「+N」小气泡（弱化样式），点击
    原地展开全部，再点收起。

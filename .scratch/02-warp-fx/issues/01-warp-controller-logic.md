@@ -1,6 +1,6 @@
 # warp 纯逻辑控制器 + 单元测试
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 无——可立即开始
 
@@ -21,6 +21,8 @@
 - [ ] `npm run build` 通过
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——`warp-controller.ts` 纯逻辑控制器与测试在库（提交 d17a098）。状态由 ready-for-agent 补记为 resolved。
 
 来源：`.scratch/02-warp-fx/PRD.md`（测试决策：复用 Seam 2 模式）+ ADR-0005。
 此工单把可测逻辑先落地，DOM 副作用留待工单 02 接线。

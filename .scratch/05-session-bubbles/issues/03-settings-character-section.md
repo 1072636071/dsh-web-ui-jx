@@ -1,6 +1,6 @@
 # 03 · SettingsCard「角色」section（上限配置）
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01, 02
 
@@ -15,5 +15,7 @@
 - [ ] `npm run typecheck` + `npm run test` 全绿
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——SettingsCard「角色」section 上限配置完成（提交 443814b）。状态由 ready-for-agent 补记为 resolved。
 
 来源：`.scratch/05-session-bubbles/PRD.md` 实现决策 3/10 + 用户故事 11；ADR-0007 决策 5。

@@ -27,6 +27,7 @@
 ## 后果
 
 - 「apply 可重入」成为本插件 client 半区的存活约束，写入 `src/client/index.ts` 头注；后续任何新增 body 直挂 DOM 的代码必须同样纳入 ctx.effect 清理或入口清扫。
+- 覆盖面补全（2026-08 修订）：FX 特效系统的 fall/warp 装饰层容器同为 body 直挂 DOM，此前漏纳本约束——每次 HMR 重载叠加一层落叶/粒子层。现 `applyFx()` 改经 `ctx.effect` 注册、清理器调新增的 `teardownFx()`（停 JS 特效 + 摘 fx-* 类 + 摘 reduced-motion 监听），入口先 `teardownFx()` 复位本实例半状态、再按 `body > [data-jx-fx-fall]/[data-jx-fx-warp]` 标记裸摘已作废模块实例的逃逸容器。
 - 清扫以 `[data-dsh-jx-root]` 属性识别自家容器，不触碰宿主或其他插件的节点；容器上的 root 暂存属性属实现细节，命名以实现处注释为准。
 - 跨闭包 unmount 能终止旧树的订阅回调（React 18 `root.unmount` 会拆掉整树 effects），比裸摘节点多回收一份空转渲染开销；但 HMR 帧竞争下的极端时序仍以宿主语义为准，本 ADR 只保证「下一次 apply 前页面至多一只姜晓」。
 - 变体轮换开关、皮肤开关等 localStorage 持久化状态不受重载影响（新模块实例按原键重读），浮层位置同理由 `overlayPositionStore` 初始化时从 localStorage 恢复。

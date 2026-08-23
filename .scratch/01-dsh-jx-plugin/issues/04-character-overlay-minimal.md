@@ -1,6 +1,6 @@
 # 角色浮层最小可用
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 02, 03
 
@@ -15,3 +15,5 @@
 - [ ] 深浅双主题下浮层均正常呈现（角色透明素材不受主题影响）
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——CharacterOverlay 右下角常驻浮层上线，经素材路由以 `<img>` 播放循环态 webp。状态由 ready-for-agent 补记为 resolved。

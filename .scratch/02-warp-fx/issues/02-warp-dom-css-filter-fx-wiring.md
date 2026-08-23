@@ -1,6 +1,6 @@
 # warp DOM 薄壳 + CSS + SVG filter + FX 接入 + 移除 breathe
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -24,6 +24,8 @@
 - [ ] `DESIGN.md` §5 FX 表 breathe→warp 无回归（grill 阶段已更新）
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——warp DOM/CSS/SVG filter 接线完成，breathe 移除、FX 保持 5 类（提交 d17a098「warp 特效替换 breathe」）。状态由 ready-for-agent 补记为 resolved。
 
 来源：`.scratch/02-warp-fx/PRD.md`（实现决策 1–11）+ ADR-0005。
 预重构确认：`fx/index.ts` 的 `syncJsEffects` 已自动调度 `FX_START`/`FX_STOP`，warp 的 start/stop 会被调用，控制器无需结构性改造；`readStoredState` 按 `FX_NAMES` 遍历，旧 `breathe` 字段自动忽略。

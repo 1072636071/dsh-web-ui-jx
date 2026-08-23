@@ -1,0 +1,101 @@
+{
+  "name": "jx-subagent-grouping",
+  "id": "jx-subagent-grouping",
+  "description": "实施 ADR-0018 会话气泡列子代理归组（根祖先锚定折叠）：按 .scratch/09-subagent-bubble-grouping 的 4 张工单顺序完成纯逻辑归组引擎、分组渲染上线、展开交互与发布验收，npm run build && npm run verify 全绿收尾。",
+  "captainSessionId": "session-22380e22-540b-487a-ba5b-1976fe4ea108",
+  "createdAt": 1787461821220,
+  "members": [
+    {
+      "id": "f6b185c5-d2d9-44b2-9bdd-7ab47ae2d0ab",
+      "name": "logic-eng",
+      "role": "engineer",
+      "provider": "opencodeai",
+      "model": "x-preview-f-free",
+      "joinedAt": 1787461829914,
+      "status": "idle"
+    },
+    {
+      "id": "ad1995c9-9046-468a-bbf3-55058b4a2be4",
+      "name": "ui-eng",
+      "role": "engineer",
+      "provider": "opencodeai",
+      "model": "x-preview-f-free",
+      "joinedAt": 1787461829992,
+      "status": "idle"
+    },
+    {
+      "id": "339906cd-f0ba-45fe-9f4e-b523789b9105",
+      "name": "reviewer",
+      "role": "reviewer",
+      "provider": "opencodeai",
+      "model": "x-preview-f-free",
+      "joinedAt": 1787461830085,
+      "status": "idle"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "工单01 归组纯函数与投影扩展（session-bubbles.ts + vitest）",
+      "description": "实施 .scratch/09-subagent-bubble-grouping/issues/01-grouping-pure-logic.md：扩展 SessionListEntry（新增 parentId / origin 两字段）+ 新增纯函数 buildBubbleGroups()，落实 ADR-0018 全部判定（根祖先上溯、fork 截断、孤儿回退、组入选、徽标计数、current 传播、上限只管顶层、稳定排序），vitest 全覆盖（PRD 测试决策 8 组 + 平铺回归护栏）。与既有 selectBubbleEntries 并存（收缩留给工单 02）。完成后 npm test 与 npm run typecheck 全绿。详细规格见队长开工简报。",
+      "status": "completed",
+      "assignee": "captain",
+      "dependencies": [],
+      "attempt": 4,
+      "createdAt": 1787461841086,
+      "updatedAt": 1787464633024,
+      "reassigning": false,
+      "attemptId": "b28e5e0c-bf14-4696-bb16-30515c554f82",
+      "output": "工单01 完成（队长代为落终态）。交付：session-bubbles.ts 扩展 SessionListEntry（parentId/origin，string 解耦 SDK）+ 新增 buildBubbleGroups(items, current, maxVisible) → { groups, moreCount }；BubbleGroup = { rootId, root, members, badge{total,running}, containsCurrent, pending }。ADR-0018 全部判定落实：根祖先上溯/fork 截断/孤儿回退/组入选/badge 只计过滤后代/排序原序；队长裁定#5 已实现——组级 pending 聚合（根或任一成员等待交互）⇒ 溢出组豁免折叠追加可见尾部、不计 moreCount。消费约定：金描边 = root.isCurrent || containsCurrent；强制展开 = containsCurrent。门禁：vitest 278/278 + typecheck 无错 + build 双半区通过。selectBubbleEntries 并存未动（工单02 收缩删除）。"
+    },
+    {
+      "id": "t2",
+      "subject": "工单02 分组渲染上线（SessionBubbleList.tsx + CSS）",
+      "description": "实施 .scratch/09-subagent-bubble-grouping/issues/02-grouped-render.md：SessionBubbleList 切换到 buildBubbleGroups 分组渲染——多层子孙折叠进单一顶层气泡；徽标 ▸N 展示后代总数 + 运行中后代金呼吸迷你点（本工单徽标仅展示不可展开）；current 在后代时根气泡金描边传播高亮；上限只约束顶层组，溢出仍折叠「+N」；无谱系字段场景渲染与改造前逐项一致；ADR-0020 等待交互豁免在分组模型下保持（见队长简报的组合决策）。收缩步：移除被取代的旧平铺导出 selectBubbleEntries 及其过时测试块。完成后 npm test + npm run typecheck + npm run build 全绿。详细规格见队长开工简报。",
+      "status": "completed",
+      "assignee": "ui-eng",
+      "dependencies": [
+        "t1"
+      ],
+      "attempt": 1,
+      "createdAt": 1787461857802,
+      "updatedAt": 1787465717419,
+      "attemptId": "f4432e01-0ee5-4ab1-a3e7-c09fe9636151",
+      "reassigning": false,
+      "output": "工单02 分组渲染上线完成。①deriveItems 透传 parentId/origin；组件切换 buildBubbleGroups(items, current, maxVisible)，新增 GroupBubble 内部组件渲染顶层归组气泡。②徽标仅展示：▸N（badge.total）flex-shrink:0 不换行不挤压、dimmed 弱化文字；badge.running>0 前缀金色呼吸迷你点（复用 dot-breathe 关键帧，reduced-motion 静态）。③队长裁定落实：金描边按 root.isCurrent || containsCurrent 组合判定；group.pending ⇒ 根气泡 .pending 朱砂描边 + aria「等待确认」；状态点保持根会话自身语义。④MoreBubble 不变只管顶层溢出；退出跟踪改组粒度 leavingGroups（键 rootId）。⑤收缩步：删生产导出 selectBubbleEntries + SelectBubbleEntriesResult 及 7 个直测 describe 块；平铺回归护栏改为与测试文件内联 oracle legacyFlatSelect 逐条目比对。⑥门禁全绿：vitest 247/247（12 文件）、typecheck 零错、build 双半区成功。工单02 Status→resolved，6/8 验收框勾选，「人工视觉验证」待人工、「verify」按裁定留工单04。提示已留评论：ADR-0020 文档 L35 引用已删函数的措辞漂移交工单04核对。"
+    },
+    {
+      "id": "t3",
+      "subject": "工单03 展开交互与子气泡呈现（SessionBubbleList.tsx + CSS）",
+      "description": "实施 .scratch/09-subagent-bubble-grouping/issues/03-expand-interaction.md：徽标可点击切换该组展开/收起（stopPropagation 不跳转、data-jx-interactive 不触发拖动、Enter/Space 键盘激活、aria-label 报告剩余子会话数）；生效展开态 = 手动展开 或 containsCurrent，current 离开后回落手动状态；子气泡原地插在父气泡视觉上方（DOM 位于父之后配合 column-reverse）、向左缩进 12px + 弱化背景 + 左侧竖连接线、组内按宿主列表原序；点击子气泡跳转对应子会话，当前子气泡金描边且点击无动作；子气泡复用 leaving 机制 150ms 淡入 / 100ms 淡出，prefers-reduced-motion 全关。完成后 npm test + npm run typecheck + npm run build 全绿。详细规格见队长开工简报。",
+      "status": "completed",
+      "assignee": "ui-eng",
+      "dependencies": [
+        "t2"
+      ],
+      "attempt": 1,
+      "createdAt": 1787461873621,
+      "updatedAt": 1787466416943,
+      "attemptId": "8abba8b1-7b3f-4e51-afaf-d42c322b3a9e",
+      "reassigning": false,
+      "output": "工单03 展开交互与子气泡呈现完成。①徽标按钮化：role=button + tabIndex、Enter/Space 激活（onKeyDown stopPropagation 防根气泡双重激活）、onClick stopPropagation 不跳转、data-jx-interactive 双保险不拖动；aria-label「展开/收起 N 个子会话」+ aria-expanded 反映生效态；箭头随态 ▸/▾ 翻转。②manualExpanded: Set<rootId> 各组独立手动态，生效展开 = 手动 || containsCurrent（派生判定，current 离开自动回落）。③子气泡 ChildBubble：DOM 位于父后（column-reverse 视觉上方）、组内宿主原序；.bubbleList align-items:flex-end 右缘锚定 + margin-right:12px 向左缩进；弱化背景 --jx-surface-1（墨阶下沉一级）+ 文字 --dsw-alias-label-tertiary；::before 1px 左竖连接线取 --dsw-alias-border-l1 素线轨（理由已注释），越出 4px 桥接行间隙连成 lineage 竖轨。④点击子气泡 sessions.open 直达；当前子气泡金描边无动作；成员各自保留 pending 朱砂描边+涟漪点。⑤退出跟踪双层粒度：整组消失捕获子树单元（键 rootId）、单个成员消失按子粒度（键 rootId:sessionId）紧随父组淡出；出现复用 .bubble 150ms enter、消失 100ms exit；新增类均静态装饰无新 keyframes，reduced-motion 由既有分支全覆盖。门禁全绿：vitest 247/247 · typecheck 零错 · build 双半区成功。工单03 Status→resolved，6/8 框勾选，「人工视觉验证」待人工、「verify」留 t4。未 commit、未动 SettingsCard/docs。"
+    },
+    {
+      "id": "t4",
+      "subject": "工单04 文案同步与发布验收（评审 + build/verify）",
+      "description": "实施 .scratch/09-subagent-bubble-grouping/issues/04-copy-and-release-verify.md：①评审 T1-T3 产出是否符合 ADR-0018 全部决策与 PRD 验收标准；②SettingsCard「角色」section 上限描述文案更新为「顶层归组气泡数」语义（数值范围/默认值/持久化不变）；③文档一致性核对与同步：CONTEXT.md 词条与 ADR 索引的「待实施」标记、ADR-0018 状态行、DESIGN.md §4 与实现核对，发现漂移先修文档再改代码；④发布门禁：npm test + npm run typecheck + npm run build + npm run verify（21 项）全部通过。详细规格见队长开工简报。",
+      "status": "completed",
+      "assignee": "reviewer",
+      "dependencies": [
+        "t3"
+      ],
+      "attempt": 1,
+      "createdAt": 1787461884132,
+      "updatedAt": 1787467199652,
+      "attemptId": "936f373d-6c1f-4104-80f0-070d19548f43",
+      "reassigning": false,
+      "output": "工单04 完成并通过验收。①评审：T1-T3 产出（session-bubbles.ts / SessionBubbleList.tsx / session-bubbles.module.css / tests）逐条对照 ADR-0018 D1-D9 与 PRD 验收标准，无规格偏离（selectBubbleEntries 移除系工单02收缩步、有 oracle 护栏，符合 PRD 故事19收敛口径）。②文案：SettingsCard 上限描述已改「顶层归组气泡数上限，展开的子会话列表不占名额（1-10）」，范围/默认值/key 未动。③文档：CONTEXT.md 三处「待实施」清零（简报两处 + 会话气泡列词条尾注第三处）、ADR-0018 状态行→已实施、DESIGN.md §4 核对一致；ADR-0020 决策4 + DESIGN.md §4 落档按组豁免裁定（组内任一成员 pending ⇒ 整组豁免+根气泡朱砂描边）。④门禁全绿：vitest 247/247、typecheck 0 错、build 双半区、verify 21/21。工单04 已勾验收框、Status=resolved、评论含偏差清单（PRD 默认5 为历史快照；早期 ADR 状态行遗留待实施标记属超范围观察）。未执行 publish/commit。"
+    }
+  ],
+  "taskSeq": 4
+}

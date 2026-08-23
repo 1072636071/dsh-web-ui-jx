@@ -214,3 +214,61 @@ describe("client apply 可重入（ADR-0017）", () => {
     expect(document.querySelectorAll("[data-dsh-jx-root]").length).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// FX 装饰层生命周期（ADR-0017 覆盖面补全：fall/warp 的 body 直挂容器与
+// window 监听此前不随 fiber 清理，HMR 每次重载叠加一层装饰层——与孤儿浮层
+// 同族缺陷。锁定三条不变量：随卸载清理 / 重复 apply 不堆叠 / 逃逸残留可清扫）
+// ---------------------------------------------------------------------------
+
+describe("FX 装饰层可重入（ADR-0017 覆盖面补全）", () => {
+  it("ctx 卸载：fall/warp 装饰层容器移除，html fx-* 类摘除", () => {
+    const disposers: Disposer[] = [];
+    apply(makeFakeCtx(disposers));
+    // 默认全开：fall/warp 装饰层各挂一层，html 挂 fx-* 类。
+    expect(document.querySelectorAll("body > [data-jx-fx-fall]").length).toBe(1);
+    expect(document.querySelectorAll("body > [data-jx-fx-warp]").length).toBe(1);
+    expect(document.documentElement.classList.contains("fx-fall")).toBe(true);
+
+    for (const d of disposers) d();
+    expect(document.querySelectorAll("body > [data-jx-fx-fall]").length).toBe(0);
+    expect(document.querySelectorAll("body > [data-jx-fx-warp]").length).toBe(0);
+    expect(document.documentElement.classList.contains("fx-fall")).toBe(false);
+    expect(document.documentElement.classList.contains("fx-warp")).toBe(false);
+  });
+
+  it("连续两次 apply（不经 disposer）：装饰层不堆叠（入口清扫兜底）", () => {
+    const disposers: Disposer[] = [];
+    apply(makeFakeCtx(disposers));
+    // 模拟宿主重载：旧 fiber 未走 disposer 的异常路径下再次 apply。
+    apply(makeFakeCtx(disposers));
+
+    expect(document.querySelectorAll("body > [data-jx-fx-fall]").length).toBe(1);
+    expect(document.querySelectorAll("body > [data-jx-fx-warp]").length).toBe(1);
+
+    for (const d of disposers) d();
+    expect(document.querySelectorAll("body > [data-jx-fx-fall]").length).toBe(0);
+    expect(document.querySelectorAll("body > [data-jx-fx-warp]").length).toBe(0);
+  });
+
+  it("入口清扫：摘除无归属的逃逸装饰层容器（旧模块实例残留）", () => {
+    // 模拟已作废模块闭包留下的逃逸装饰层（其 stop 函数不可达）。
+    const strayFall = document.createElement("div");
+    strayFall.setAttribute("data-jx-fx-fall", "");
+    const strayWarp = document.createElement("div");
+    strayWarp.setAttribute("data-jx-fx-warp", "");
+    document.body.appendChild(strayFall);
+    document.body.appendChild(strayWarp);
+
+    const disposers: Disposer[] = [];
+    apply(makeFakeCtx(disposers));
+
+    expect(strayFall.isConnected).toBe(false);
+    expect(strayWarp.isConnected).toBe(false);
+    // 新实例自己的一层仍在。
+    expect(document.querySelectorAll("body > [data-jx-fx-fall]").length).toBe(1);
+    expect(document.querySelectorAll("body > [data-jx-fx-warp]").length).toBe(1);
+
+    for (const d of disposers) d();
+  });
+});

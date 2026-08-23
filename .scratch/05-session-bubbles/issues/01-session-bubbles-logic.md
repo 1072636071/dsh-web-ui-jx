@@ -1,6 +1,6 @@
 # 01 · session-bubbles 纯逻辑与配置（seam 先行）
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 无——可立即开始
 
@@ -14,5 +14,7 @@
 - [ ] `npm run typecheck` + `npm run test` 全绿
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——`session-bubbles.ts` + `session-bubbles-config.ts` 与 25 个单元测试在库（提交 443814b）。状态由 ready-for-agent 补记为 resolved。
 
 来源：`.scratch/05-session-bubbles/PRD.md` 实现决策 2/3 + 测试决策；ADR-0007 决策 1/5。

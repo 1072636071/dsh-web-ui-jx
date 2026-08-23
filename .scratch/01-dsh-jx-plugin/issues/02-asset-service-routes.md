@@ -1,6 +1,6 @@
 # 素材服务路由
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -15,3 +15,5 @@
 - [ ] KV 不存素材二进制（素材本体只走文件系统 + 路由）
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——`src/host/asset-routes.ts` 提供 `/api/dsh-jx/*` 素材路由并持续演进（缓存头等）。状态由 ready-for-agent 补记为 resolved。

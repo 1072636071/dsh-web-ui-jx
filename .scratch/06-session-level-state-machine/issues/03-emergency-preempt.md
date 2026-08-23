@@ -1,6 +1,6 @@
 # 03 — 紧急抢焦与交还
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 02
 
@@ -18,5 +18,7 @@
 - [ ] 通过 `npm run build` 与 `npm run verify`
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——非焦点会话紧急抢焦/交还实现于 `overlay-session-runtime.ts`（findEmergencySessionId / reconcileFocus）；排查中发现的同族遮蔽缺陷已另立工单 09/10 跟踪，不影响本票验收。状态由 ready-for-agent 补记为 resolved。
 
 （来源：PRD 实现决策 3；ADR-0008 决策 2。）

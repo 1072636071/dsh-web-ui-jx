@@ -1,6 +1,6 @@
 # 管理界面
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 03, 07
 
@@ -15,3 +15,5 @@
 - [ ] 交互遵循 DESIGN.md 动效规范（常规 150ms / 布局 200ms / 强调 350ms，自然减速曲线）
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——ManagementUI 导入全流程上线；后按特性 03 重构为无壳 section 内容内嵌侧边栏。状态由 ready-for-agent 补记为 resolved。

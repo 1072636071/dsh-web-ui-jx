@@ -1,6 +1,6 @@
 # SettingsCard 三 section 折叠把手 + 内嵌 ManagementUI + 移除 onOpenManagement 链路
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01, 02
 
@@ -23,5 +23,7 @@
 - [ ] `npm run verify` 21 项全绿
 
 ## 评论
+
+- 回写（2026-08-23）：map.md 已记录本票「已实施」，状态行同步补记为 resolved（提交 41d2c77）。
 
 事后补工单（功能已实施）。本工单完成 ADR-0004 的完整功能：管理界面内嵌侧边栏作为可折叠 section。阻塞于 01（section 折叠 CSS 基础）+ 02（ManagementUI 无壳可用）。

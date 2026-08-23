@@ -1,6 +1,6 @@
 # 01 — webp 动画时长解析与动态播放
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 无——可立即开始
 
@@ -17,5 +17,7 @@
 - [ ] 通过 `npm run build` 与 `npm run verify`
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——`webp-duration.ts`（ANMF 解析 + 缓存 + 兜底回退），提交 d821110「工单 01」。状态由 ready-for-agent 补记为 resolved。
 
 （来源：PRD 实现决策 6；memorial 004 sub-task/002 已验证解析可行性。）

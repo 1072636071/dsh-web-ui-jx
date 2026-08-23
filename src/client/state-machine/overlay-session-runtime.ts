@@ -13,6 +13,14 @@
  *   - 多会话并行驻留：≥2 会话 running 且至少一个非 idle 时，浮层显示 working。
  *   - 摸鱼彩蛋：并行驻留期间随机 2–5 分钟触发一次表情动画。
  *
+ * 工单 09/10（焦点会话紧急态可见性）：紧急呈现查找含焦点会话自身——
+ *   焦点会话进入 permission/error 时立即打断 poke 序列（含回落段）并压过
+ *   并行驻留画面；否则紧急事件被遮蔽（poke 全程 ~8s / 审批等待全程）。
+ *
+ * 显示层序列真实时长对齐：poke / 彩蛋的驻留与退场定时器按过渡段实测时长
+ * （TRANSITION_EDGE_MS）排程——驻留从目标态可见后起算、退场在过渡播完时清除，
+ * 消除「固定短值截断入场/退场过渡、目标态画面永远播不到」的缺陷。
+ *
  * 纯逻辑模块：不操作 DOM、不依赖 React。UI（CharacterOverlay）通过
  * useSyncExternalStore 订阅 runtime 快照。
  *
@@ -32,6 +40,7 @@ import {
   type OverlayState,
   type PlaybackItem,
   type StateMachineSnapshot,
+  type TransitionEndpoint,
 } from "./overlay-state-machine.ts";
 import {
   extractCore,
@@ -92,17 +101,74 @@ const EASTER_EGG_POOL: ReadonlyArray<OverlayState | IntermediateState> = [
 const EASTER_EGG_MIN_MS = 2 * 60 * 1000;
 const EASTER_EGG_MAX_MS = 5 * 60 * 1000;
 
-/** 彩蛋表情单次展示时长 ms（循环态展示 3s 后切回 working）。 */
+/** 彩蛋表情单次展示时长 ms（入场过渡播完、表情循环可见后开始计时）。 */
 const EASTER_EGG_HOLD_MS = 3000;
 
-/** 彩蛋退出动画时长 ms（表情 → idle → working）。 */
-const EASTER_EGG_EXIT_MS = 5000;
+/**
+ * 过渡段实测时长表（ms）。2026-08-23 全量测量（复测脚本
+ * `.temp/scripts/measure_all_durations.mjs`，素材重生成后需同步重测）。
+ * 结构三档：表情边（33ms × 23 帧）= 766；长经典边（67ms × 74 帧 + 536 定格）= 5494；
+ * 标准经典边（67ms × 44 帧 + 536 定格）= 3484。
+ *
+ * 用途：poke / 摸鱼彩蛋的显示层序列定时器按「过渡段真实总时长 + 驻留时长」排程，
+ * 替代旧版从序列起点计时的固定值——旧值小于入场过渡总长时，目标态画面
+ * （惊吓循环/表情循环）永远播不到就被切到退场计划（截断缺陷）。
+ */
+const TRANSITION_EDGE_MS: Readonly<Record<string, number>> = Object.freeze({
+  "angry-idle": 766,
+  "cheek-rest-idle": 5494,
+  "chin-rest-idle": 5494,
+  "done-idle": 3484,
+  "error-idle": 5494,
+  "frown-wave-idle": 5494,
+  "frown-wave-permission": 3484,
+  "happy-idle": 766,
+  "idle-angry": 766,
+  "idle-cheek-rest": 5494,
+  "idle-chin-rest": 5494,
+  "idle-done": 3484,
+  "idle-error": 5494,
+  "idle-frown-wave": 5494,
+  "idle-happy": 766,
+  "idle-listening": 5494,
+  "idle-nod-smile": 5494,
+  "idle-permission": 3484,
+  "idle-reading": 5494,
+  "idle-replying": 3484,
+  "idle-shush": 5494,
+  "idle-shy-smile": 5494,
+  "idle-surprised": 766,
+  "idle-thinking": 3484,
+  "idle-welcome": 3484,
+  "idle-working": 3484,
+  "listening-idle": 5494,
+  "nod-smile-idle": 5494,
+  "nod-smile-permission": 3484,
+  "permission-frown-wave": 3484,
+  "permission-idle": 3484,
+  "permission-nod-smile": 3484,
+  "reading-idle": 5494,
+  "replying-idle": 3484,
+  "replying-thinking": 5494,
+  "shush-idle": 5494,
+  "shy-smile-idle": 5494,
+  "surprised-idle": 766,
+  "thinking-idle": 3484,
+  "thinking-replying": 5494,
+  "welcome-idle": 3484,
+  "working-idle": 3484,
+});
 
-/** poke 惊吓循环驻留时长 ms（惊吓循环态展示后开始回落，ADR-0011）。 */
+/** 表内缺项边的回退时长：取表内最大档（宁晚勿早——晚切落在定格/循环帧，早切截断过渡）。 */
+const TRANSITION_EDGE_MS_FALLBACK = 5494;
+
+/** 查过渡段实测时长（键为 `${from}-${to}` 边名，同素材文件名去前缀）。 */
+function edgeTransitionMs(from: TransitionEndpoint, to: TransitionEndpoint): number {
+  return TRANSITION_EDGE_MS[`${from}-${to}`] ?? TRANSITION_EDGE_MS_FALLBACK;
+}
+
+/** poke 惊吓循环驻留时长 ms（惊吓循环态可见后开始计时，ADR-0011）。 */
 export const POKE_HOLD_MS = 3000;
-
-/** poke 回落（惊吓→idle→当前态）窗口 ms（ADR-0011）。 */
-export const POKE_EXIT_MS = 5000;
 
 /** 表情循环态集合（拥有 {state}.webp 循环素材）。 */
 const EXPRESSION_LOOP_STATES: ReadonlySet<OverlayState> = new Set([
@@ -409,13 +475,19 @@ export function createOverlaySessionRuntime(
     return HARD_CUT_STATES.has(state);
   }
 
-  /** 查找应紧急抢焦的会话 id（按 sessions.list.ids 顺序取第一个）。 */
+  /**
+   * 查找应紧急呈现的会话 id（按 sessions.list.ids 顺序取第一个）。
+   *
+   * 含焦点会话自身（工单 09/10）：焦点会话进入 permission/error 时同样走
+   * 紧急分支——否则 poke（1.5）与并行驻留（3）分支会覆盖焦点会话的紧急画面，
+   * 紧急事件最长被遮蔽整个 poke 序列乃至审批等待全程。紧急分支的输出与
+   * 正常跟随（4）对该会话一致（SM 原样 playback、不接轮换），行为无歧义。
+   */
   function findEmergencySessionId(): SessionId | undefined {
     const list = sessions.list.getSnapshot();
     for (const id of list.ids) {
       const entry = entries.get(id);
       if (entry === undefined) continue;
-      if (id === userFocusSessionId) continue; // 焦点会话的 emergency 已由 focus SM 呈现
       if (isEmergencyState(entry.lastState)) return id;
     }
     return undefined;
@@ -652,6 +724,13 @@ export function createOverlaySessionRuntime(
   function startEasterEggExit(): void {
     if (easterEggState === undefined) return;
     easterEggExiting = true;
+    // 退场定时器 = 退场过渡真实总时长（表情循环态多一段表情→idle）：
+    // 过渡播完恰落在退场计划末项（working 循环）起点，交还并行驻留时无缝。
+    const expr = easterEggState;
+    const exitMs =
+      (EXPRESSION_LOOP_STATES.has(expr as OverlayState)
+        ? edgeTransitionMs(expr as TransitionEndpoint, "idle")
+        : 0) + edgeTransitionMs("idle", "working");
     if (easterEggExitTimer !== undefined) clearTimeout(easterEggExitTimer);
     easterEggExitTimer = setTimeout(() => {
       easterEggExitTimer = undefined;
@@ -660,16 +739,21 @@ export function createOverlaySessionRuntime(
       scheduleEasterEgg(); // 为下一次彩蛋排期
       reconcileFocus();
       emit();
-    }, EASTER_EGG_EXIT_MS);
+    }, exitMs);
   }
 
   function startEasterEggHold(): void {
     if (easterEggHoldTimer !== undefined) clearTimeout(easterEggHoldTimer);
+    // 驻留计时从表情**可见后**起算：入场过渡（working→idle→表情）按实测
+    // 时长播完才开始 3s 展示窗口——固定短值会让表情画面永远播不到。
+    const entryMs =
+      edgeTransitionMs("working", "idle") +
+      edgeTransitionMs("idle", easterEggState as TransitionEndpoint);
     easterEggHoldTimer = setTimeout(() => {
       easterEggHoldTimer = undefined;
       startEasterEggExit();
       emit();
-    }, EASTER_EGG_HOLD_MS);
+    }, entryMs + EASTER_EGG_HOLD_MS);
   }
 
   function enterEasterEgg(): void {
@@ -728,16 +812,17 @@ export function createOverlaySessionRuntime(
   /**
    * 点击惊吓：用户点击姜晓时触发一次「当前态→idle→惊吓→惊吓循环→idle→当前态」。
    * - 冷却：poke 播放中（含回落）重复调用忽略（ADR-0011 D8）。
-   * - 紧急态（permission/error）存在时不触发；播放中遇紧急事件由 reconcileFocus 取消（D7）。
+   * - 紧急态（permission/error，含焦点会话自身）存在时不触发；播放中遇紧急
+   *   事件由 reconcileFocus 取消（D7 + 工单 09）。
    * - 触发时取消进行中的摸鱼彩蛋，避免显示层覆盖叠加（D9）。
+   * - 定时器按过渡段实测时长排程（见 TRANSITION_EDGE_MS）：驻留计时从惊吓
+   *   循环**可见后**起算，回落清除在回落过渡播完时——固定短值会截断序列。
    */
   function poke(): void {
     if (disposed) return;
     if (pokeState !== undefined || pokeExiting) return; // 冷却
-    // 紧急态不触发：非焦点会话抢焦，或焦点会话自身处于 permission/error（ADR-0011 D7）
+    // 紧急态不触发：任意会话（含焦点自身）处于 permission/error（ADR-0011 D7）
     if (findEmergencySessionId() !== undefined) return;
-    const focusEntry = focusSessionIdToEntry(currentFocusSessionId);
-    if (focusEntry !== undefined && isEmergencyState(focusEntry.lastState)) return;
     // 取消摸鱼彩蛋，避免显示层覆盖叠加
     clearEasterEggTimers();
     easterEggState = undefined;
@@ -746,18 +831,24 @@ export function createOverlaySessionRuntime(
     pokeReturnState = baseDisplayState();
     pokeState = "surprised";
     pokeExiting = false;
+    const entryMs =
+      (pokeReturnState !== "idle" ? edgeTransitionMs(pokeReturnState, "idle") : 0) +
+      edgeTransitionMs("idle", "surprised");
     pokeHoldTimer = setTimeout(() => {
       pokeHoldTimer = undefined;
       pokeExiting = true;
+      const exitMs =
+        edgeTransitionMs("surprised", "idle") +
+        (pokeReturnState !== "idle" ? edgeTransitionMs("idle", pokeReturnState) : 0);
       pokeExitTimer = setTimeout(() => {
         pokeExitTimer = undefined;
         pokeState = undefined;
         pokeExiting = false;
         reconcileFocus();
         emit();
-      }, POKE_EXIT_MS);
+      }, exitMs);
       emit();
-    }, POKE_HOLD_MS);
+    }, entryMs + POKE_HOLD_MS);
     emit();
   }
 
@@ -783,6 +874,10 @@ export function createOverlaySessionRuntime(
   }
 
   function processSnapshot(entry: SessionEntry, snapshot: ConversationSnapshot): void {
+    // 并行驻留基线必须在**本会话目标态应用之前**采样：第二个会话转入工作正是
+    // 发生在本次 processSnapshot 内，事后采样会让 wasParallel 恒等于 isHold，
+    // 上升沿（hold 开始）永远检测不到 → 摸鱼彩蛋从未被调度（2026-08-23 插桩实证）。
+    const wasParallel = isParallelHold();
     const currCore = extractCore(snapshot);
     const target = diffTarget(entry.prevCore, currCore);
     // permission 下降沿（授权完成）：补出的目标态立即落，不经防抖
@@ -804,7 +899,6 @@ export function createOverlaySessionRuntime(
     entry.prevCore = currCore;
 
     // 任何会话状态变化都可能影响 emergency/并行驻留
-    const wasParallel = isParallelHold();
     reconcileFocus();
     const isHold = isParallelHold();
     if (wasParallel !== isHold) {
@@ -923,6 +1017,9 @@ export function createOverlaySessionRuntime(
   function tick(): void {
     if (disposed) return;
     let changed = false;
+    // 与 processSnapshot 同理：基线在本次 tick 的任何落态之前采样，
+    // 否则防抖补齐第二个 running 会话造成的 hold 上升沿会被吞掉。
+    const wasParallel = isParallelHold();
 
     // 焦点会话防抖 deadline 到点：dispatch pending
     if (
@@ -977,7 +1074,6 @@ export function createOverlaySessionRuntime(
     }
 
     if (changed) {
-      const wasParallel = isParallelHold();
       reconcileFocus();
       const isHold = isParallelHold();
       if (wasParallel !== isHold) {

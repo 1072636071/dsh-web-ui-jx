@@ -1,6 +1,6 @@
 # overlay-position 纯逻辑模块 + 单元测试
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 无——可立即开始
 
@@ -18,5 +18,7 @@
 - [ ] `npm run test` 全绿（新增 overlay-position 测试文件通过）
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——`overlay-position.ts` 纯逻辑模块与单元测试在库（提交 2ce701f）。状态由 ready-for-agent 补记为 resolved。
 
 来源：PRD-04 实现决策 3 + 测试决策。阻塞者最先放置，本工单为地基，工单 02/03 依赖。

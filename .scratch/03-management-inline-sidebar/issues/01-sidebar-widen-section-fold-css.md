@@ -1,6 +1,6 @@
 # 侧边栏加宽 + section 折叠 CSS 基础设施
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 无——可立即开始
 
@@ -16,5 +16,7 @@
 - [ ] `npm run verify` 21 项全绿
 
 ## 评论
+
+- 回写（2026-08-23）：map.md 已记录本票「已实施」，状态行同步补记为 resolved（提交 41d2c77）。
 
 事后补工单（功能已实施）。本工单为预重构：先铺设 section 折叠 CSS 基础设施，为工单 02/03 的组件改动做准备。

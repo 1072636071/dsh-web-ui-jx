@@ -4,9 +4,16 @@
  * 工单 05-session-bubbles：角色浮层会话气泡列的可测地基。
  *
  * 提供：
- *   - selectBubbleEntries：过滤（running || completed）→ 保持列表顺序 →
- *     截取前 maxVisible 为 visible，返回 { visible, moreCount }。
- *     每条输出携带 isCurrent（sessionId === current）。
+ *   - buildBubbleGroups（ADR-0018）：唯一气泡投影入口——范围过滤（running ||
+ *     completed）+ 归组模型：subagent 后代沿 parentId 折叠进根祖先（第一个
+ *     非 subagent 来源的祖先），一条工作流恒占一个顶层归组气泡；每组携带
+ *     rootId / 根条目 / 成员序列 / 徽标 badge{total, running} /
+ *     containsCurrent / pending 聚合标志；上限只管顶层，pending 组豁免折叠、
+ *     永驻可见（ADR-0020 组级聚合）；无谱系字段输入退化为旧行为（每会话
+ *     一泡，向后兼容护栏）。
+ *     （历史注：工单 02 收缩步已移除被分组渲染取代的平铺导出
+ *     selectBubbleEntries——其行为语义由 buildBubbleGroups 平铺退化路径承载，
+ *     回归护栏以测试域行为基准比对的形式保留在 session-bubbles.test.ts。）
  *
  * 纯逻辑模块：不操作 DOM、不依赖 React、不依赖 SDK 类型。DOM 薄壳在
  * SessionBubbleList 组件。对齐 state-machine / overlay-position 单例模式。
@@ -20,6 +27,16 @@
 
 /** 会话 id（与 SDK SessionId 同语义，此处用 string 别名解耦）. */
 export type SessionId = string;
+
+/**
+ * 等待用户交互的种类（与 SDK `PendingInteractionStatus` 同语义，此处用
+ * 字面量联合解耦，形状固化在纯逻辑层）。
+ *
+ * - approval：工具/权限审批等待确认；
+ * - plan-review：计划评审等待确认；
+ * - question：助手提问（ask_user_question）等待回答。
+ */
+export type PendingInteractionKind = "approval" | "plan-review" | "question";
 
 /**
  * 输入条目：从 SDK SessionSummary 投影出的气泡列关心字段。
@@ -36,6 +53,23 @@ export interface SessionListEntry {
   readonly running: boolean;
   /** 是否已结束未查看（completed === true）. */
   readonly completed: boolean;
+  /**
+   * 会话当前是否被用户交互阻塞（SDK `SessionSummary.pendingInteraction`，
+   * 侧边栏琥珀点同源信号）；undefined = 无阻塞。
+   */
+  readonly pendingInteraction?: PendingInteractionKind;
+  /**
+   * 直接父会话 id（SDK `SessionSummary.parentId`，string 解耦）；undefined =
+   * 无父行。归组模型（ADR-0018 D2/D7）沿此字段向上溯根祖先；上溯中断
+   * （父行不在列表镜像中）以停留节点为根。
+   */
+  readonly parentId?: string;
+  /**
+   * 来源标记（SDK `SessionSummary.origin`，string 解耦）；undefined = 普通
+   * 会话（含 fork，fork 截断谱系传播）。仅 `'subagent'` 来源参与归组折叠
+   * （ADR-0018 D2）。
+   */
+  readonly origin?: string;
 }
 
 /**
@@ -46,14 +80,6 @@ export interface SessionListEntry {
 export interface BubbleEntry extends SessionListEntry {
   /** 是否为当前会话（sessionId === current）. */
   readonly isCurrent: boolean;
-}
-
-/** selectBubbleEntries 返回值. */
-export interface SelectBubbleEntriesResult {
-  /** 可见气泡条目（前 maxVisible 条，保持列表顺序）. */
-  readonly visible: readonly BubbleEntry[];
-  /** 折叠数量（超出 maxVisible 的条目数，moreCount = max(0, total - maxVisible)）. */
-  readonly moreCount: number;
 }
 
 /** 无 title 时 sessionId 截断长度（ADR-0007 决策 2 回落）. */
@@ -75,51 +101,245 @@ export function displayTitle(entry: BubbleEntry): string {
 }
 
 // ---------------------------------------------------------------------------
-// 过滤 + 折叠 + isCurrent（纯函数，ADR-0007 决策 1/5）
+// 归组模型（ADR-0018 D2/D3/D4/D6/D7/D8，工单 09）
 // ---------------------------------------------------------------------------
 
 /**
- * 过滤 running || completed 的会话，保持列表顺序，截取前 maxVisible 为 visible，
- * 超出部分计为 moreCount；每条携带 isCurrent。
- *
- * ADR-0007 决策 1：气泡范围 = `running === true` 或 `completed === true` 的会话。
- * 其余（idle / 已查看）不入选。
- *
- * 顺序保持：入选条目按 items 原顺序排列，不重排（ADR-0007 决策 3 自下而上生长，
- * 列表顺序第一个在底部）。
- *
- * 折叠：total ≤ maxVisible → 全可见且 moreCount = 0；
- *       total > maxVisible → visible = 前 maxVisible 条，moreCount = total - maxVisible。
- *
- * isCurrent：sessionId === current 的条目标记 true；current 为 undefined 或不匹配 → false。
- *
- * maxVisible 边界：纯函数按传入值计算，越界值（< 0 等）由配置模块钳制；
- *   maxVisible ≤ 0 时 visible 为空、moreCount = total（全部折叠）。
- *
- * @param items - 会话列表条目（从 sessions.list 派生）。
- * @param current - 当前会话 id（undefined 表示无当前会话）。
- * @param maxVisible - 可见气泡上限。
- * @returns { visible, moreCount }。
+ * 归组徽标数据（ADR-0018 D4）。
  */
-export function selectBubbleEntries(
+export interface BubbleGroupBadge {
+  /** 通过范围过滤的后代总数（不含根本身；= members.length）. */
+  readonly total: number;
+  /** 运行中后代数量（徽标金色呼吸迷你点的判定依据）. */
+  readonly running: number;
+}
+
+/**
+ * 顶层归组气泡：根祖先 + 其全部通过范围过滤的 subagent 后代（ADR-0018）。
+ *
+ * 一条多代理工作流无论派生多少层子孙，恒占一个顶层归组气泡（D2 根祖先
+ * 锚定）；徽标数据与当前会话标记随组携带，组件层据此渲染徽标 `▸N`、
+ * 金呼吸迷你点与金描边。
+ */
+export interface BubbleGroup {
+  /** 根祖先会话 id（= root.sessionId，供组件按 id 取展开态等键控）. */
+  readonly rootId: string;
+  /**
+   * 根祖先条目：普通会话（origin ≠ 'subagent'）或孤儿回退的 subagent
+   * 停留节点（D7）。isCurrent 仅反映自身命中（rootId === current）；
+   * current 落在后代时的高亮由 containsCurrent 表达——组件按
+   * `root.isCurrent || containsCurrent` 挂金描边（D6 传播的组合式表达）。
+   */
+  readonly root: BubbleEntry;
+  /** 组内成员：通过范围过滤（running || completed）的后代，按宿主列表原序. */
+  readonly members: readonly BubbleEntry[];
+  /** 徽标数据：后代总数与运行中数（D4）. */
+  readonly badge: BubbleGroupBadge;
+  /**
+   * 当前会话是否落在本组**后代**中（D6）：current ∈ members。
+   * 兼作强制展开标记（effectiveExpanded = manualExpanded || containsCurrent）
+   * 与根祖先传播高亮依据；current 为根本身时为 false（不强制展开）。
+   */
+  readonly containsCurrent: boolean;
+  /**
+   * 组级等待交互聚合标志（ADR-0020 分组模型组合语义，队长裁定）：根本身
+   * 或任一入选成员 pendingInteraction !== undefined 时为真。pending 组
+   * 豁免顶层折叠——落在截断线之外时追加到可见组尾部、不计入 moreCount。
+   */
+  readonly pending: boolean;
+}
+
+/** buildBubbleGroups 返回值. */
+export interface BuildBubbleGroupsResult {
+  /** 可见顶层组（前 maxVisible 个 + 折叠豁免组，按根首次出现位序）. */
+  readonly groups: readonly BubbleGroup[];
+  /** 顶层溢出折叠数（moreCount = max(0, 顶层组数 − maxVisible)，豁免组不计）. */
+  readonly moreCount: number;
+}
+
+/**
+ * 归组引擎：输入投影（含 parentId / origin）+ 当前会话 + 上限，输出顶层
+ * 分组序列（ADR-0018 D8）。
+ *
+ * 判定细则：
+ *
+ * - **范围过滤**：与既有模型一致，`running || completed` 的会话才可能入选；
+ *   idle 后代不显示、不计数（实现决策 1）。
+ * - **根祖先锚定**（D2）：subagent 条目沿 parentId 向上溯，停在第一个
+ *   origin ≠ 'subagent' 的祖先——该祖先即根，全部后代折叠进它。
+ * - **fork 截断**：fork 出的会话 origin 非 'subagent'，按普通会话自成
+ *   锚点，不是任何人的后代、不进任何人的成员与计数。
+ * - **孤儿回退**（D7）：上溯中断（无父行或父行不在输入镜像中）或父链
+ *   成环时，以停留节点为根；停留节点本身是 subagent 则自成一个顶层归组
+ *   气泡，徽标照常统计其可达后代。成环解析与上溯起点相关（停留节点随
+ *   起点变化），属退化输入，本函数保证逐节点确定且不丢失条目。
+ * - **组入选条件**（实现决策 1）：根本身通过过滤，或任一后代通过过滤。
+ *   根空闲而后代在跑 ⇒ 组仍在、根气泡照常渲染（呼吸点示意）。
+ * - **徽标计数**（D4）：badge.total 只计通过范围过滤的后代（不含根本身）；
+ *   badge.running 为其中 running === true 者。
+ * - **current 传播**（D6，组合式表达）：root.isCurrent 仅反映自身命中
+ *   （rootId === current）；current 为某后代 ⇒ containsCurrent 置真（成员
+ *   各自保留自身 isCurrent 高亮）。组件按 root.isCurrent || containsCurrent
+ *   挂金描边；current 为根本身 / 无 current / 不相关 ⇒ containsCurrent 恒假。
+ * - **上限只管顶层**（D3）：maxVisible 只约束顶层组数；组内展开不受限。
+ *   moreCount = max(0, 顶层组数 − maxVisible)。
+ * - **折叠豁免**（ADR-0020 分组模型组合语义，队长裁定）：组级 pending =
+ *   根或任一入选成员 pendingInteraction !== undefined；pending 组豁免顶层
+ *   折叠——落在截断线之外时按原相对顺序追加到 groups 尾部、不计入
+ *   moreCount——等待交互的工作流入口永驻可见。maxVisible ≤ 0 时 groups
+ *   仅含豁免组。
+ * - **排序稳定**（D8）：顶层按根在宿主列表中的首次出现位次（后代先于根
+ *   出现不影响组位次）；组内按宿主列表原序过滤；不做时间戳重排。
+ * - **平铺退化**：无谱系字段（parentId/origin 全缺省）时每个合格会话
+ *   自成单例组，输出与改造前平铺行为逐条目等价（向后兼容护栏）。
+ *
+ * @param items - 会话列表条目（从 sessions.list 快照派生，含谱系字段）。
+ * @param current - 当前会话 id（undefined 表示无当前会话）。
+ * @param maxVisible - 可见顶层归组气泡上限。
+ * @returns { groups, moreCount }。
+ */
+export function buildBubbleGroups(
   items: readonly SessionListEntry[],
   current: SessionId | undefined,
   maxVisible: number,
-): SelectBubbleEntriesResult {
-  const filtered: BubbleEntry[] = [];
+): BuildBubbleGroupsResult {
+  // 输入镜像：沿 parentId 上溯时的行存在性查询（D7「父行不在 byId 中」）。
+  const byId = new Map<SessionId, SessionListEntry>();
+  for (const item of items) byId.set(item.sessionId, item);
+
+  const isSubagent = (e: SessionListEntry | undefined): boolean =>
+    e !== undefined && e.origin === "subagent";
+
+  // 根祖先解析（带 memo 的路径压缩）。仅缓存结论与起点无关的终止：
+  // 锚定命中（普通祖先）与上溯中断（停留节点必中断）可安全缓存；
+  // 成环终止与起点相关（不同起点的停留节点不同），不写 memo 保证确定性。
+  const rootMemo = new Map<SessionId, SessionId>();
+  const resolveRoot = (startId: SessionId): SessionId => {
+    const start = byId.get(startId);
+    if (start === undefined) return startId;
+    if (!isSubagent(start)) return startId; // 普通会话（含 fork）自成锚点
+    const memoed = rootMemo.get(startId);
+    if (memoed !== undefined) return memoed;
+
+    const visited = new Set<SessionId>([startId]);
+    let cur: SessionListEntry = start;
+    let cyclic = false;
+    while (isSubagent(cur)) {
+      const parent =
+        cur.parentId === undefined ? undefined : byId.get(cur.parentId);
+      if (parent === undefined) break; // 上溯中断：停留节点为根（D7）
+      if (visited.has(parent.sessionId)) {
+        cyclic = true; // 父链成环：停留节点为根（D7），不写 memo
+        break;
+      }
+      visited.add(parent.sessionId);
+      cur = parent;
+    }
+    // 循环出口：cur 为普通锚点（D2 命中）或 subagent 停留节点（D7 回退）。
+    const rootId = cur.sessionId;
+    if (!cyclic) {
+      for (const id of visited) rootMemo.set(id, rootId);
+    }
+    return rootId;
+  };
+
+  // 全量解析根祖先。
+  const rootOf = new Map<SessionId, SessionId>();
   for (const item of items) {
-    if (!item.running && !item.completed) continue;
-    filtered.push({
-      sessionId: item.sessionId,
-      title: item.title,
-      running: item.running,
-      completed: item.completed,
-      isCurrent: item.sessionId === current,
+    rootOf.set(item.sessionId, resolveRoot(item.sessionId));
+  }
+
+  // 先登记全部顶层根骨架（普通会话 + 孤儿 subagent 停留节点），再挂成员：
+  // 两轮遍历保证后代先于根出现时成员不丢；Map 插入序 = 根首次出现位次（D8）。
+  const skeletons = new Map<
+    SessionId,
+    { root: SessionListEntry; members: SessionListEntry[] }
+  >();
+  for (const item of items) {
+    const r = rootOf.get(item.sessionId) ?? item.sessionId;
+    if (item.origin !== "subagent" || r === item.sessionId) {
+      if (!skeletons.has(item.sessionId)) {
+        skeletons.set(item.sessionId, { root: item, members: [] });
+      }
+    }
+  }
+  // 安全网（退化输入）：成员解析目标未登记为根时（如两节点互环——环上
+  // 无任何节点自锚），把目标提升为孤儿顶层根，保证条目不丢失（D7 精神：
+  // 孤儿子会话不消失）。真实宿主数据 parentId 构成森林，此分支不可达。
+  for (const item of items) {
+    if (item.origin !== "subagent") continue;
+    const r = rootOf.get(item.sessionId) ?? item.sessionId;
+    if (r === item.sessionId || skeletons.has(r)) continue;
+    const target = byId.get(r);
+    if (target !== undefined) {
+      skeletons.set(r, { root: target, members: [] });
+    }
+  }
+  for (const item of items) {
+    if (item.origin !== "subagent") continue;
+    const r = rootOf.get(item.sessionId) ?? item.sessionId;
+    if (r === item.sessionId) continue; // 已登记为孤儿顶层根
+    skeletons.get(r)?.members.push(item); // 组内按宿主列表原序累积（D8）
+  }
+
+  // 组装配：入选判定 → current 标记 → 徽标计数 → 组级 pending 聚合。
+  const groups: BubbleGroup[] = [];
+  for (const sk of skeletons.values()) {
+    const rootPasses = sk.root.running || sk.root.completed;
+    const members = sk.members
+      .filter((m) => m.running || m.completed)
+      .map((m) => toGroupBubbleEntry(m, current));
+    // 组入选条件（实现决策 1）：根本身或任一后代通过范围过滤。
+    if (!rootPasses && members.length === 0) continue;
+    const containsCurrent =
+      current !== undefined &&
+      members.some((m) => m.sessionId === current);
+    groups.push({
+      rootId: sk.root.sessionId,
+      // root.isCurrent 仅自身命中；后代命中由 containsCurrent 表达（D6）。
+      root: toGroupBubbleEntry(sk.root, current),
+      members,
+      badge: {
+        total: members.length,
+        running: members.reduce((n, m) => (m.running ? n + 1 : n), 0),
+      },
+      containsCurrent,
+      // ADR-0020 组级聚合（队长裁定）：根或任一入选成员等待交互。
+      pending:
+        sk.root.pendingInteraction !== undefined ||
+        members.some((m) => m.pendingInteraction !== undefined),
     });
   }
-  const total = filtered.length;
-  const visibleCount = Math.min(Math.max(0, Math.floor(maxVisible)), total);
-  const visible = filtered.slice(0, visibleCount);
-  const moreCount = Math.max(0, total - visibleCount);
-  return { visible, moreCount };
+
+  // 上限只管顶层（D3）+ ADR-0020 组级折叠豁免（与既有平铺折叠豁免语义同构）。
+  const cap = Math.max(0, Math.floor(maxVisible));
+  const primary = groups.slice(0, cap);
+  const overflow = groups.slice(cap);
+  const promoted = overflow.filter((g) => g.pending);
+  return {
+    groups: [...primary, ...promoted],
+    moreCount: Math.max(0, overflow.length - promoted.length),
+  };
+}
+
+/**
+ * 构造归组输出条目：透传展示、状态与谱系字段，isCurrent 仅反映自身命中
+ * （sessionId === current）——组级传播语义由 containsCurrent 承载（D6）。
+ */
+function toGroupBubbleEntry(
+  item: SessionListEntry,
+  current: SessionId | undefined,
+): BubbleEntry {
+  return {
+    sessionId: item.sessionId,
+    title: item.title,
+    running: item.running,
+    completed: item.completed,
+    ...(item.pendingInteraction !== undefined
+      ? { pendingInteraction: item.pendingInteraction }
+      : {}),
+    ...(item.parentId !== undefined ? { parentId: item.parentId } : {}),
+    ...(item.origin !== undefined ? { origin: item.origin } : {}),
+    isCurrent: item.sessionId === current,
+  };
 }

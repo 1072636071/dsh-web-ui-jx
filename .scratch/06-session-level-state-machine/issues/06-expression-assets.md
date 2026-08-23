@@ -1,6 +1,6 @@
 # 06 — 表情素材就位
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 05
 
@@ -15,5 +15,7 @@
 - [ ] 通过 `npm run build` 与 `npm run verify`
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——6 个生活化表情素材（idle↔happy/angry/surprised 各 2 边）已入库并随包分发。状态由 ready-for-agent 补记为 resolved。
 
 （来源：PRD 实现决策 8；ADR-0009。素材为美术产出——若素材由外部制作，本工单即接收/入库/验收；素材规格详见 `docs/animation-inventory.md`。）

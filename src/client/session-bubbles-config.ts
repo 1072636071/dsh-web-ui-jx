@@ -1,7 +1,7 @@
 /**
  * session-bubbles-config — 会话气泡数量上限配置（ADR-0007 决策 5）。
  *
- * 读写 localStorage('jx-max-session-bubbles')，默认 5，钳制 [1,10]。
+ * 读写 localStorage('jx-max-session-bubbles')，默认 10，钳制 [1,10]。
  * 容错对齐 skin.ts / overlay-position.ts：读失败回落默认、写失败静默忽略。
  *
  * @module dsh-web-ui-jx/client
@@ -10,8 +10,8 @@
 /** localStorage 键名（对齐 jx-skin / jx-fx / jx-overlay-pos 命名）. */
 const STORAGE_KEY = "jx-max-session-bubbles";
 
-/** 默认上限（ADR-0007 决策 5）. */
-export const DEFAULT_MAX_SESSION_BUBBLES = 5;
+/** 默认上限（ADR-0007 决策 5，后调整为 10）. */
+export const DEFAULT_MAX_SESSION_BUBBLES = 10;
 
 /** 上限下界. */
 export const MIN_MAX_SESSION_BUBBLES = 1;
@@ -37,7 +37,7 @@ export function clampMaxSessionBubbles(value: number): number {
 /**
  * 读取会话气泡数量上限。
  *
- * 容错：localStorage 不可用、键缺失、解析失败、越界均回落默认 5。
+ * 容错：localStorage 不可用、键缺失、解析失败、越界均回落默认 10。
  * 对齐 skin.ts 的 try/catch 静默忽略模式。
  *
  * @returns 钳制到 [1,10] 的上限值。

@@ -1,40 +1,78 @@
 /**
- * SessionBubbleList — 会话气泡列组件（ADR-0007）。
+ * SessionBubbleList — 会话气泡列组件（ADR-0007 / ADR-0018 归组模型）。
  *
- * 角色浮层左侧竖排的常驻气泡列：一气泡 = 一运行中/已结束未查看会话。
+ * 角色浮层左侧竖排的常驻气泡列，归组模型（ADR-0018）：一个顶层归组气泡 =
+ * 一个根祖先会话及其全部通过范围过滤的 subagent 后代——一条多代理工作流
+ * 无论派生多少层子孙恒占一个气泡，「占满」问题消失。无谱系字段的普通会话
+ * 退化为单例组，体验与改造前完全一致。
+ *
  * 气泡列整体位于角色盒外左侧（由 .bubbleList position:absolute;
  * right: calc(100% + 8px) + bottom:0 + column-reverse 实现）。
  *
  * 数据源：`sessions?: ISessions` prop（由 CharacterOverlay 传入）。
  *   - 用 useSyncExternalStore 订阅 sessions.list（SnapshotStore<SessionListState>）。
  *     订阅原始 SessionListState（SDK store 保证稳定引用），用 useMemo 派生
- *     SessionListEntry[]，避免 getSnapshot 返回新对象导致无限重渲染。
- *   - 调 selectBubbleEntries 过滤/折叠。
+ *     SessionListEntry[]（含 parentId / origin 谱系透传），避免 getSnapshot
+ *     返回新对象导致无限重渲染。
+ *   - 调 buildBubbleGroups 归组/折叠（ADR-0018 D8 纯函数 seam）。
  *   - sessions 缺省时气泡列不渲染（静默空转，与 session-follow 无 sessions 行为一致）。
  *
  * 配置：订阅 session-bubbles-config store，上限变化即时生效。
  *
- * 交互（ADR-0007 决策 4）：
- *   - 气泡 pointer-events:auto + cursor:pointer，点击调 sessions.open(id) 跳转。
- *   - 气泡挂 data-jx-interactive 不触发整盒拖动（复用 ADR-0006 排除机制）。
- *   - 当前会话气泡金描边高亮，点击无动作。
+ * 交互（ADR-0007 决策 4）：气泡 pointer-events:auto + cursor:pointer，
+ * 点击调 sessions.open(id) 跳转对应会话（根气泡开根会话，子气泡开子会话）；
+ * 挂 data-jx-interactive 不触发整盒拖动（复用 ADR-0006 排除机制）；
+ * 当前会话气泡点击无动作。
  *
- * 折叠（ADR-0007 决策 5）：超出上限折叠为「+N」弱化气泡，点击原地展开全部，再点收起。
+ * 子代理徽标（ADR-0018 D4/D5，工单03 按钮化）：▸N/▾N 计后代总数
+ * （badge.total，收起 ▸ / 展开 ▾），置于标题右侧 flex-shrink:0 不换行
+ * 不挤压；role=button + tabIndex 键盘可激活（Enter/Space），onClick /
+ * onKeyDown stopPropagation 阻断冒泡——不触发根气泡跳转、data-jx-interactive
+ * 不触发整盒拖动；aria-label 报告剩余子会话数（「展开/收起 N 个子会话」），
+ * aria-expanded 反映生效展开态。存在运行中后代（badge.running > 0）时前缀
+ * 金色呼吸迷你点（复用 dot-breathe 动画语义，reduced-motion 静态）。
  *
- * 动效（ADR-0007 决策 7）：出现 150ms 淡入 / 消失 100ms 淡出（退出快于进入）。
- *   退出动效通过 leavingEntries 状态实现：气泡从 visible 消失时移入 leavingEntries，
+ * 展开状态（ADR-0018 D5/D6）：各组独立维护手动展开态（manualExpanded:
+ * Set<rootId>）；生效展开态 = 手动展开 || containsCurrent——current 在该组
+ * 后代中时强制展开（手动收起无效，已接受的权衡），current 离开后自动回落
+ * 手动状态（派生计算，无需清理副作用）。
+ *
+ * 子气泡（ADR-0018 D5）：生效展开时渲染于父气泡之后（DOM 序配合列的
+ * column-reverse ⇒ 视觉位于父上方）；margin-right:12px + 列右缘对齐
+ * （align-items:flex-end）= 右缘对齐布局下向左缩进 12px；弱化背景
+ * （--jx-surface-1 墨阶下沉一级）+ 左侧 1px 竖连接线（--dsw-alias-border-l1
+ * 素线轨）；组内顺序 = 宿主列表原序（members 由纯逻辑层保证）。点击子气泡
+ * sessions.open(sessionId)；当前会话子气泡金描边且点击无动作；各自保留自身
+ * pending 样式（朱砂描边 + 涟漪点）。展开只平铺一级（递归树形展示超出范围）。
+ *
+ * 当前传播与紧急描边（队长裁定，记入工单02评论）：containsCurrent ⇒ 根气泡
+ * 金描边（root.isCurrent || containsCurrent 组合判定，D6）；group.pending
+ * （纯逻辑层组级聚合标志）⇒ 根气泡挂 .pending 朱砂描边且 aria-label 追加
+ * 「等待确认」——描边传播紧急信号，状态点仍表示根会话自身状态。
+ *
+ * 折叠（ADR-0007 决策 5 + ADR-0018 D3）：maxVisible 只约束顶层归组气泡数；
+ * 溢出折叠为「+N」弱化气泡，点击原地展开全部顶层组，再点收起。pending 组
+ * 豁免折叠、永驻可见（ADR-0020 组级聚合，纯逻辑层实施）。
+ *
+ * 动效（ADR-0007 决策 7 + D9）：出现 150ms 淡入 / 消失 100ms 淡出（退出快于
+ * 进入）。退出动效通过 leaving 状态实现，跟踪粒度双层：
+ *   - 整组从顶层可见集消失 → 捕获子树单元（组 + 当时可见成员）整体淡出
+ *     （键 rootId，避免组/子重复登记）；
+ *   - 单个子气泡消失而父组仍在（收起该组 / 成员被查看移出过滤范围）→ 按
+ *     子粒度捕获淡出（键 `${rootId}:${sessionId}`），渲染位置紧随其父组。
  *   渲染 leaving class 触发 CSS exit 动画，BUBBLE_EXIT_MS 后移除。重排无动画。
  *   prefers-reduced-motion 全关。
  *
  * 布局（ADR-0007 决策 3）：整体在角色盒外左侧竖排（right: calc(100% + 8px)），
  * bottom:0 + flex-direction: column-reverse 自下而上生长。随浮层盒整体移动。
  *
- * 样式只消费语义别名 + --jx-gold 专属轨，无颜色字面量、无主题选择器。
+ * 样式只消费语义别名 + --jx-* 专属轨，无颜色字面量、无主题选择器。
  *
  * @module dsh-web-ui-jx/client
  */
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -48,9 +86,10 @@ import type {
   SessionListState,
 } from "@deepseek-ai/dsh-client-runtime/client";
 import {
+  buildBubbleGroups,
   displayTitle,
-  selectBubbleEntries,
   type BubbleEntry,
+  type BubbleGroup,
   type SessionListEntry,
 } from "../state-machine/session-bubbles.ts";
 import {
@@ -82,7 +121,9 @@ function undefinedGetSnapshot(): undefined {
 /**
  * 把 SDK SessionListState（ids + byId）投影为气泡列关心的 SessionListEntry[]。
  *
- * 只取 sessionId / title / running / completed；保持 ids 顺序。
+ * 取 sessionId / title / running / completed / pendingInteraction，并透传
+ * 谱系字段 parentId / origin（ADR-0018：归组引擎沿 parentId 上溯根祖先、
+ * 按 origin === 'subagent' 判定折叠成员）；保持 ids 顺序。
  */
 function deriveItems(state: SessionListState): readonly SessionListEntry[] {
   const items: SessionListEntry[] = [];
@@ -94,6 +135,12 @@ function deriveItems(state: SessionListState): readonly SessionListEntry[] {
       title: summary.title,
       running: summary.running,
       completed: summary.completed ?? false,
+      // SDK PendingInteractionStatus 与纯逻辑层字面量联合同形状（ADR-0020）。
+      pendingInteraction: summary.pendingInteraction,
+      // 谱系透传（ADR-0018 D2/D7）：SDK 字段与纯逻辑层 string 解耦同形状；
+      // undefined 缺省不落键（对齐 exactOptionalPropertyTypes 纪律）。
+      ...(summary.parentId !== undefined ? { parentId: summary.parentId } : {}),
+      ...(summary.origin !== undefined ? { origin: summary.origin } : {}),
     });
   }
   return items;
@@ -116,26 +163,162 @@ function useActivationKey(onActivate: () => void) {
 }
 
 // ---------------------------------------------------------------------------
-// SessionBubble — 单气泡（内部组件）
+// GroupBubble — 顶层归组气泡（内部组件）
 // ---------------------------------------------------------------------------
 
-/** SessionBubble props. */
-interface SessionBubbleProps {
-  /** 气泡条目. */
+/** GroupBubble props. */
+interface GroupBubbleProps {
+  /** 顶层归组数据（根条目 + 徽标 + current/pending 传播标志）. */
+  group: BubbleGroup;
+  /**
+   * 生效展开态（ADR-0018 D6）：手动展开 || containsCurrent——驱动徽标箭头
+   * 方向（▸/▾）与 aria-expanded；子气泡的实际渲染由列表层按同一判定插入.
+   */
+  expanded: boolean;
+  /** 点击回调（传入根 sessionId）；当前根气泡不调用. */
+  onOpen: (id: string) => void;
+  /** 徽标激活回调：切换该组手动展开/收起（各组独立互不影响）. */
+  onToggle: () => void;
+  /** 退出态：true 时挂 leaving class 触发退出动画，不交互. */
+  leaving?: boolean;
+}
+
+/**
+ * 渲染一个顶层归组气泡：根标题 + 根状态点 + 子代理徽标（按钮化，D4/D5）。
+ *
+ * - 金描边组合判定（D6 队长裁定）：root.isCurrent（根本身命中）或
+ *   containsCurrent（current 落在本组后代中）→ 传播高亮。
+ * - 朱砂描边（ADR-0020 组级聚合）：group.pending → .pending class +
+ *   aria-label 追加「等待确认」；状态点仍按根本身自身状态渲染
+ *   （dotPending 仅当根本身等待交互）——描边传播紧急信号、点位保持自身语义。
+ * - 徽标即按钮（D4/D5）：role=button + tabIndex 键盘可激活；onClick /
+ *   onKeyDown 对 Enter/Space 一律 stopPropagation——阻断冒泡到根气泡本体
+ *   （点击不跳转、键盘不双重激活）；data-jx-interactive 双保险挂载
+ *   （父气泡已带排除标记，closest() 命中同一属性，整盒拖动不触发）。
+ *   aria-label 报告剩余子会话数，aria-expanded 反映生效展开态。
+ *
+ * 当前根气泡点击 no-op。leaving 态整组不交互（徽标 tabIndex 同步 -1）。
+ */
+function GroupBubble({
+  group,
+  expanded,
+  onOpen,
+  onToggle,
+  leaving,
+}: GroupBubbleProps) {
+  const root = group.root;
+  const handleClick = useCallback(() => {
+    if (root.isCurrent || leaving) return;
+    onOpen(root.sessionId);
+  }, [root.isCurrent, root.sessionId, onOpen, leaving]);
+
+  const handleKeyDown = useActivationKey(handleClick);
+
+  // 徽标激活：阻断冒泡是硬约束（D5）——鼠标点击不落到根气泡 onClick 上
+  //（否则触发 sessions.open 跳转），键盘 Enter/Space 不冒泡到根气泡的
+  // handleKeyDown（否则一次按键同时展开+跳转）。
+  const handleBadgeClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onToggle();
+    },
+    [onToggle],
+  );
+  const handleBadgeKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggle();
+      }
+    },
+    [onToggle],
+  );
+
+  const title = displayTitle(root);
+  // 描边传播：根本身命中或 current 在后代中 → 金描边（D6）。
+  const highlighted = root.isCurrent || group.containsCurrent;
+  // 组级紧急信号（ADR-0020 组级聚合，队长裁定）：根或任一入选成员等待交互。
+  const isPending = group.pending;
+  // 状态点保持根会话自身语义（ADR-0020 分组裁定）：朱砂涟漪点仅当根本身
+  // 等待交互；否则金呼吸（运行中）/ 石绿实心（已完成）。
+  const dotClass =
+    root.pendingInteraction !== undefined
+      ? styles.dotPending
+      : root.running
+        ? styles.dotRunning
+        : styles.dotCompleted;
+  const classes = [
+    styles.bubble,
+    highlighted ? styles.current : "",
+    isPending ? styles.pending : "",
+    leaving ? styles.leaving : "",
+  ].filter(Boolean).join(" ");
+
+  const hasDescendants = group.badge.total > 0;
+
+  return (
+    <div
+      className={classes}
+      role="button"
+      tabIndex={leaving ? -1 : 0}
+      aria-label={`会话：${title}${isPending ? "（等待确认）" : ""}${
+        root.isCurrent ? "（当前）" : ""
+      }`}
+      aria-current={root.isCurrent ? "true" : undefined}
+      data-jx-interactive=""
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+    >
+      <span className={`${styles.dot} ${dotClass}`} aria-hidden="true" />
+      <span className={styles.title}>{title}</span>
+      {hasDescendants && (
+        <span
+          className={styles.badge}
+          role="button"
+          tabIndex={leaving ? -1 : 0}
+          aria-label={`${expanded ? "收起" : "展开"} ${group.badge.total} 个子会话`}
+          aria-expanded={expanded}
+          data-jx-interactive=""
+          onClick={handleBadgeClick}
+          onKeyDown={handleBadgeKeyDown}
+        >
+          {group.badge.running > 0 && (
+            <span className={styles.badgeRunningDot} />
+          )}
+          {/* 收起 ▸N / 展开 ▾N（PRD 实现决策 3 / ADR-0018 D4） */}
+          {`${expanded ? "▾" : "▸"}${group.badge.total}`}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ChildBubble — 组内子气泡（内部组件，工单03）
+// ---------------------------------------------------------------------------
+
+/** ChildBubble props. */
+interface ChildBubbleProps {
+  /** 组内成员条目（通过范围过滤的后代，携带自身 isCurrent/pending）. */
   entry: BubbleEntry;
-  /** 点击回调（传入 sessionId）；当前会话气泡不调用. */
+  /** 点击回调（传入成员 sessionId）；当前会话子气泡不调用. */
   onOpen: (id: string) => void;
   /** 退出态：true 时挂 leaving class 触发退出动画，不交互. */
   leaving?: boolean;
 }
 
 /**
- * 渲染单个会话气泡：标题 + 状态点 + 点击 + 高亮。
+ * 渲染一个组内子气泡：成员标题 + 成员自身状态点。
  *
- * 挂 data-jx-interactive 不触发整盒拖动；role=button 键盘可激活；
- * aria-label 含会话标题。当前会话气泡点击 no-op。leaving 态不交互。
+ * 样式走 .bubble.bubbleChild 组合：缩进/弱化背景/左连接线由 .bubbleChild
+ * 承担（见 CSS 注释的金几何与令牌取色理由）；金描边（.current）、朱砂描边
+ * （.pending）、涟漪点（.dotPending）等状态样式全部按成员自身标志挂载——
+ * 子气泡各自保留自身 pending 样式、当前会话子气泡金描边。
+ * 点击调 sessions.open(memberId) 直达子会话；当前会话子气泡点击无动作。
+ * 出现/消失动效复用 .bubble 的 150ms enter / .leaving 100ms exit。
  */
-function SessionBubble({ entry, onOpen, leaving }: SessionBubbleProps) {
+function ChildBubble({ entry, onOpen, leaving }: ChildBubbleProps) {
   const handleClick = useCallback(() => {
     if (entry.isCurrent || leaving) return;
     onOpen(entry.sessionId);
@@ -144,10 +327,17 @@ function SessionBubble({ entry, onOpen, leaving }: SessionBubbleProps) {
   const handleKeyDown = useActivationKey(handleClick);
 
   const title = displayTitle(entry);
-  const dotClass = entry.running ? styles.dotRunning : styles.dotCompleted;
+  const isPending = entry.pendingInteraction !== undefined;
+  const dotClass = isPending
+    ? styles.dotPending
+    : entry.running
+      ? styles.dotRunning
+      : styles.dotCompleted;
   const classes = [
     styles.bubble,
+    styles.bubbleChild,
     entry.isCurrent ? styles.current : "",
+    isPending ? styles.pending : "",
     leaving ? styles.leaving : "",
   ].filter(Boolean).join(" ");
 
@@ -156,7 +346,9 @@ function SessionBubble({ entry, onOpen, leaving }: SessionBubbleProps) {
       className={classes}
       role="button"
       tabIndex={leaving ? -1 : 0}
-      aria-label={`会话：${title}${entry.isCurrent ? "（当前）" : ""}`}
+      aria-label={`会话：${title}${isPending ? "（等待确认）" : ""}${
+        entry.isCurrent ? "（当前）" : ""
+      }`}
       aria-current={entry.isCurrent ? "true" : undefined}
       data-jx-interactive=""
       onClick={handleClick}
@@ -206,6 +398,28 @@ function MoreBubble({ expanded, moreCount, onToggle }: MoreBubbleProps) {
 // SessionBubbleList — 气泡列（导出组件）
 // ---------------------------------------------------------------------------
 
+/**
+ * 可见渲染项快照：退出跟踪的存储单元（组粒度 + 子气泡粒度）。
+ *
+ * - kind 'group'：顶层组节点，键 = rootId；
+ * - kind 'child'：组内成员节点，键 = `${rootId}:${sessionId}`，groupId 供
+ *   渲染时归位到其父组之下。
+ */
+type RenderItem =
+  | { readonly kind: "group"; readonly key: string; readonly group: BubbleGroup }
+  | {
+      readonly kind: "child";
+      readonly key: string;
+      readonly groupId: string;
+      readonly entry: BubbleEntry;
+    };
+
+/** 整组退出单元：组连同其当时可见的成员一起淡出（键 rootId）. */
+interface LeavingUnit {
+  readonly group: BubbleGroup;
+  readonly children: readonly Extract<RenderItem, { kind: "child" }>[];
+}
+
 /** SessionBubbleList props. */
 export interface SessionBubbleListProps {
   /** 会话数据源（缺省时气泡列不渲染）. */
@@ -213,10 +427,10 @@ export interface SessionBubbleListProps {
 }
 
 /**
- * 渲染会话气泡列。
+ * 渲染会话气泡列（归组模型 + 展开交互，ADR-0018）。
  *
- * sessions 缺省时返回 null（静默空转）。无 running/completed 会话时返回 null
- * （浮层保持素净，PRD 用户故事 13）。
+ * sessions 缺省时返回 null（静默空转）。无可见顶层组、无折叠、无退出中
+ * 内容时不返回任何内容（浮层保持素净，PRD 用户故事 15）。
  *
  * @param props.sessions - 会话数据源。
  * @returns 会话气泡列，或 null。
@@ -242,8 +456,16 @@ export function SessionBubbleList({ sessions }: SessionBubbleListProps) {
   );
   const current = rawState?.current;
 
-  // 展开态：true 时显示全部会话气泡（不折叠）；false 时按 maxVisible 折叠。
+  // 展开态：true 时显示全部顶层组（不折叠）；false 时按 maxVisible 折叠。
   const [expanded, setExpanded] = useState(false);
+
+  // 各组独立手动展开态（ADR-0018 D5）：Set<rootId>。
+  // 生效展开态 = manualExpanded.has(rootId) || containsCurrent（D6 派生判定，
+  // 无需副作用清理——current 离开某组后 containsCurrent 自然转假，自动回落
+  // 手动状态）。
+  const [manualExpanded, setManualExpanded] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
 
   const handleOpen = useCallback(
     (id: string) => {
@@ -258,61 +480,152 @@ export function SessionBubbleList({ sessions }: SessionBubbleListProps) {
     setExpanded((e) => !e);
   }, []);
 
-  // 计算可见气泡：折叠态按 maxVisible 截取，展开态显示全部。
+  const handleToggleGroup = useCallback((rootId: string) => {
+    setManualExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(rootId)) {
+        next.delete(rootId);
+      } else {
+        next.add(rootId);
+      }
+      return next;
+    });
+  }, []);
+
+  // 计算可见顶层组：折叠态按 maxVisible 截取，展开态显示全部。
   // 始终计算折叠结果以驱动 MoreBubble 显示（折叠时「+N」/ 展开时「收起」）。
   const folded = useMemo(
-    () => selectBubbleEntries(items, current, maxVisible),
+    () => buildBubbleGroups(items, current, maxVisible),
     [items, current, maxVisible],
   );
   const expandedResult = useMemo(
-    () => selectBubbleEntries(items, current, Number.MAX_SAFE_INTEGER),
+    () => buildBubbleGroups(items, current, Number.MAX_SAFE_INTEGER),
     [items, current],
   );
-  const visible = expanded ? expandedResult.visible : folded.visible;
-  // MoreBubble 显示条件：折叠时有溢出（「+N」）或展开时有被折叠的条目（「收起」）。
+  const visibleGroups = expanded ? expandedResult.groups : folded.groups;
+  // MoreBubble 显示条件：折叠时有溢出（「+N」）或展开时有被折叠的组（「收起」）。
   const showMore = folded.moreCount > 0;
 
-  // 退出动效：跟踪从 visible 消失的条目，渲染 leaving class 100ms 后移除。
-  const [leavingEntries, setLeavingEntries] = useState<readonly BubbleEntry[]>(
-    [],
+  // 生效展开判定（D6）：手动展开 或 current 在该组后代中。
+  const isEffectivelyExpanded = useCallback(
+    (group: BubbleGroup) =>
+      manualExpanded.has(group.rootId) || group.containsCurrent,
+    [manualExpanded],
   );
-  const prevVisibleRef = useRef<readonly BubbleEntry[]>(visible);
-  // 每个 leaving 条目的独立计时器（按 sessionId 索引），避免跨条目计时器干扰。
+
+  // 可见渲染项扁平序列（组 + 其生效展开时的成员），供退出跟踪做键级 diff。
+  const visibleItems = useMemo<readonly RenderItem[]>(() => {
+    const list: RenderItem[] = [];
+    for (const group of visibleGroups) {
+      list.push({ kind: "group", key: group.rootId, group });
+      if (isEffectivelyExpanded(group)) {
+        for (const member of group.members) {
+          list.push({
+            kind: "child",
+            key: `${group.rootId}:${member.sessionId}`,
+            groupId: group.rootId,
+            entry: member,
+          });
+        }
+      }
+    }
+    return list;
+  }, [visibleGroups, isEffectivelyExpanded]);
+
+  // ---- 退出动效（双层粒度，ADR-0018 D9）---------------------------------
+  // 整组消失 → LeavingUnit（组 + 当时可见成员一起淡出，键 rootId）；
+  // 单个子消失而父组仍在（收起该组 / 成员被查看移出）→ 子粒度捕获
+  //（键 `${rootId}:${sessionId}`）。每键独立计时器，BUBBLE_EXIT_MS 后移除。
+  const [leavingUnits, setLeavingUnits] = useState<readonly LeavingUnit[]>([]);
+  const [leavingChildren, setLeavingChildren] = useState<
+    readonly Extract<RenderItem, { kind: "child" }>[]
+  >([]);
+  const prevItemsRef = useRef<readonly RenderItem[]>(visibleItems);
+  // 每个 leaving 键的独立计时器（组键 rootId / 子键 `${rootId}:${sessionId}`），
+  // 避免跨条目计时器干扰。
   const leaveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
 
   useEffect(() => {
-    const prev = prevVisibleRef.current;
-    prevVisibleRef.current = visible;
+    const prev = prevItemsRef.current;
+    prevItemsRef.current = visibleItems;
 
-    if (prev === visible) return;
+    if (prev === visibleItems) return;
 
-    const currentIds = new Set(visible.map((e) => e.sessionId));
-    const newlyLeaving = prev.filter((e) => !currentIds.has(e.sessionId));
-    if (newlyLeaving.length === 0) return;
+    const currentKeys = new Set(visibleItems.map((it) => it.key));
 
-    // 合入 leavingEntries（去重）。
-    setLeavingEntries((prevLeaving) => {
-      const existingIds = new Set(prevLeaving.map((e) => e.sessionId));
-      const merged = [...prevLeaving];
-      for (const entry of newlyLeaving) {
-        if (!existingIds.has(entry.sessionId)) merged.push(entry);
-      }
-      return merged;
-    });
+    // 整组消失：捕获子树单元（组成员取上一帧可见快照），成员不再重复登记。
+    const newlyLeavingGroupItems = prev.filter(
+      (it): it is Extract<RenderItem, { kind: "group" }> =>
+        it.kind === "group" && !currentKeys.has(it.key),
+    );
+    const leavingGroupIds = new Set(newlyLeavingGroupItems.map((it) => it.key));
+    const newlyLeavingUnits: LeavingUnit[] = newlyLeavingGroupItems.map(
+      (it) => ({
+        group: it.group,
+        children: prev.filter(
+          (c): c is Extract<RenderItem, { kind: "child" }> =>
+            c.kind === "child" && c.groupId === it.key,
+        ),
+      }),
+    );
 
-    // 为每个 leaving 条目独立计时，互不干扰。
-    for (const entry of newlyLeaving) {
+    // 单个子消失且父组仍在：按子粒度登记（键 `${rootId}:${sessionId}`）。
+    const newlyLeavingChildren =
+      prev.filter(
+        (it): it is Extract<RenderItem, { kind: "child" }> =>
+          it.kind === "child" &&
+          !currentKeys.has(it.key) &&
+          !leavingGroupIds.has(it.groupId),
+      ) ?? [];
+
+    if (newlyLeavingUnits.length === 0 && newlyLeavingChildren.length === 0) {
+      return;
+    }
+
+    // 合入退出状态（各自去重）。
+    if (newlyLeavingUnits.length > 0) {
+      setLeavingUnits((prevUnits) => {
+        const existingIds = new Set(prevUnits.map((u) => u.group.rootId));
+        const merged = [...prevUnits];
+        for (const unit of newlyLeavingUnits) {
+          if (!existingIds.has(unit.group.rootId)) merged.push(unit);
+        }
+        return merged;
+      });
+    }
+    if (newlyLeavingChildren.length > 0) {
+      setLeavingChildren((prevChildren) => {
+        const existingKeys = new Set(prevChildren.map((c) => c.key));
+        const merged = [...prevChildren];
+        for (const child of newlyLeavingChildren) {
+          if (!existingKeys.has(child.key)) merged.push(child);
+        }
+        return merged;
+      });
+    }
+
+    // 为每个退出键独立计时，互不干扰。
+    for (const unit of newlyLeavingUnits) {
       const timer = setTimeout(() => {
-        leaveTimersRef.current.delete(entry.sessionId);
-        setLeavingEntries((prevLeaving) =>
-          prevLeaving.filter((e) => e.sessionId !== entry.sessionId),
+        leaveTimersRef.current.delete(unit.group.rootId);
+        setLeavingUnits((prevUnits) =>
+          prevUnits.filter((u) => u.group.rootId !== unit.group.rootId),
         );
       }, BUBBLE_EXIT_MS);
-      leaveTimersRef.current.set(entry.sessionId, timer);
+      leaveTimersRef.current.set(unit.group.rootId, timer);
     }
-  }, [visible]);
+    for (const child of newlyLeavingChildren) {
+      const timer = setTimeout(() => {
+        leaveTimersRef.current.delete(child.key);
+        setLeavingChildren((prevChildren) =>
+          prevChildren.filter((c) => c.key !== child.key),
+        );
+      }, BUBBLE_EXIT_MS);
+      leaveTimersRef.current.set(child.key, timer);
+    }
+  }, [visibleItems]);
 
   // 组件卸载时清除所有 pending 计时器，避免 state 更新已卸载组件。
   useEffect(() => {
@@ -324,29 +637,70 @@ export function SessionBubbleList({ sessions }: SessionBubbleListProps) {
     };
   }, []);
 
-  // 无可见气泡、无折叠、无退出中气泡时不渲染（浮层保持素净）。
-  if (visible.length === 0 && !showMore && leavingEntries.length === 0) {
+  // 无可见顶层组、无折叠、无退出中内容时不渲染（浮层保持素净）。
+  if (
+    visibleGroups.length === 0 &&
+    !showMore &&
+    leavingUnits.length === 0 &&
+    leavingChildren.length === 0
+  ) {
     return null;
   }
 
-  // leaving 条目的 id 集合（避免与 visible 重复渲染）。
-  const visibleIds = new Set(visible.map((e) => e.sessionId));
-  const renderingLeaving = leavingEntries.filter(
-    (e) => !visibleIds.has(e.sessionId),
-  );
-
   return (
     <div className={styles.bubbleList}>
-      {visible.map((entry) => (
-        <SessionBubble key={entry.sessionId} entry={entry} onOpen={handleOpen} />
-      ))}
-      {renderingLeaving.map((entry) => (
-        <SessionBubble
-          key={`leaving-${entry.sessionId}`}
-          entry={entry}
-          onOpen={handleOpen}
-          leaving
-        />
+      {visibleGroups.map((group) => {
+        const groupEffectiveExpanded = isEffectivelyExpanded(group);
+        // 该组仍在退出中的成员（父组仍可见 → 紧随其活成员之后渲染淡出）。
+        const groupLeavingChildren = leavingChildren.filter(
+          (c) => c.groupId === group.rootId,
+        );
+        return (
+          <Fragment key={group.rootId}>
+            <GroupBubble
+              group={group}
+              expanded={groupEffectiveExpanded}
+              onOpen={handleOpen}
+              onToggle={() => handleToggleGroup(group.rootId)}
+            />
+            {groupEffectiveExpanded &&
+              group.members.map((member) => (
+                <ChildBubble
+                  key={`${group.rootId}:${member.sessionId}`}
+                  entry={member}
+                  onOpen={handleOpen}
+                />
+              ))}
+            {groupLeavingChildren.map((child) => (
+              <ChildBubble
+                key={`leaving-${child.key}`}
+                entry={child.entry}
+                onOpen={handleOpen}
+                leaving
+              />
+            ))}
+          </Fragment>
+        );
+      })}
+      {/* 整组退出单元：组连同当时可见成员一起淡出（渲染于全部活组之后） */}
+      {leavingUnits.map(({ group, children }) => (
+        <Fragment key={`leaving-${group.rootId}`}>
+          <GroupBubble
+            group={group}
+            expanded={false}
+            onOpen={handleOpen}
+            onToggle={() => handleToggleGroup(group.rootId)}
+            leaving
+          />
+          {children.map((child) => (
+            <ChildBubble
+              key={`leaving-${child.key}`}
+              entry={child.entry}
+              onOpen={handleOpen}
+              leaving
+            />
+          ))}
+        </Fragment>
       ))}
       {showMore && (
         <MoreBubble

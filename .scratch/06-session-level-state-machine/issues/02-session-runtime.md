@@ -1,6 +1,6 @@
 # 02 — 会话级状态机容器与焦点跟随
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -19,6 +19,8 @@
 - [ ] 通过 `npm run build` 与 `npm run verify`
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——`overlay-session-runtime.ts` 会话容器 + 焦点跟随 + cross-fade，提交 6c1d134「工单 02」，16 用例覆盖；下方「工单 01 审查遗留」治理项已随该提交完成。状态由 ready-for-agent 补记为 resolved。
 
 （来源：PRD 实现决策 1/2/4/5；ADR-0008。）
 

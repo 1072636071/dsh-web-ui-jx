@@ -35,7 +35,7 @@ import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
 import { CharacterOverlay } from "./components/CharacterOverlay.tsx";
 import { SidebarEntry } from "./components/SidebarEntry.tsx";
-import { applyFx } from "./fx/index.ts";
+import { applyFx, teardownFx } from "./fx/index.ts";
 import { createOverlaySessionRuntime } from "./state-machine/overlay-session-runtime.ts";
 import type { OverlaySessionRuntime } from "./state-machine/overlay-session-runtime.ts";
 import {
@@ -115,6 +115,24 @@ function sweepResidualRoots(doc: Document): void {
 }
 
 /**
+ * 清扫残留的 FX 装饰层容器（ADR-0017 可重入约束覆盖面补全）。
+ *
+ * fall/warp 的装饰层容器由 applyFx → startFall/startWarp 直挂 body。
+ * 正常路径由 ctx.effect 清理器（teardownFx）移除；本函数只兜「已作废
+ * 模块实例」逃逸的容器——其 stop 函数随模块失效不可达，只能按标记裸摘。
+ * 本实例可能存活的装饰层由调用方先跑 teardownFx 复位，不在此处理。
+ *
+ * @param doc - 承载插件容器的文档。
+ */
+function sweepResidualFxLayers(doc: Document): void {
+  for (const el of Array.from(
+    doc.querySelectorAll("body > [data-jx-fx-fall], body > [data-jx-fx-warp]"),
+  )) {
+    el.remove();
+  }
+}
+
+/**
  * 内部根组件：渲染 CharacterOverlay + SidebarEntry。
  *
  * ADR-0004 起 ManagementUI 内嵌 SettingsCard 第三个 section，不再独立渲染，
@@ -152,9 +170,9 @@ function RootApp({
  *
  * ADR-0017 可重入约束：宿主存在运行期插件重载机制（client-hmr rebuilt 帧、
  * 动态包 runner invalidate+重建），本函数会在不刷新页面的情况下被再次执行。
- * 因此：挂载物（React root + [data-dsh-jx-root] 容器）必须在 ctx.effect
- * 清理器中完整卸载；入口先清扫残留容器再挂新盒。任何后续新增的 body 直挂
- * DOM 代码必须同样纳入这两条清理路径。
+ * 因此：挂载物（React root + [data-dsh-jx-root] 容器 + fall/warp 装饰层）
+ * 必须在 ctx.effect 清理器中完整卸载；入口先清扫残留容器/装饰层再挂新盒。
+ * 任何后续新增的 body 直挂 DOM 代码必须同样纳入这两条清理路径。
  *
  * @param _ctx - client root context（后续工单用 slots/locale 等）.
  */
@@ -167,6 +185,12 @@ export function apply(ctx: ClientContext): void {
   // （HMR invalidate 后旧 root 引用不可达），借容器上暂存的 root 引用
   // 完整卸载后再移除节点，避免孤儿浮层叠加（多只姜晓重叠）。
   sweepResidualRoots(document);
+  // 同约束覆盖 FX 装饰层：先 teardownFx 停掉本实例可能存活的 fall/warp
+  //（容器 + window 监听 + fx-* 类一并复位，避免「DOM 已摘但模块以为还在
+  // 跑」的半状态），再按标记摘除已作废模块实例逃逸的装饰层容器（其 stop
+  // 函数随模块失效不可达，只能裸摘）。
+  teardownFx();
+  sweepResidualFxLayers(document);
 
   const container = document.createElement("div");
   container.dataset.dshJxRoot = "";
@@ -189,8 +213,18 @@ export function apply(ctx: ClientContext): void {
       : undefined;
   root.render(createElement(RootApp, { sessions, runtime }));
 
-  // 启动 FX 特效系统。
-  applyFx();
+  // 启动 FX 特效系统（随 fiber 走完整生命周期：ADR-0017 可重入约束——
+  // fall/warp 的 body 直挂装饰层容器、window 指针监听、reduced-motion
+  // 监听必须在 HMR 重载/卸载时移除，否则每次重载叠加一层装饰层）。
+  ctx.effect(
+    () => {
+      applyFx();
+      return () => {
+        teardownFx();
+      };
+    },
+    "dsh-web-ui-jx: fx lifecycle",
+  );
 
   // ADR-0008：runtime 生命周期随 ctx.effect（dispose 释放全部订阅 + tick timer）。
   // ADR-0013：开关变化触发 runtime.refresh() 重评估轮换。

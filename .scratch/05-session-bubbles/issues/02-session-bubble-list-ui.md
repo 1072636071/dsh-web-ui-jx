@@ -1,6 +1,6 @@
 # 02 · 会话气泡列端到端 UI
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -19,5 +19,7 @@
 - [ ] `npm run typecheck` + `npm run test` 全绿
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——`SessionBubbleList.tsx` 气泡列上线并接入 CharacterOverlay（提交 443814b）。状态由 ready-for-agent 补记为 resolved。
 
 来源：`.scratch/05-session-bubbles/PRD.md` 实现决策 1/4/5/6/8/9；ADR-0007 决策 2/3/4/6/7。

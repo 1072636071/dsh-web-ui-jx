@@ -1,6 +1,6 @@
 # 台词气泡
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 04
 
@@ -15,3 +15,5 @@
 - [ ] 气泡文本可读性达 WCAG AA（深底浅字 / 浅底深字）
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——`SpeechBubble.tsx` 台词气泡上线（淡入淡出、自动隐去、pointer-events:none、语义别名双主题）。状态由 ready-for-agent 补记为 resolved。

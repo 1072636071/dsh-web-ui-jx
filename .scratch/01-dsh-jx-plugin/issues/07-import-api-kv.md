@@ -1,6 +1,6 @@
 # 导入 API 与 KV 元数据
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 02
 
@@ -17,3 +17,5 @@
 - [ ] zip 素材包格式契约在实现时定稿并回写 ADR
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——`src/host/import-api.ts` + `storage-domain.ts` 落地 zip/目录导入、进度查询与 KV 元数据。状态由 ready-for-agent 补记为 resolved。

@@ -1,6 +1,6 @@
 # FX 特效系统
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 03
 
@@ -17,3 +17,5 @@
 - [ ] 深浅双主题均覆盖（飘落：暗=银杏 / 浅=梅花）
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——五类特效在 `src/client/fx/` 落地（后由特性 02 以 warp 替换 breathe，保持 5 类），localStorage('jx-fx') 独立开关。状态由 ready-for-agent 补记为 resolved。

@@ -24,7 +24,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createOverlaySessionRuntime,
   FOCUS_DEBOUNCE_MS,
-  POKE_EXIT_MS,
   POKE_HOLD_MS,
   type RuntimeSnapshot,
 } from "../../src/client/state-machine/overlay-session-runtime.ts";
@@ -760,17 +759,17 @@ describe("overlay-session-runtime: 点击惊吓 poke（ADR-0011）", () => {
     vi.useRealTimers();
   });
 
-  it("播放推进：驻留 POKE_HOLD_MS 后进入回落（回 returnState），再 POKE_EXIT_MS 后恢复", () => {
+  it("播放推进：入场过渡播完后驻留 POKE_HOLD_MS，再回落过渡播完后恢复", () => {
     vi.useFakeTimers();
     const sessions = createMockSessions(makeListState([], undefined));
     const runtime = createOverlaySessionRuntime(sessions, { tickIntervalMs: 100 });
     runtime.poke();
     expect(runtime.getSnapshot().currentState).toBe("surprised");
-    // 驻留结束 → 回落：currentState 回到 returnState（idle）
-    vi.advanceTimersByTime(POKE_HOLD_MS);
+    // 入场过渡（idle→surprised 766ms）播完 + 驻留结束 → 回落：currentState 回 returnState（idle）
+    vi.advanceTimersByTime(766 + POKE_HOLD_MS);
     expect(runtime.getSnapshot().currentState).toBe("idle");
-    // 回落结束 → poke 清除，恢复 idle
-    vi.advanceTimersByTime(POKE_EXIT_MS);
+    // 回落过渡（surprised→idle 766ms）播完 → poke 清除，恢复 idle
+    vi.advanceTimersByTime(766);
     const s = runtime.getSnapshot();
     expect(s.currentState).toBe("idle");
     expect(finalLoopState(s)).toBe("idle");
@@ -801,10 +800,232 @@ describe("overlay-session-runtime: 点击惊吓 poke（ADR-0011）", () => {
     expect(runtime.getSnapshot().currentState).toBe("working");
     runtime.poke();
     expect(runtime.getSnapshot().currentState).toBe("surprised");
-    vi.advanceTimersByTime(POKE_HOLD_MS);
+    // 入场过渡（working→idle 3484 + idle→surprised 766）+ 驻留 3000 后进入回落
+    vi.advanceTimersByTime(3484 + 766 + POKE_HOLD_MS);
     expect(runtime.getSnapshot().currentState).toBe("working"); // 回落回 working
-    vi.advanceTimersByTime(POKE_EXIT_MS);
+    // 回落过渡（surprised→idle 766 + idle→working 3484）播完 → poke 清除
+    vi.advanceTimersByTime(766 + 3484);
     expect(runtime.getSnapshot().currentState).toBe("working");
+    expect(finalLoopState(runtime.getSnapshot())).toBe("working");
+    runtime.dispose();
+    vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 工单 09/10：焦点会话自身的紧急态不得被显示层覆盖遮蔽（ADR-0010 D1 延伸）
+// ---------------------------------------------------------------------------
+
+describe("overlay-session-runtime: 焦点会话紧急态可见性（工单 09/10）", () => {
+  it("工单09：poke 入场期间焦点会话进入 permission → 立即取消惊吓并显示 permission", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, { tickIntervalMs: 100 });
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    runtime.poke();
+    expect(runtime.getSnapshot().currentState).toBe("surprised");
+    // 焦点会话自身请求授权：permission 必须立即可见（惊吓序列被取消）
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1, pending: true }),
+    );
+    const s = runtime.getSnapshot();
+    expect(s.currentState).toBe("permission");
+    expect(finalLoopState(s)).toBe("permission");
+    // poke 序列已清除：推进任意时长不得再出现 surprised
+    vi.advanceTimersByTime(20_000);
+    expect(runtime.getSnapshot().currentState).toBe("permission");
+    runtime.dispose();
+    vi.useRealTimers();
+  });
+
+  it("工单09：poke 回落段同样被焦点会话 permission 打断（含回落段语义）", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, { tickIntervalMs: 100 });
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    runtime.poke();
+    // 推进到回落段（入场 4250ms + 驻留 3000ms 后即回落）
+    vi.advanceTimersByTime(3484 + 766 + POKE_HOLD_MS + 100);
+    expect(runtime.getSnapshot().currentState).not.toBe("surprised");
+    // 回落期间授权请求到达 → 立即切 permission
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1, pending: true }),
+    );
+    const s = runtime.getSnapshot();
+    expect(s.currentState).toBe("permission");
+    expect(finalLoopState(s)).toBe("permission");
+    runtime.dispose();
+    vi.useRealTimers();
+  });
+
+  it("工单10：并行驻留期间焦点会话自身 permission 立即可见，批准后恢复 working 驻留", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      tickIntervalMs: 100,
+      variantRotationEnabled: () => false,
+      random: () => 0.5,
+    });
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    sessions.__pushList(makeListState([A, B], A));
+    sessions.__session(B)?.__push(
+      makeSnapshot(B, { running: true, runningCallsCount: 2 }),
+    );
+    expect(runtime.getSnapshot().currentState).toBe("working"); // 并行驻留生效
+    // 焦点会话 A 自身请求授权：不得被并行驻留的 working 覆盖
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1, pending: true }),
+    );
+    const s = runtime.getSnapshot();
+    expect(s.currentState).toBe("permission");
+    expect(finalLoopState(s)).toBe("permission");
+    // 批准完成 → 紧急消退，恢复并行驻留 working
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 2, pending: false }),
+    );
+    expect(runtime.getSnapshot().currentState).toBe("working");
+    runtime.dispose();
+    vi.useRealTimers();
+  });
+
+  it("工单10：并行驻留期间焦点会话自身 error 同样立即可见", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([A], A));
+    const runtime = createOverlaySessionRuntime(sessions, {
+      tickIntervalMs: 100,
+      variantRotationEnabled: () => false,
+      random: () => 0.5,
+    });
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    sessions.__pushList(makeListState([A, B], A));
+    sessions.__session(B)?.__push(
+      makeSnapshot(B, { running: true, runningCallsCount: 2 }),
+    );
+    expect(runtime.getSnapshot().currentState).toBe("working");
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1, hasError: true }),
+    );
+    expect(runtime.getSnapshot().currentState).toBe("error");
+    runtime.dispose();
+    vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 显示层序列真实时长对齐：poke / 彩蛋定时器不得截断过渡段（实测时长表）
+// ---------------------------------------------------------------------------
+
+describe("overlay-session-runtime: 显示层序列真实时长对齐", () => {
+  it("poke：入场过渡播完才开驻留计时，退场过渡播完才交还（idle 往返全程 4532ms）", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([], undefined));
+    const runtime = createOverlaySessionRuntime(sessions, { tickIntervalMs: 100 });
+    runtime.poke();
+    // idle→surprised 过渡 766ms 内计划保持入场序列（末项惊吓循环）
+    vi.advanceTimersByTime(765);
+    let playback = runtime.getSnapshot().playback;
+    expect(playback[playback.length - 1]?.kind).toBe("loop");
+    expect(playback[0]?.kind).toBe("transition");
+    // 驻留窗口（至 766+3000=3766ms）内仍是入场序列
+    vi.advanceTimersByTime(2999);
+    playback = runtime.getSnapshot().playback;
+    expect(playback[playback.length - 1]?.url).toBe(loopAssetUrl("surprised"));
+    // 驻留结束（t=3766）→ 回落计划（surprised→idle 过渡在前）
+    vi.advanceTimersByTime(2);
+    playback = runtime.getSnapshot().playback;
+    expect(playback[0]?.kind).toBe("transition");
+    if (playback[0]?.kind === "transition") {
+      expect(playback[0].url).toBe(transitionAssetUrl("surprised", "idle"));
+    }
+    // 回落过渡 766ms 播完 → poke 清除交还 idle 循环
+    vi.advanceTimersByTime(765);
+    expect(runtime.getSnapshot().currentState).toBe("idle");
+    vi.advanceTimersByTime(1);
+    const done = runtime.getSnapshot();
+    expect(done.currentState).toBe("idle");
+    expect(finalLoopState(done)).toBe("idle");
+    runtime.dispose();
+    vi.useRealTimers();
+  });
+
+  it("彩蛋：入场过渡播完才开始 3s 表情展示，退场过渡播完才清除（happy 全程 11500ms）", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([A], A));
+    const randomSeq = [0.9, 0.72]; // 间隔=120000+0.9*180000=282000；floor(0.72*9)=6→happy
+    let r = 0;
+    const runtime = createOverlaySessionRuntime(sessions, {
+      tickIntervalMs: 100,
+      random: () => randomSeq[r++] ?? 0.5,
+    });
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    sessions.__pushList(makeListState([A, B], A));
+    sessions.__session(B)?.__push(
+      makeSnapshot(B, { running: true, runningCallsCount: 2 }),
+    );
+    expect(runtime.getSnapshot().currentState).toBe("working"); // 并行驻留
+    vi.advanceTimersByTime(282_000); // 彩蛋触发
+    const egg = runtime.getSnapshot();
+    expect(egg.currentState).toBe("happy");
+    expect(egg.playback[0]?.kind).toBe("transition");
+    if (egg.playback[0]?.kind === "transition") {
+      expect(egg.playback[0].url).toBe(transitionAssetUrl("working", "idle"));
+    }
+    // 展示期（入场 3484+766=4250 起 3000ms）内计划保持**入场序列**
+    // （判别特征：含 happy 循环项；退场计划不含）
+    vi.advanceTimersByTime(7249);
+    let playback = runtime.getSnapshot().playback;
+    expect(
+      playback.some((p) => p.kind === "loop" && p.url === loopAssetUrl("happy")),
+    ).toBe(true);
+    // 展示结束 → 退场计划（happy→idle 在前）
+    vi.advanceTimersByTime(1);
+    playback = runtime.getSnapshot().playback;
+    expect(playback[0]?.kind).toBe("transition");
+    if (playback[0]?.kind === "transition") {
+      expect(playback[0].url).toBe(transitionAssetUrl("happy", "idle"));
+    }
+    // 退场过渡 766+3484=4250ms 播完 → 彩蛋清除，回并行驻留 working
+    vi.advanceTimersByTime(4250);
+    const done = runtime.getSnapshot();
+    expect(done.currentState).toBe("working");
+    expect(finalLoopState(done)).toBe("working");
+    runtime.dispose();
+    vi.useRealTimers();
+  });
+
+  it("并行驻留上升沿必须触发彩蛋调度（基线采样在落态前，回归锁）", () => {
+    vi.useFakeTimers();
+    const sessions = createMockSessions(makeListState([A], A));
+    // 第一个 random 决定调度间隔：0 → 2min（下限），推进 2min 即触发
+    let r = 0;
+    const randomSeq = [0, 0.72]; // floor(0.72*9)=6 → happy
+    const runtime = createOverlaySessionRuntime(sessions, {
+      tickIntervalMs: 100,
+      random: () => randomSeq[r++] ?? 0.5,
+    });
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    sessions.__pushList(makeListState([A, B], A));
+    expect(runtime.getSnapshot().currentState).toBe("idle"); // B 尚未 running
+    // B 转入工作：这是第二个 running 会话 —— hold 上升沿发生在本次快照内，
+    // 回归点：基线若在落态后采样，此处将漏检、彩蛋永不调度。
+    sessions.__session(B)?.__push(
+      makeSnapshot(B, { running: true, runningCallsCount: 1 }),
+    );
+    expect(runtime.getSnapshot().currentState).toBe("working"); // 并行驻留生效
+    vi.advanceTimersByTime(120_000); // 彩蛋定时器到点
+    expect(runtime.getSnapshot().currentState).toBe("happy");
     runtime.dispose();
     vi.useRealTimers();
   });

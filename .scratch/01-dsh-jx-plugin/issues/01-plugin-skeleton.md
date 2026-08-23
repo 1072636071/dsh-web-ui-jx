@@ -1,6 +1,6 @@
 # 插件骨架与安装链
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 无——可立即开始
 
@@ -15,3 +15,5 @@
 - [ ] 不依赖 dsh-web-ui 任何包（dsh-pet / skin-center / dsh-skins）
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——插件骨架、双半区构建链（lib/index.js + lib/client.js）与 `dsh plugin add link:` 安装链贯通（初始提交 171368f）。状态由 ready-for-agent 补记为 resolved。

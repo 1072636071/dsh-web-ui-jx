@@ -1,6 +1,6 @@
 # SettingsCard 重置浮层位置入口
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 02
 
@@ -15,5 +15,7 @@
 - [ ] `npm run build` 通过（host/client 双半区）+ `npm run verify` 全绿
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——设置卡「重置浮层位置」入口随提交 2ce701f 一并交付。状态由 ready-for-agent 补记为 resolved。
 
 来源：PRD-04 实现决策 7 + 用户故事 10。阻塞于 02（需浮层已订阅位置 store 才能反映重置）。按钮文案/位置在实现时按唐风极简定稿（设置卡底部或皮肤开关 section 内）。

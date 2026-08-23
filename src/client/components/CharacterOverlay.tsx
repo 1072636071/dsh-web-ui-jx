@@ -32,6 +32,12 @@
  * 状态机驱动：UI 只通过 useSyncExternalStore 订阅状态机快照、按 playback 序列
  * 播放，不直接操作 DOM 切换状态。切换意图由 StateSwitcher 的按钮 dispatch。
  *
+ * img 节点自愈守卫（overlay-img-guard，DOM 健康硬保证）：
+ *   - 不变量：浮层盒直接子级 <img> 集合 ≡ React 挂载 ref 集合（主图 + 可选
+ *     underlay，恒 ≤ 2）。
+ *   - MutationObserver 监听盒 childList，任何外部来源塞入的越界 img 即时裁掉；
+ *     裁剪事件节流告警（健康环境永不触发，触发即诊断信号）。
+ *
  * 台词气泡触发（工单 06）：
  *   - 演示触发：currentState 变化时显示对应台词（STATE_SPEECH，idle 不弹）。
  *   - 外部触发：props.speech 的 nonce 变化即显示新台词（供后续工单调用）。
@@ -81,6 +87,7 @@ import {
   subscribeShowStateLabel,
 } from "../state-machine/overlay-settings.ts";
 import { SpeechBubble, DEFAULT_BUBBLE_DURATION_MS } from "./SpeechBubble.tsx";
+import { createOverlayImgGuard } from "./overlay-img-guard.ts";
 import { loadWebpDurationMs } from "../webp-duration.ts";
 import { SessionBubbleList } from "./SessionBubbleList.tsx";
 import type { ISessions } from "@deepseek-ai/dsh-client-runtime/client";
@@ -93,6 +100,12 @@ const CLICK_MOVE_THRESHOLD = 5;
 
 /** 点击判定：按下到松开的时长上限 ms，超过视为长按/拖动不触发（ADR-0011 D1）。 */
 const CLICK_TIME_MS = 300;
+
+/**
+ * img 守卫裁剪告警的最小间隔 ms（健康环境下永不触发；触发即说明有外部
+ * 写入方向浮层盒塞 img，节流防告警刷屏，同时保留诊断可见性）。
+ */
+const PRUNE_WARN_INTERVAL_MS = 1000;
 
 /** runtime 未注入时的 idle 兜底快照（测试或未传 runtime 时使用）. */
 const IDLE_RUNTIME_SNAPSHOT: RuntimeSnapshot = {
@@ -275,6 +288,42 @@ export function CharacterOverlay({
   const pressRef = useRef<{ x: number; y: number; t: number } | null>(null);
   // 点击惊吓路径抑制自动弹台词（入场/退场各一次，避免双弹，ADR-0011 D4）。
   const suppressAutoSpeechRef = useRef(false);
+
+  // ---- img 节点自愈守卫（overlay-img-guard）--------------------------------
+  // 不变量：浮层盒直接子级 <img> 集合 ≡ React 挂载的 ref 集合（主图 +
+  // 可选 underlay，恒 ≤ 2）。实测发现盒内被外部来源塞入多张相同 img
+  // （刷新可复现，React 渲染路径已排查不可能产出），故在盒边界建立
+  // MutationObserver 守卫强制执行该不变量，任何来源的越界 img 即时裁掉。
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const mainImgRef = useRef<HTMLImageElement | null>(null);
+  const underlayImgRef = useRef<HTMLImageElement | null>(null);
+  const lastPruneWarnAtRef = useRef(0);
+
+  useEffect(() => {
+    const box = overlayRef.current;
+    if (box === null) return;
+    const guard = createOverlayImgGuard(
+      box,
+      () => {
+        const whitelist = new Set<Element>();
+        if (mainImgRef.current !== null) whitelist.add(mainImgRef.current);
+        if (underlayImgRef.current !== null) whitelist.add(underlayImgRef.current);
+        return whitelist;
+      },
+      (count) => {
+        // 诊断告警（节流）：健康环境永不触发；触发即说明存在外部 img 写入方。
+        const now = Date.now();
+        if (now - lastPruneWarnAtRef.current < PRUNE_WARN_INTERVAL_MS) return;
+        lastPruneWarnAtRef.current = now;
+        console.warn(
+          `[dsh-web-ui-jx] 浮层盒内裁掉 ${count} 张越界 img（非 React 渲染产物，疑似外部写入）`,
+        );
+      },
+    );
+    return () => {
+      guard.disconnect();
+    };
+  }, []);
 
   // 点击惊吓：显式弹台词 + 驱动 runtime poke（ADR-0011 D5）。
   // 必须在 pointer 处理器之前声明（其 useCallback deps 引用 triggerPoke）。
@@ -515,6 +564,7 @@ export function CharacterOverlay({
 
   return (
     <div
+      ref={overlayRef}
       className={`${styles.overlay}${dragging ? " " + styles.dragging : ""}${className ? " " + className : ""}`}
       style={{
         width,
@@ -530,6 +580,7 @@ export function CharacterOverlay({
       {underlay && !reducedMotion && (
         <img
           key={underlay.key}
+          ref={underlayImgRef}
           className={styles.imageUnderlay}
           src={underlay.url}
           alt=""
@@ -538,6 +589,7 @@ export function CharacterOverlay({
       )}
       <img
         key={snapshot.focusNonce}
+        ref={mainImgRef}
         className={styles.image}
         src={item.url}
         alt=""

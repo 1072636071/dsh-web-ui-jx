@@ -1,6 +1,6 @@
 # 浮层状态机与 10 态切换
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 04
 
@@ -16,3 +16,5 @@
 - [ ] 预留宿主事件接入口（助手行为 → 状态意图），本工单只留接口不接事件源
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——`overlay-state-machine.ts` 状态机驱动过渡播放（其 extractCore/diffTarget 后被会话级 runtime 复用吸收）。状态由 ready-for-agent 补记为 resolved。

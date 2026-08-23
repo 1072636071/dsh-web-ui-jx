@@ -1,6 +1,6 @@
 # CharacterOverlay 拖动接线（pointer 事件 + transform + store + 反馈）
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -19,5 +19,7 @@
 - [ ] `npm run build` 通过（host/client 双半区）+ `npm run verify` 全绿
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——整盒拖动 + 位置持久化 + 视口钳制一次交付（提交 2ce701f）。状态由 ready-for-agent 补记为 resolved。
 
 来源：PRD-04 实现决策 2/4/5/6/8/9。阻塞于 01（位置 store 与 drag reducer）。触控拖动与鼠标拖动共用 Pointer Events 一套代码。

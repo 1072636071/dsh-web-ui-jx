@@ -1,6 +1,6 @@
 # 设计令牌基座与双主题
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -16,3 +16,5 @@
 - [ ] 官方小鲸鱼 logo（FishLogo 精确 SVG path，`fill=currentColor`）在品牌行可用
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——L1/L2 令牌与深浅双主题 remap 落地（`src/client/skin.ts` 等），楷体/宋体 woff2 经素材路由 `@font-face` 加载。状态由 ready-for-agent 补记为 resolved。

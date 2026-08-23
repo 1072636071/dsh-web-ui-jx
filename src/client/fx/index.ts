@@ -76,6 +76,8 @@ const FX_STOP: Record<FxName, () => void> = {
 
 /** reduced-motion 媒体查询句柄（监听变化用）. */
 let reducedMotionMq: MediaQueryList | null = null;
+/** reduced-motion 变化监听器（teardownFx 摘除用，匿名函数无法移除）. */
+let reducedMotionHandler: ((e: MediaQueryListEvent) => void) | null = null;
 
 /**
  * 返回默认全开状态。
@@ -194,10 +196,10 @@ export function applyFx(): FxState {
   applyClasses(state);
   syncJsEffects(state);
 
-  // 监听 reduced-motion 变化（只挂一次）
+  // 监听 reduced-motion 变化（只挂一次；句柄存模块变量供 teardownFx 摘除）
   if (!reducedMotionMq) {
     reducedMotionMq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    reducedMotionMq.addEventListener("change", (e: MediaQueryListEvent) => {
+    reducedMotionHandler = (e: MediaQueryListEvent) => {
       if (e.matches) {
         // 进入 reduce：全关，但不覆盖 localStorage
         const off = allOffState();
@@ -209,10 +211,31 @@ export function applyFx(): FxState {
         applyClasses(restored);
         syncJsEffects(restored);
       }
-    });
+    };
+    reducedMotionMq.addEventListener("change", reducedMotionHandler);
   }
 
   return state;
+}
+
+/**
+ * 卸载 FX 特效系统（ADR-0017 可重入约束的清理半区）。
+ *
+ * 停止需要 JS 的特效（fall/warp 移除 body 直挂装饰层容器与 window 指针监听）、
+ * 移除 html 上的 fx-* 类、摘除 reduced-motion 监听。供 ctx.effect 清理器调用：
+ * HMR 重载/插件卸载时，旧模块实例的装饰层与事件闭包不残留——否则每次重载
+ * 叠加一层装饰层（与 ADR-0017 修复的孤儿浮层同族缺陷）。
+ *
+ * localStorage 用户意图保留（重载后新 applyFx 按原键恢复）。
+ */
+export function teardownFx(): void {
+  syncJsEffects(allOffState());
+  applyClasses(allOffState());
+  if (reducedMotionMq !== null && reducedMotionHandler !== null) {
+    reducedMotionMq.removeEventListener("change", reducedMotionHandler);
+  }
+  reducedMotionMq = null;
+  reducedMotionHandler = null;
 }
 
 /**

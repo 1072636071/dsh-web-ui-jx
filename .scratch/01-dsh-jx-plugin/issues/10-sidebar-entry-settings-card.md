@@ -1,6 +1,6 @@
 # 侧边栏入口与设置卡
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 08, 09
 
@@ -15,3 +15,5 @@
 - [ ] 官方小鲸鱼 logo 语义正确（collapsed rail 常驻标记 / expanded 品牌饰件）
 
 ## 评论
+
+- 回写（2026-08-23）：清点核实已实施——SidebarEntry + SettingsCard 在库，FX 五类独立开关持久化于 localStorage('jx-fx')。状态由 ready-for-agent 补记为 resolved。
