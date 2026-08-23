@@ -29,7 +29,7 @@ FF = imageio_ffmpeg.get_ffmpeg_exe()
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHAR = os.path.join(REPO, "assets", "character")
 OUT = os.path.join(REPO, ".temp", "output", "variant-convert")
-VIDEO_DIR = r"C:\Users\jxc1\Downloads"
+VIDEO_DIR = r"C:\Users\jxc123\Downloads"
 
 FRAME_MS = 67
 TARGET_SIZE = (360, 640)
@@ -37,13 +37,16 @@ QUALITY = 90
 METHOD = 4
 
 # 输出素材名 -> (源视频名, 所属状态)
+# 2026-08-23 全量重制：旧变体源视频已不可得，且成品存在「衣物发红/发紫」缺陷
+# （根因：绿灰阴影被误判半透明后经 un-premultiply 推成品红，ADR-0020），整批弃用重转。
 CONVERSIONS = {
-    "idle-v2": ("待机-张望", "idle"),
-    "idle-v3": ("待机-舒展", "idle"),
-    "idle-v4": ("待机-整理饰物", "idle"),
-    "working-v2": ("工作-画圈", "working"),
-    "working-v3": ("工作-画横", "working"),
-    "working-v4": ("工作-来回", "working"),
+    "idle-v2": ("左右张望", "idle"),
+    "idle-v3": ("耸肩", "idle"),
+    "idle-v4": ("整理衣服", "idle"),
+    "working-v2": ("画圆", "working"),
+    "working-v3": ("画一横", "working"),
+    "working-v4": ("画横来回", "working"),
+    "working-v5": ("画上半圆弧", "working"),
 }
 
 # 质检阈值（2026-08-22 实测校准）
@@ -70,17 +73,39 @@ def chroma_key(img, green):
     """色度键：绿色距离坡道转 alpha + 边缘去污染 + 全局绿溢色压制。
 
     - 坡道：距绿幕底色 ≤42 全透明，≥105 全不透明，中间线性（软边）。
-    - 边缘去污染：半透明像素预乘还原 c' = (c - (1-a)*bg)/a，剥离绿幕
-      底色对发丝等软边的绿色贡献（绿边主因）。
+      2026-08-23 起（ADR-0020）距离改用「先去溢色」后的颜色计算：源视频衣物
+      阴影普遍带绿色环境光反射，直接用原始色距会把「绿灰阴影」误判为半透明，
+      随后 un-premultiply 减绿底、除以小 α，G 塌陷 → 衣物整片品红/紫红
+      （2026-08-22 批「衣服很红」根因，半透明段紫簇占比 82–86% vs 不透明段
+      33%）。去溢色把绿色主导维度折叠掉之后：纯绿幕贴近去溢色底色（α→0），
+      绿灰衣料回到中性灰（α→1），金饰由 spill 条件保护不受影响。
+    - 边缘去污染（预乘还原）保留：真实混合边缘的 α 现在偏高、修正温和；
+      绿残留由 despill 压回。
     - 全局绿溢色：低饱和像素（白发/浅色织物）中绿色显著占优时压回
       红蓝均值；阈值 + 饱和度条件保护金饰等高饱和固有色。
     """
     arr = np.asarray(img.convert("RGB"), dtype=np.float32)
     gr, gg, gb = green
+
+    # 先按 despill 条件算一份「去溢色参考色」，专用于 alpha 距离：
+    #   spill 掩码复用下方同款条件（g 高出红蓝均值 +4，且低饱和或近底色），
+    #   金饰等高饱和暖色（sat≥50 且 dist_raw≥190）不参与，保持原始 g。
+    r0, g0, b0 = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    mean_rb0 = (r0 + b0) / 2
+    sat0 = arr.max(axis=2) - arr.min(axis=2)
+    dist_raw = np.sqrt((r0 - gr) ** 2 + (g0 - gg) ** 2 + (b0 - gb) ** 2)
+    near_bg0 = dist_raw < 190
+    spill0 = (g0 > mean_rb0 + 4) & ((sat0 < 50) | near_bg0)
+    g_ref = np.where(spill0, np.minimum(g0, mean_rb0 + 4), g0)
+
+    # 距离对「同样去过溢色的底色」计算（同类比较）：纯绿幕经同一变换后
+    # 贴近 (gr, mean_rb(bg)+4, gb)，距离归零 → α→0；绿灰衣料回到中性灰、
+    # 远离该参考点 → α→1。
+    bg_ref_g = min(gg, (gr + gb) / 2 + 4)
     dist = np.sqrt(
-        (arr[:, :, 0] - gr) ** 2
-        + (arr[:, :, 1] - gg) ** 2
-        + (arr[:, :, 2] - gb) ** 2
+        (r0 - gr) ** 2
+        + (g_ref - bg_ref_g) ** 2
+        + (b0 - gb) ** 2
     )
     alpha = np.clip((dist - 42) / (105 - 42), 0, 1)
 
@@ -99,9 +124,6 @@ def chroma_key(img, green):
     mean_rb = (r + b) / 2
     near_bg = dist < 190
     spill = (g > mean_rb + 4) & ((sat < 50) | near_bg)
-    rgb[:, :, 1] = np.where(spill, mean_rb, g)
-
-    spill = (g > mean_rb + 4) & ((sat < 50) | (dist < 190))
     rgb[:, :, 1] = np.where(spill, mean_rb, g)
 
     # 光雾衰减：金色物件（符咒）的光晕落在绿幕上形成大片半透明暖色像素

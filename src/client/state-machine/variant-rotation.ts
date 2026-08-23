@@ -51,6 +51,7 @@ const ROTATION_POOLS: Record<RotatableState, readonly string[]> = {
     `${CHARACTER_ASSET_PREFIX}/working-v2.webp`,
     `${CHARACTER_ASSET_PREFIX}/working-v3.webp`,
     `${CHARACTER_ASSET_PREFIX}/working-v4.webp`,
+    `${CHARACTER_ASSET_PREFIX}/working-v5.webp`,
   ],
 };
 
@@ -107,20 +108,20 @@ export function isBaseLoopUrl(url: string): boolean {
 }
 
 /**
- * 单段轮换周期 ms = 名义播放时长 + 段间停顿。
+ * 单段轮换周期 ms。
  *
- * 变体素材 loops=1 播完停在末帧（中性姿），计时略晚只会延长中性停顿
- * （不可见）；略早时末几帧已回到中性姿，切下一段首帧（中性）仍无缝。
+ * - 变体段 = 名义播放时长 + 段间停顿：变体素材 loops=1 播完停在末帧
+ *   （中性姿），计时略晚只会延长中性停顿（不可见）；略早时末几帧已回到
+ *   中性姿，切下一段首帧（中性）仍无缝。
+ * - 基础主素材（v1）= 整圈时长、**无停顿**：经典态 loops=0 不停帧，整圈之外
+ *   的任何停留都会让切换点滑入下一圈动作中段（可见跳变）。正反倒放烘焙后
+ *   （ADR-0015）首尾同为中性帧，整圈回卷点正是唯一无缝切点。
  *
  * @param url - 段素材 URL。
  * @returns 轮换周期 ms。
  */
 export function rotationPeriodMs(url: string): number {
-  const segment =
-    url === loopAssetUrl("idle")
-      ? BASE_SEGMENT_MS.idle
-      : url === loopAssetUrl("working")
-        ? BASE_SEGMENT_MS.working
-        : VARIANT_SEGMENT_MS;
-  return segment + ROTATION_HOLD_MS;
+  if (url === loopAssetUrl("idle")) return BASE_SEGMENT_MS.idle;
+  if (url === loopAssetUrl("working")) return BASE_SEGMENT_MS.working;
+  return VARIANT_SEGMENT_MS + ROTATION_HOLD_MS;
 }

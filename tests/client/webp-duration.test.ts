@@ -106,7 +106,7 @@ describe("parseWebpDurationMs: 合成字节", () => {
 // parseWebpDurationMs：真实素材回归（权威值：sub-task/002 结论）
 // ---------------------------------------------------------------------------
 
-describe("parseWebpDurationMs: 现有 61 素材回归", () => {
+describe("parseWebpDurationMs: 现有 62 素材回归", () => {
   const assetsDir = resolve("assets/character");
   const files = readdirSync(assetsDir)
     .filter((f) => f.toLowerCase().endsWith(".webp"))
@@ -114,9 +114,9 @@ describe("parseWebpDurationMs: 现有 61 素材回归", () => {
   const transitions = files.filter((f) => f.startsWith("transition-"));
   const loops = files.filter((f) => !f.startsWith("transition-"));
 
-  it("素材总数 = 61（13 循环态 + 6 变体 + 42 过渡段）", () => {
-    expect(files).toHaveLength(61);
-    expect(loops).toHaveLength(19);
+  it("素材总数 = 62（13 循环态 + 7 变体 + 42 过渡段）", () => {
+    expect(files).toHaveLength(62);
+    expect(loops).toHaveLength(20);
     expect(transitions).toHaveLength(42);
   });
 
@@ -158,7 +158,7 @@ describe("parseWebpDurationMs: 现有 61 素材回归", () => {
       ).toBe(ms);
     }
     // memorial 008 变体素材：75 帧 × 67ms
-    for (const name of ["idle-v2", "idle-v3", "idle-v4", "working-v2", "working-v3", "working-v4"]) {
+    for (const name of ["idle-v2", "idle-v3", "idle-v4", "working-v2", "working-v3", "working-v4", "working-v5"]) {
       const f = `${name}.webp`;
       const bytes = readFileSync(join(assetsDir, f));
       expect(

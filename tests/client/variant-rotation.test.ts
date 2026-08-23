@@ -210,12 +210,14 @@ function currentUrl(snapshot: RuntimeSnapshot): string {
 // ---------------------------------------------------------------------------
 
 describe("variant-rotation 模块", () => {
-  it("轮换池 = 基础主素材（首位）+ 3 变体", () => {
+  it("轮换池 = 基础主素材（首位）+ 变体", () => {
+    // idle: v2–v4（3 变体）；working: v2–v5（4 变体，2026-08-23 新增上半圆弧）
+    const expectedVariants: Record<string, number> = { idle: 4, working: 5 };
     for (const state of ROTATABLE_STATES) {
       const pool = rotationPool(state);
-      expect(pool.length).toBe(4);
+      expect(pool.length).toBe(expectedVariants[state]);
       expect(pool[0]).toBe(loopAssetUrl(state));
-      for (let i = 2; i <= 4; i++) {
+      for (let i = 2; i <= expectedVariants[state]; i++) {
         expect(pool).toContain(`${CHARACTER_ASSET_PREFIX}/${state}-v${i}.webp`);
       }
     }
@@ -243,16 +245,17 @@ describe("variant-rotation 模块", () => {
     }
   });
 
-  it("rotationPeriodMs：基础段与变体段周期 = 名义时长 + 段间停顿", () => {
-    // memorial 008 补充：经典态正反倒放烘焙后，idle/working 单圈不同（148/170 帧）
-    expect(rotationPeriodMs(loopAssetUrl("idle"))).toBe(
-      BASE_SEGMENT_MS.idle + ROTATION_HOLD_MS,
-    );
+  it("rotationPeriodMs：基础段=整圈时长（无停顿，切点=回卷点），变体段=名义时长+段间停顿", () => {
+    // memorial 008 补充：经典态正反倒放烘焙后，idle/working 单圈不同（148/170 帧）。
+    // 基础素材 loops=0 不停帧——若在整圈之外再加停顿，切换点已滑入下一圈动作中段
+    // （可见跳变）；整圈回卷点首尾同为中性帧，恰是唯一无缝切点。
+    expect(rotationPeriodMs(loopAssetUrl("idle"))).toBe(BASE_SEGMENT_MS.idle);
     expect(rotationPeriodMs(loopAssetUrl("working"))).toBe(
-      BASE_SEGMENT_MS.working + ROTATION_HOLD_MS,
+      BASE_SEGMENT_MS.working,
     );
     expect(BASE_SEGMENT_MS.idle).toBe(9916); // 148 帧 × 67ms
     expect(BASE_SEGMENT_MS.working).toBe(11390); // 170 帧 × 67ms
+    // 变体 loops=1 播完定格末帧（中性姿），+400ms 停顿读作自然微动
     expect(rotationPeriodMs(`${CHARACTER_ASSET_PREFIX}/idle-v2.webp`)).toBe(
       VARIANT_SEGMENT_MS + ROTATION_HOLD_MS,
     );
