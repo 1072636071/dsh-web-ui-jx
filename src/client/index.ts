@@ -255,10 +255,10 @@ export function apply(ctx: ClientContext): void {
   );
 
   // ADR-0008：runtime 生命周期随 ctx.effect（dispose 释放全部订阅 + tick timer）。
-  // ADR-0013：开关变化触发 runtime.refresh() 重评估轮换。
+  // ADR-0013：开关变化触发 runtime.resetRotation() 重估轮换。
   if (runtime !== undefined) {
     const unsubVariantRotation = subscribeVariantRotationEnabled(() => {
-      runtime.refresh();
+      runtime.resetRotation();
     });
     ctx.effect(
       () => {

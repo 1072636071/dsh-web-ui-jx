@@ -51,7 +51,7 @@ function createMockRuntime(initial: RuntimeSnapshot) {
     poke() {},
     dispose() {},
     __tick() {},
-    refresh() {},
+    resetRotation() {},
   };
   return {
     runtime,

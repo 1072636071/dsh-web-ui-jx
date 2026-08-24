@@ -18,9 +18,14 @@
  * 边界校验会话目标，已回 working 则取消收工表演）。
  *
  * 循环自然三原则（ADR-0016）：工作轮换切换只发生在整圈边界（单圈
- * WORKING_LOOP_MS）；跨姿态必经 idle 中转过渡段；表演/轮换定时器按
- * 过渡段实测时长（TRANSITION_EDGE_MS）排程——驻留从目标态可见后起算，
+ * WORKING_LOOP_MS）；跨姿态必经 idle 中转过渡段；表演/轮换排程按
+ * 过渡段实测时长（TRANSITION_EDGE_MS）计截止——驻留从目标态可见后起算，
  * 清除在退场过渡播完时。
+ *
+ * 单一时间接缝：防抖与全部显示层排程（表演/彩蛋/poke/工作轮换/变体轮换）
+ * 不设独立 setTimeout，只记录注入 now() 的截止时刻，由统一 __tick 扫描
+ * 到点推进（生产由内部 tick interval 驱动）——消除多定时器竞态，
+ * 单时钟可测。
  *
  * 事件打断语义（实现期裁决，见工单 03）：
  *   - permission/error：从任何显示（含工作轮换中段）立即硬切接管——
@@ -118,8 +123,8 @@ export const WORKING_ROTATION_LOOPS = 2;
  * 长经典边（67×74 + 536 定格）= 5494。共 20 边（ADR-0023 移除 welcome 两边后），
  * 与 TRANSITION_EDGES 一一对应。
  *
- * 用途：poke / 彩蛋 / 表演 / 工作轮换的显示层序列定时器按「过渡段真实
- * 总时长 + 驻留时长」排程——驻留从目标态可见后起算、退场在过渡播完时清除。
+ * 用途：poke / 彩蛋 / 表演 / 工作轮换的显示层序列排程按「过渡段真实
+ * 总时长 + 驻留时长」计截止——驻留从目标态可见后起算、退场在过渡播完时清除。
  */
 const TRANSITION_EDGE_MS: Readonly<Record<string, number>> = Object.freeze({
   "angry-idle": 766,
@@ -320,26 +325,26 @@ interface WorkingRotation {
 
 /** overlay-session-runtime 实例。 */
 export interface OverlaySessionRuntime {
-  /** 取当前快照（供 useExternalStore 等订阅机制读取）。 */
+  /** 取当前快照（供 useSyncExternalStore 等订阅机制读取）。 */
   getSnapshot(): RuntimeSnapshot;
-  /** 订阅快照变化；返回取消订阅函数。 */
-  subscribe(listener: (snapshot: RuntimeSnapshot) => void): () => void;
+  /** 订阅快照变化；返回取消订阅函数。监听者通过 getSnapshot() 读取，无需参数。 */
+  subscribe(listener: () => void): () => void;
   /** 点击惊吓：触发一次「当前姿态→idle→惊吓→惊吓循环→idle→回落目标」（ADR-0011）。 */
   poke(): void;
-  /** 释放全部订阅（list + 各会话 binding.session + tick timer + 显示层定时器）。 */
+  /** 释放全部订阅（list + 各会话 binding.session + tick timer）。 */
   dispose(): void;
-  /** 测试用：手动触发一次 tick（防抖 deadline 判定）。 */
+  /** 测试钩子：手动推进一次时间驱动判定（读注入时钟 now）。生产由内部 tick 间隔驱动。 */
   __tick(): void;
   /**
-   * 重新评估显示层（变体轮换开关变化时由接线层调用，ADR-0013 D7）：
-   * 丢弃进行中的轮换位置并重算快照。
+   * 重算显示层（变体轮换开关变化时由接线层调用，ADR-0013 D7）：
+   * 丢弃进行中的轮换段并重算快照。
    */
-  refresh(): void;
+  resetRotation(): void;
 }
 
 /** runtime 选项。 */
 export interface CreateOverlaySessionRuntimeOptions {
-  /** 时钟注入（默认 Date.now，测试可注入虚拟时钟；用于防抖 deadline 判定）。 */
+  /** 时钟注入（默认 Date.now，测试可注入虚拟时钟；防抖与显示层排程统一走该时钟）。 */
   now?: () => number;
   /** tick 间隔 ms（默认 1000，测试可缩短以加速）。 */
   tickIntervalMs?: number;
@@ -372,7 +377,7 @@ export function createOverlaySessionRuntime(
   const rotationEnabled = opts?.variantRotationEnabled ?? (() => false);
 
   const entries = new Map<SessionId, SessionEntry>();
-  const listeners = new Set<(snapshot: RuntimeSnapshot) => void>();
+  const listeners = new Set<() => void>();
 
   // 焦点相关
   let userFocusSessionId: SessionId | undefined = undefined; // 用户当前打开会话
@@ -395,19 +400,23 @@ export function createOverlaySessionRuntime(
   /** 待整圈边界执行的 done 表演所属会话（回合重启时在边界校验取消）。 */
   let pendingDone: SessionId | undefined = undefined;
 
-  // 显示层定时器
-  let performanceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  let pokeTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  let eggTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  let eggScheduleTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  let rotationTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  // 显示层排程截止时刻（单一时间接缝，见模块头注释）：各阶段只记录
+  // 注入 now() 的截止时刻，由统一 tick 扫描到点推进。
+  let performanceHoldUntil: number | undefined = undefined;
+  let performanceExitUntil: number | undefined = undefined;
+  let pokeHoldUntil: number | undefined = undefined;
+  let pokeExitUntil: number | undefined = undefined;
+  let eggAt: number | undefined = undefined;
+  let eggHoldUntil: number | undefined = undefined;
+  let eggExitUntil: number | undefined = undefined;
+  let rotationBoundaryAt: number | undefined = undefined;
 
-  // idle 变体轮换（ADR-0013）：当前轮换段 + 推进计时。
+  // idle 变体轮换（ADR-0013）：当前轮换段 + 推进截止时刻。
   // 打断（状态切换/彩蛋/poke/紧急态）时丢弃位置，回落后重抽（D9）。
   let rotationSegment:
     | { state: RotatableState; url: string }
     | undefined = undefined;
-  let variantTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  let variantAdvanceAt: number | undefined = undefined;
 
   let disposed = false;
   /**
@@ -423,77 +432,54 @@ export function createOverlaySessionRuntime(
   };
 
   // ---------------------------------------------------------------------------
-  // 定时器清理辅助
+  // 排程截止清理辅助
   // ---------------------------------------------------------------------------
 
-  function clearPerformanceTimer(): void {
-    if (performanceTimer !== undefined) {
-      clearTimeout(performanceTimer);
-      performanceTimer = undefined;
-    }
+  function clearPerformanceSchedule(): void {
+    performanceHoldUntil = undefined;
+    performanceExitUntil = undefined;
   }
 
-  function clearPokeTimer(): void {
-    if (pokeTimer !== undefined) {
-      clearTimeout(pokeTimer);
-      pokeTimer = undefined;
-    }
+  function clearPokeSchedule(): void {
+    pokeHoldUntil = undefined;
+    pokeExitUntil = undefined;
   }
 
-  function clearEggTimers(): void {
-    if (eggTimer !== undefined) {
-      clearTimeout(eggTimer);
-      eggTimer = undefined;
-    }
-    if (eggScheduleTimer !== undefined) {
-      clearTimeout(eggScheduleTimer);
-      eggScheduleTimer = undefined;
-    }
-  }
-
-  function clearRotationTimer(): void {
-    if (rotationTimer !== undefined) {
-      clearTimeout(rotationTimer);
-      rotationTimer = undefined;
-    }
-  }
-
-  function clearVariantTimer(): void {
-    if (variantTimer !== undefined) {
-      clearTimeout(variantTimer);
-      variantTimer = undefined;
-    }
+  function clearEggSchedule(): void {
+    eggAt = undefined;
+    eggHoldUntil = undefined;
+    eggExitUntil = undefined;
   }
 
   // -------------------------------------------------------------------------
   // idle 变体轮换（ADR-0013，仅 idle 池）
   // -------------------------------------------------------------------------
 
-  /** 停止 idle 变体轮换：丢弃当前位置与推进计时（打断语义，D9）。 */
+  /** 停止 idle 变体轮换：丢弃当前位置与推进截止（打断语义，D9）。 */
   function stopVariantRotation(): void {
-    clearVariantTimer();
+    variantAdvanceAt = undefined;
     rotationSegment = undefined;
   }
 
-  /** 排程当前变体段的推进：名义时长 + 段间停顿后抽下一段。 */
+  /** 排程当前变体段的推进截止：名义时长 + 段间停顿后抽下一段（tick 扫描驱动）。 */
   function scheduleVariantAdvance(): void {
     if (rotationSegment === undefined) return;
-    clearVariantTimer();
-    const period = rotationPeriodMs(rotationSegment.url);
-    variantTimer = setTimeout(() => {
-      variantTimer = undefined;
-      if (rotationSegment === undefined) return;
-      const state = rotationSegment.state;
-      const next = pickNextVariant(
-        rotationPool(state),
-        rotationSegment.url,
-        random,
-      );
-      if (next === undefined) return;
-      rotationSegment = { state, url: next };
-      scheduleVariantAdvance();
-      emit();
-    }, period);
+    variantAdvanceAt = now() + rotationPeriodMs(rotationSegment.url);
+  }
+
+  /** 推进变体段：重抽下一变体并排程下一次推进（tick 到点调用）。 */
+  function advanceVariantRotation(): void {
+    if (rotationSegment === undefined) return;
+    const state = rotationSegment.state;
+    const next = pickNextVariant(
+      rotationPool(state),
+      rotationSegment.url,
+      random,
+    );
+    if (next === undefined) return;
+    rotationSegment = { state, url: next };
+    scheduleVariantAdvance();
+    emit();
   }
 
   /**
@@ -543,7 +529,7 @@ export function createOverlaySessionRuntime(
 
   /** 清除工作轮换（显示层被接管/退出 working 时）。 */
   function clearWorkingRotation(): void {
-    clearRotationTimer();
+    rotationBoundaryAt = undefined;
     rotation = undefined;
   }
 
@@ -555,12 +541,8 @@ export function createOverlaySessionRuntime(
     plan: readonly PlaybackItem[],
     asset: WorkingLoopAsset,
   ): void {
-    clearRotationTimer();
     rotation = { asset, plan, loopsPlayed: 0 };
-    rotationTimer = setTimeout(
-      rotationBoundary,
-      planPrefixMs(plan) + WORKING_LOOP_MS[asset],
-    );
+    rotationBoundaryAt = now() + planPrefixMs(plan) + WORKING_LOOP_MS[asset];
   }
 
   /**
@@ -579,9 +561,9 @@ export function createOverlaySessionRuntime(
     return rotation;
   }
 
-  /** 整圈边界：待边界切出（done）优先，其次满 2 圈换段，否则续播下一圈。 */
+  /** 整圈边界（tick 到点调用）：待边界切出（done）优先，其次满 2 圈换段，否则续播下一圈。 */
   function rotationBoundary(): void {
-    rotationTimer = undefined;
+    rotationBoundaryAt = undefined;
     if (rotation === undefined) return;
     rotation.loopsPlayed += 1;
     // 整圈边界切出校验（D7/D9）：done 待边界执行；会话已重新工作则取消。
@@ -607,7 +589,7 @@ export function createOverlaySessionRuntime(
       emit();
       return;
     }
-    rotationTimer = setTimeout(rotationBoundary, WORKING_LOOP_MS[rotation.asset]);
+    rotationBoundaryAt = now() + WORKING_LOOP_MS[rotation.asset];
   }
   // -------------------------------------------------------------------------
   // 一次性表演调度（PRD 决策 7 / ADR-0016 决策 2）
@@ -676,7 +658,7 @@ export function createOverlaySessionRuntime(
     kind: PerformanceKindLayer,
     sourcePose: TransitionEndpoint,
   ): void {
-    clearPerformanceTimer();
+    clearPerformanceSchedule();
     cancelEasterEgg();
     clearWorkingRotation();
     pendingDone = undefined;
@@ -690,33 +672,35 @@ export function createOverlaySessionRuntime(
       holdMs,
       exitPlan: undefined,
     };
-    // 驻留从表演循环体可见后起算：按实际入场计划的前导过渡总时长排程
+    // 驻留从表演循环体可见后起算：按实际入场计划的前导过渡总时长计截止
     // （权限反馈链走 permission→kind 直达边，不经 idle 中转）。
     const entryPrefixMs = planPrefixMs(performanceEntryPlan(kind, sourcePose));
-    performanceTimer = setTimeout(performanceExit, entryPrefixMs + holdMs);
+    performanceHoldUntil = now() + entryPrefixMs + holdMs;
     emit();
   }
 
-  /** 表演退场：构建退场计划，播完后清除表演层（working 回落时接续工作轮换）。 */
+  /** 表演驻留到点（tick 扫描）：构建退场计划进入 exit 相位并排程退场截止。 */
   function performanceExit(): void {
-    performanceTimer = undefined;
     if (performance === undefined) return;
     const kind = performance.kind;
     const exitPlan = buildExitPlan(kind);
     performance.phase = "exit";
     performance.exitPlan = exitPlan;
-    performanceTimer = setTimeout(() => {
-      performanceTimer = undefined;
-      const plan = performance?.exitPlan;
-      performance = undefined;
-      adoptExitPlan(plan);
-    }, planPrefixMs(exitPlan));
+    performanceExitUntil = now() + planPrefixMs(exitPlan);
     emit();
+  }
+
+  /** 表演退场到点（tick 扫描）：清除表演层（working 回落时接续工作轮换）。 */
+  function finishPerformanceExit(): void {
+    performanceExitUntil = undefined;
+    const plan = performance?.exitPlan;
+    performance = undefined;
+    adoptExitPlan(plan);
   }
 
   /** 清除表演层（紧急态打断/替代触发时）。 */
   function clearPerformance(): void {
-    clearPerformanceTimer();
+    clearPerformanceSchedule();
     performance = undefined;
   }
 
@@ -725,7 +709,7 @@ export function createOverlaySessionRuntime(
   // -------------------------------------------------------------------------
 
   function cancelEasterEgg(): void {
-    clearEggTimers();
+    clearEggSchedule();
     egg = undefined;
   }
 
@@ -741,22 +725,23 @@ export function createOverlaySessionRuntime(
     return EASTER_EGG_POOL[idx]!;
   }
 
-  /** 彩蛋退场：按当时基础显示态构建退场计划，播完后清除彩蛋层。 */
+  /** 彩蛋驻留到点（tick 扫描）：按当时基础显示态构建退场计划进入 exit 相位。 */
   function easterEggExit(): void {
-    eggTimer = undefined;
     if (egg === undefined) return;
     const exitPlan = buildExitPlan(egg.expression);
     egg.phase = "exit";
     egg.exitPlan = exitPlan;
-    eggTimer = setTimeout(() => {
-      eggTimer = undefined;
-      const plan = egg?.exitPlan;
-      egg = undefined;
-      adoptExitPlan(plan);
-      // 为下一轮彩蛋排期（并行驻留持续时周期性播放，ADR-0010 D3）。
-      if (isParallelHold()) scheduleEasterEgg();
-    }, planPrefixMs(exitPlan));
+    eggExitUntil = now() + planPrefixMs(exitPlan);
     emit();
+  }
+
+  /** 彩蛋退场到点（tick 扫描）：清除彩蛋层，并行驻留持续时为下一轮排期（ADR-0010 D3）。 */
+  function finishEasterEggExit(): void {
+    eggExitUntil = undefined;
+    const plan = egg?.exitPlan;
+    egg = undefined;
+    adoptExitPlan(plan);
+    if (isParallelHold()) scheduleEasterEgg();
   }
 
   function enterEasterEgg(): void {
@@ -768,33 +753,24 @@ export function createOverlaySessionRuntime(
     pendingDone = undefined;
     stopVariantRotation();
     egg = { expression, phase: "entry", sourcePose, exitPlan: undefined };
-    // 驻留从表情循环可见后起算：按实际入场计划的前导过渡总时长排程。
+    // 驻留从表情循环可见后起算：按实际入场计划的前导过渡总时长计截止。
     const eggEntryPlan = viaIdlePlan(
       sourcePose,
       expression,
       loopItem(expression, loopAssetUrl(expression)),
     );
-    eggTimer = setTimeout(
-      easterEggExit,
-      planPrefixMs(eggEntryPlan) + EASTER_EGG_HOLD_MS,
-    );
+    eggHoldUntil = now() + planPrefixMs(eggEntryPlan) + EASTER_EGG_HOLD_MS;
     emit();
   }
 
   function scheduleEasterEgg(): void {
-    if (eggScheduleTimer !== undefined) clearTimeout(eggScheduleTimer);
-    eggScheduleTimer = setTimeout(() => {
-      eggScheduleTimer = undefined;
-      if (isParallelHold()) {
-        enterEasterEgg();
-      }
-    }, randomEasterEggIntervalMs());
+    eggAt = now() + randomEasterEggIntervalMs();
   }
 
   /** 并行驻留条件变化时重新调度彩蛋。 */
   function onParallelHoldChanged(isHold: boolean): void {
     if (!isHold) {
-      clearEggTimers();
+      clearEggSchedule();
       // 驻留结束且基础显示已非 working（无待边界 done）：工作轮换随之退场。
       const entry = focusSessionIdToEntry(currentFocusSessionId);
       if (
@@ -806,7 +782,7 @@ export function createOverlaySessionRuntime(
       }
       return;
     }
-    if (egg === undefined && eggScheduleTimer === undefined) {
+    if (egg === undefined && eggAt === undefined) {
       scheduleEasterEgg();
     }
   }
@@ -816,7 +792,7 @@ export function createOverlaySessionRuntime(
   // -------------------------------------------------------------------------
 
   function clearPoke(): void {
-    clearPokeTimer();
+    clearPokeSchedule();
     poke = undefined;
   }
 
@@ -826,7 +802,7 @@ export function createOverlaySessionRuntime(
    * - 紧急态（permission/error，含焦点会话自身）或表演播放中不触发
    *   （互斥：poke 期间事件触发的表演仅更新 SM；表演播放中 poke 忽略）。
    * - 触发时取消进行中的摸鱼彩蛋与工作轮换（打断语义，回落后重新开始）。
-   * - 定时器按过渡段实测时长排程：驻留从惊吓循环可见后起算；回落目标按
+   * - 排程截止按过渡段实测时长计：驻留从惊吓循环可见后起算；回落目标按
    *   回落时刻的基础显示态重新裁决（期间并行驻留/焦点可能已变化）。
    */
   function pokeAction(): void {
@@ -847,24 +823,26 @@ export function createOverlaySessionRuntime(
       "surprised",
       loopItem("surprised", loopAssetUrl("surprised")),
     );
-    pokeTimer = setTimeout(pokeExit, planPrefixMs(entryPlan) + POKE_HOLD_MS);
+    pokeHoldUntil = now() + planPrefixMs(entryPlan) + POKE_HOLD_MS;
     emit();
   }
 
-  /** poke 回落：按当时基础显示态构建回落计划，播完后清除 poke 层。 */
+  /** poke 驻留到点（tick 扫描）：按当时基础显示态构建回落计划进入 exit 相位。 */
   function pokeExit(): void {
-    pokeTimer = undefined;
     if (poke === undefined) return;
     const exitPlan = buildExitPlan("surprised");
     poke.phase = "exit";
     poke.exitPlan = exitPlan;
-    pokeTimer = setTimeout(() => {
-      pokeTimer = undefined;
-      const plan = poke?.exitPlan;
-      poke = undefined;
-      adoptExitPlan(plan);
-    }, planPrefixMs(exitPlan));
+    pokeExitUntil = now() + planPrefixMs(exitPlan);
     emit();
+  }
+
+  /** poke 回落到点（tick 扫描）：清除 poke 层，交还基础显示。 */
+  function finishPokeExit(): void {
+    pokeExitUntil = undefined;
+    const plan = poke?.exitPlan;
+    poke = undefined;
+    adoptExitPlan(plan);
   }
   // ---------------------------------------------------------------------------
   // 焦点仲裁
@@ -1109,7 +1087,7 @@ export function createOverlaySessionRuntime(
   function emit(): void {
     cachedSnapshot = computeSnapshot();
     displayPose = planHeadingPose(cachedSnapshot.playback);
-    for (const listener of listeners) listener(cachedSnapshot);
+    for (const listener of listeners) listener();
   }
   // ---------------------------------------------------------------------------
   // 目标态应用与差分
@@ -1327,12 +1305,12 @@ export function createOverlaySessionRuntime(
   handleListChange();
 
   // ---------------------------------------------------------------------------
-  // tick：焦点会话 working 进入防抖 deadline 判定
+  // tick：防抖 deadline + 全部显示层截止时刻的统一扫描（单一时间接缝）
   // ---------------------------------------------------------------------------
 
   function tick(): void {
     if (disposed) return;
-    let changed = false;
+    // 焦点会话 working 进入防抖 deadline 判定。
     if (debounce !== undefined && now() >= debounce.deadline) {
       const { sessionId } = debounce;
       debounce = undefined;
@@ -1340,12 +1318,81 @@ export function createOverlaySessionRuntime(
       const entry = entries.get(sessionId);
       if (entry !== undefined && entry.pendingTarget === "working") {
         dispatchState(entry, "working");
-        changed = true;
+        reconcileFocus();
+        emit();
       }
     }
-    if (changed) {
-      reconcileFocus();
-      emit();
+    // 显示层截止时刻扫描：每层每次 tick 至多推进一个相位（handler 内部自行
+    // emit）。跨相位的大步长时间跳跃在后续 tick 继续消化。
+    if (
+      rotationSegment !== undefined &&
+      variantAdvanceAt !== undefined &&
+      now() >= variantAdvanceAt
+    ) {
+      variantAdvanceAt = undefined;
+      advanceVariantRotation();
+    }
+    if (
+      rotation !== undefined &&
+      rotationBoundaryAt !== undefined &&
+      now() >= rotationBoundaryAt
+    ) {
+      rotationBoundary();
+    }
+    if (
+      performance !== undefined &&
+      performance.phase === "entry" &&
+      performanceHoldUntil !== undefined &&
+      now() >= performanceHoldUntil
+    ) {
+      performanceHoldUntil = undefined;
+      performanceExit();
+    }
+    if (
+      performance !== undefined &&
+      performance.phase === "exit" &&
+      performanceExitUntil !== undefined &&
+      now() >= performanceExitUntil
+    ) {
+      finishPerformanceExit();
+    }
+    if (eggAt !== undefined && now() >= eggAt) {
+      eggAt = undefined;
+      if (isParallelHold()) enterEasterEgg();
+    }
+    if (
+      egg !== undefined &&
+      egg.phase === "entry" &&
+      eggHoldUntil !== undefined &&
+      now() >= eggHoldUntil
+    ) {
+      eggHoldUntil = undefined;
+      easterEggExit();
+    }
+    if (
+      egg !== undefined &&
+      egg.phase === "exit" &&
+      eggExitUntil !== undefined &&
+      now() >= eggExitUntil
+    ) {
+      finishEasterEggExit();
+    }
+    if (
+      poke !== undefined &&
+      poke.phase === "entry" &&
+      pokeHoldUntil !== undefined &&
+      now() >= pokeHoldUntil
+    ) {
+      pokeHoldUntil = undefined;
+      pokeExit();
+    }
+    if (
+      poke !== undefined &&
+      poke.phase === "exit" &&
+      pokeExitUntil !== undefined &&
+      now() >= pokeExitUntil
+    ) {
+      finishPokeExit();
     }
   }
 
@@ -1362,9 +1409,7 @@ export function createOverlaySessionRuntime(
     return cachedSnapshot;
   }
 
-  function subscribe(
-    listener: (snapshot: RuntimeSnapshot) => void,
-  ): () => void {
+  function subscribe(listener: () => void): () => void {
     listeners.add(listener);
     return () => {
       listeners.delete(listener);
@@ -1376,11 +1421,11 @@ export function createOverlaySessionRuntime(
     disposed = true;
     listUnsub();
     debounce = undefined;
-    clearPerformanceTimer();
-    clearPokeTimer();
-    clearEggTimers();
-    clearRotationTimer();
-    clearVariantTimer();
+    clearPerformanceSchedule();
+    clearPokeSchedule();
+    clearEggSchedule();
+    rotationBoundaryAt = undefined;
+    variantAdvanceAt = undefined;
     rotationSegment = undefined;
     for (const entry of entries.values()) {
       entry.unsub?.();
@@ -1391,8 +1436,8 @@ export function createOverlaySessionRuntime(
     listeners.clear();
   }
 
-  /** 重新评估显示层（变体轮换开关变化时调用，ADR-0013 D7）。 */
-  function refresh(): void {
+  /** 重算显示层（变体轮换开关变化时调用，ADR-0013 D7）。 */
+  function resetRotation(): void {
     if (disposed) return;
     stopVariantRotation();
     emit();
@@ -1404,6 +1449,6 @@ export function createOverlaySessionRuntime(
     poke: pokeAction,
     dispose,
     __tick: tick,
-    refresh,
+    resetRotation,
   };
 }

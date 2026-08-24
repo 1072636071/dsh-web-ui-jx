@@ -13,11 +13,11 @@
  *   - runtime：开关未注入默认关闭；开关开启 + 无会话 → idle 变体轮换
  *   - runtime：working 驻留走工作轮换（非变体轮换池，URL 为 thinking/reading）
  *   - runtime：poke 打断轮换，回落后重新开始（不续播半截）
- *   - runtime：运行中关闭开关 + refresh → 回退基础 loop
+ *   - runtime：运行中关闭开关 + resetRotation → 回退基础 loop
  *   - 设置存储：轮换开关默认开、set 通知订阅者
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   isRotatableState,
   isBaseLoopUrl,
@@ -31,8 +31,8 @@ import {
 } from "../../src/client/state-machine/variant-rotation.ts";
 import {
   createOverlaySessionRuntime,
-  FOCUS_DEBOUNCE_MS,
   WORKING_LOOP_MS,
+  type OverlaySessionRuntime,
   type RuntimeSnapshot,
 } from "../../src/client/state-machine/overlay-session-runtime.ts";
 import {
@@ -280,26 +280,42 @@ describe("变体轮换设置", () => {
 // ---------------------------------------------------------------------------
 
 describe("runtime 变体轮换集成", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+  // 注入时钟推进：advance = 推进 now + 一次 __tick（tick 扫描到点推进，
+  // 每层每次 tick 至多一个相位，跨相位断言分步 advance）。
+  function timedRuntime(
+    sessions: ISessions,
+    opts: {
+      variantRotationEnabled?: () => boolean;
+      random?: () => number;
+    } = {},
+  ): { runtime: OverlaySessionRuntime; advance: (ms: number) => void } {
+    let now = 1000;
+    const runtime = createOverlaySessionRuntime(sessions, {
+      now: () => now,
+      tickIntervalMs: 1e9,
+      variantRotationEnabled: opts.variantRotationEnabled,
+      random: opts.random,
+    });
+    return {
+      runtime,
+      advance: (ms: number) => {
+        now += ms;
+        runtime.__tick();
+      },
+    };
+  }
 
   it("开关未注入默认关闭：idle 显示基础 loop（与现状一致）", () => {
-    vi.useFakeTimers();
     const sessions = createMockSessions(makeListState([], undefined));
-    const runtime = createOverlaySessionRuntime(sessions, {
-      tickIntervalMs: 100,
-    });
+    const { runtime } = timedRuntime(sessions);
     expect(runtime.getSnapshot().currentState).toBe("idle");
     expect(currentUrl(runtime.getSnapshot())).toBe(loopAssetUrl("idle"));
     runtime.dispose();
   });
 
   it("开关开启 + 无会话：idle 变体轮换，周期后推进且不连续重复", () => {
-    vi.useFakeTimers();
     const sessions = createMockSessions(makeListState([], undefined));
-    const runtime = createOverlaySessionRuntime(sessions, {
-      tickIntervalMs: 100,
+    const { runtime, advance } = timedRuntime(sessions, {
       variantRotationEnabled: () => true,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9, 0.55, 0.2]),
     });
@@ -311,7 +327,7 @@ describe("runtime 变体轮换集成", () => {
 
     const seen: string[] = [first];
     for (let i = 0; i < 4; i++) {
-      vi.advanceTimersByTime(VARIANT_SEGMENT_MS + ROTATION_HOLD_MS);
+      advance(VARIANT_SEGMENT_MS + ROTATION_HOLD_MS);
       const url = currentUrl(runtime.getSnapshot());
       expect(url).not.toBe(seen[seen.length - 1]);
       expect(pool).toContain(url);
@@ -323,10 +339,8 @@ describe("runtime 变体轮换集成", () => {
   });
 
   it("并行驻留 working 显示走工作轮换（thinking/reading 素材，非变体池）", () => {
-    vi.useFakeTimers();
     const sessions = createMockSessions(makeListState([A], A));
-    const runtime = createOverlaySessionRuntime(sessions, {
-      tickIntervalMs: 100,
+    const { runtime, advance } = timedRuntime(sessions, {
       variantRotationEnabled: () => true,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9]),
     });
@@ -346,9 +360,10 @@ describe("runtime 变体轮换集成", () => {
       url === workingLoopAssetUrl("thinking") ||
         url === workingLoopAssetUrl("reading"),
     ).toBe(true);
-    // 推进 2 整圈后换段（不连续重复）
+    // 推进 2 整圈后换段（不连续重复）：入场过渡 + 首圈 → 续播；第二圈 → 换段
     const firstUrl = url;
-    vi.advanceTimersByTime(WORKING_LOOP_MS.thinking * 2 + 5000);
+    advance(3484 + WORKING_LOOP_MS.thinking + 100);
+    advance(WORKING_LOOP_MS.thinking + 100);
     const nextUrl = currentUrl(runtime.getSnapshot());
     expect(nextUrl).not.toBe(firstUrl);
     expect(
@@ -359,18 +374,18 @@ describe("runtime 变体轮换集成", () => {
   });
 
   it("poke 打断轮换，回落后重新开始", () => {
-    vi.useFakeTimers();
     const sessions = createMockSessions(makeListState([A], A));
-    const runtime = createOverlaySessionRuntime(sessions, {
-      tickIntervalMs: 100,
+    const { runtime, advance } = timedRuntime(sessions, {
       variantRotationEnabled: () => true,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9]),
     });
     expect(currentUrl(runtime.getSnapshot())).not.toBe(loopAssetUrl("idle"));
     runtime.poke();
     expect(runtime.getSnapshot().currentState).toBe("surprised");
-    // poke 全程（入场 766 + 驻留 3000 + 回落 766）后回落 idle：轮换重新抽取
-    vi.advanceTimersByTime(766 + 3000 + 766 + 100);
+    // poke 入场（766）+ 驻留 3000 到点 → 回落段
+    advance(766 + 3000 + 100);
+    // 回落（766）播完 → 回 idle：轮换重新抽取
+    advance(766 + 100);
     expect(runtime.getSnapshot().currentState).toBe("idle");
     const url = currentUrl(runtime.getSnapshot());
     expect(rotationPool("idle")).toContain(url);
@@ -378,21 +393,19 @@ describe("runtime 变体轮换集成", () => {
     runtime.dispose();
   });
 
-  it("运行中关闭开关 + refresh：回退基础 loop", () => {
-    vi.useFakeTimers();
+  it("运行中关闭开关 + resetRotation：回退基础 loop", () => {
     let enabled = true;
     const sessions = createMockSessions(makeListState([], undefined));
-    const runtime = createOverlaySessionRuntime(sessions, {
-      tickIntervalMs: 100,
+    const { runtime, advance } = timedRuntime(sessions, {
       variantRotationEnabled: () => enabled,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9]),
     });
     expect(currentUrl(runtime.getSnapshot())).not.toBe(loopAssetUrl("idle"));
     enabled = false;
-    runtime.refresh();
+    runtime.resetRotation();
     expect(currentUrl(runtime.getSnapshot())).toBe(loopAssetUrl("idle"));
     // 关闭后不再推进
-    vi.advanceTimersByTime((VARIANT_SEGMENT_MS + ROTATION_HOLD_MS) * 2);
+    advance((VARIANT_SEGMENT_MS + ROTATION_HOLD_MS) * 2);
     expect(currentUrl(runtime.getSnapshot())).toBe(loopAssetUrl("idle"));
     runtime.dispose();
   });
