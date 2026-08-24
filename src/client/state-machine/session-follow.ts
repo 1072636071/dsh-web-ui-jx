@@ -1,15 +1,20 @@
 /**
  * session-follow — 会话状态跟随差分推导（纯函数，供 overlay-session-runtime 复用）。
  *
- * ADR-0008 起，多会话适配由 overlay-session-runtime 承担（每会话一个状态机实例 +
- * binding.session 订阅）。本模块只保留差分推导的纯函数（extractCore / diffTarget）
- * 与阈值常量，被 runtime 按会话接线复用。原 attachSessionFollow 单会话跟随逻辑
- * 已被 runtime 替换移除（无残留双路径）。
+ * ADR-0016 四态收敛后，差分输出从细分工作态收敛为五目标 + 表演触发：
+ *   - error 上升沿 → switch error（硬切）；
+ *   - pending 上升沿 → switch permission（硬切）；
+ *   - pending 下降沿 + running 继续 → perform nod-smile（批准后回 working）；
+ *   - pending 下降沿 + running 终止 → perform frown-wave（拒绝后回 idle）；
+ *   - running 上升沿（含工具调用/可见输出/无输出思考，统一映射）→ switch working；
+ *   - running 下降沿（无 error/pending）→ perform done（收工表演后回 idle）；
+ *   - 全静 → switch idle。
  *
- * 映射判定式（高 → 低）：
- *   error > permission > working > replying > thinking > done(边沿) > idle
- * reading 由 thinking 持续 >= READING_THRESHOLD_MS 无可见 chunk 推导；
- * done 驻留 DONE_HOLD_MS 后回 idle（runtime 内 tick 驱动）。
+ * READING_THRESHOLD_MS（thinking 8s 推导 reading）废弃——reading 不再是事件
+ * 目标，仅是 working 显示层轮换素材（ADR-0016 决策 4）。
+ *
+ * 批准/拒绝启发式：pending 下降沿后 running 是否继续区分；宿主若提供显式
+ * 拒绝信号优先采用（实现期验证，见 runtime 注释）。
  *
  * @module dsh-web-ui-jx/client
  */
@@ -17,11 +22,14 @@
 import type { ConversationSnapshot } from "@deepseek-ai/dsh-client-runtime/client";
 import type { OverlayState } from "./overlay-state-machine.ts";
 
-/** thinking 持续多久（无可见 chunk）判为 reading（ms）。 */
-export const READING_THRESHOLD_MS = 8000;
+/** 差分可触发的一次性表演（done/nod-smile/frown-wave；welcome 由浮层入场自触发）. */
+export type DiffPerformance = "done" | "nod-smile" | "frown-wave";
 
-/** done 态驻留多久后回 idle（ms）。 */
-export const DONE_HOLD_MS = 4000;
+/** 差分推导结果：循环态切换 / 一次性表演触发 / 无变化. */
+export type DiffOutcome =
+  | { readonly kind: "switch"; readonly target: OverlayState }
+  | { readonly kind: "perform"; readonly performance: DiffPerformance }
+  | null;
 
 /**
  * 仅取差分关心的核心字段，与 SDK 类型解耦（SDK 字段形状多变，映射到这里固化）。
@@ -64,7 +72,7 @@ export function extractCore(snapshot: ConversationSnapshot): SnapshotCore {
   };
 }
 
-/** 判定核心快照是否为 idle 兜底态。 */
+/** 判定核心快照是否为全静（idle 兜底）态。 */
 function isIdleCore(c: SnapshotCore): boolean {
   return (
     !c.running &&
@@ -76,47 +84,38 @@ function isIdleCore(c: SnapshotCore): boolean {
 }
 
 /**
- * 快照差分 → 目标角色态（单值，按优先级裁决）。
+ * 快照差分 → 目标（循环态切换或表演触发，单值，按优先级裁决）。
  *
- * 参考 reference diffEvents 的优先级表，但现有状态机是直接 switch，故收敛
- * 为"每次差分只产出一个最高优先级的目标态"。
+ * 优先级（高 → 低）：error 上升沿 > permission 上升沿 > permission 下降沿
+ * （批准/拒绝表演）> running 下降沿（done 表演）> error 下降沿（错误恢复）
+ * > working 上升沿 > idle 兜底。
  *
  * @param prev - 上一次核心快照（null 表示初次/切换会话）。
  * @param curr - 当前核心快照。
- * @returns 目标角色态；null 表示无变化（继续当前态）。
+ * @returns 差分结果；null 表示无变化（继续当前态）。
  */
 export function diffTarget(
   prev: SnapshotCore | null,
   curr: SnapshotCore,
-): OverlayState | null {
-  // 1. error 最高优先
-  if (curr.hasError && (prev === null || !prev.hasError)) return "error";
-  // 2. permission
-  if (curr.pending && (prev === null || !prev.pending)) return "permission";
-  // 2.5 permission 下降沿：授权完成（pending 落）且回合仍在进行 → 按现场补目标态，
-  //     否则角色会卡在 permission（此时 3/4/5 的上升沿条件均不满足）。
-  if (prev !== null && prev.pending && !curr.pending && curr.running) {
-    if (curr.runningCallsCount > 0) return "working";
-    if (curr.hasVisibleChunk) return "replying";
-    return "thinking";
+): DiffOutcome {
+  // 1. error 上升沿（硬切，不防抖）
+  if (curr.hasError && (prev === null || !prev.hasError)) {
+    return { kind: "switch", target: "error" };
   }
-  // 3. working
-  if (curr.runningCallsCount > 0 && (prev === null || prev.runningCallsCount === 0)) {
-    return "working";
+  // 2. permission 上升沿（硬切，不防抖）
+  if (curr.pending && (prev === null || !prev.pending)) {
+    return { kind: "switch", target: "permission" };
   }
-  // 4. replying（可见 chunk 出现）
-  if (curr.hasVisibleChunk && (prev === null || !prev.hasVisibleChunk)) {
-    return "replying";
+  // 3. permission 下降沿：批准/拒绝启发式——running 继续 = 批准（nod-smile
+  //    表演后回 working）；running 终止 = 拒绝（frown-wave 表演后回 idle）。
+  //    error 仍在场时跳过（紧急态优先，角色停在 error）。
+  if (prev !== null && prev.pending && !curr.pending && !curr.hasError) {
+    return {
+      kind: "perform",
+      performance: curr.running ? "nod-smile" : "frown-wave",
+    };
   }
-  // 5. thinking（running && 无 chunk，新轮次）
-  if (
-    curr.running &&
-    !curr.hasVisibleChunk &&
-    (prev === null || !prev.running || prev.hasVisibleChunk)
-  ) {
-    return "thinking";
-  }
-  // 6. done 边沿（running true→false，无 error/pending）
+  // 4. running 下降沿（无 error/pending）→ done 表演
   if (
     prev !== null &&
     prev.running &&
@@ -124,9 +123,23 @@ export function diffTarget(
     !curr.hasError &&
     !curr.pending
   ) {
-    return "done";
+    return { kind: "perform", performance: "done" };
   }
-  // 7. idle 兜底
-  if (isIdleCore(curr) && (prev === null || !isIdleCore(prev))) return "idle";
+  // 5. error 下降沿（错误恢复）：回合仍在进行 → working（运行中统一映射）；
+  //    恢复时已在等审批 → permission。避免错误清偿后角色卡在 error。
+  if (prev !== null && prev.hasError && !curr.hasError) {
+    if (curr.pending) return { kind: "switch", target: "permission" };
+    if (curr.running) return { kind: "switch", target: "working" };
+  }
+  // 6. working 上升沿：运行中（有工具调用/有可见输出/无输出思考中）统一映射
+  //    working（进入防抖约 2000ms，由 runtime 承担）。
+  if (curr.running && !curr.hasError && !curr.pending &&
+    (prev === null || !prev.running)) {
+    return { kind: "switch", target: "working" };
+  }
+  // 7. 全静兜底 → idle（回落防抖约 2000ms，由 runtime 承担）
+  if (isIdleCore(curr) && (prev === null || !isIdleCore(prev))) {
+    return { kind: "switch", target: "idle" };
+  }
   return null;
 }

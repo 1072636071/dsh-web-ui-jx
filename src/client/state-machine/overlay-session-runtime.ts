@@ -1,25 +1,34 @@
 /**
- * overlay-session-runtime — 会话级状态机容器与焦点仲裁（ADR-0008 + ADR-0010）。
+ * overlay-session-runtime — 会话级状态机容器、焦点仲裁与显示层调度
+ * （ADR-0008 + ADR-0010 + ADR-0011 + ADR-0013 + ADR-0016）。
  *
- * ADR-0008：
- *   - 替换原模块级单例状态机 + session-follow"只跟 current"逻辑。
- *   - 每会话一个状态机实例（Map<sessionId, SM>）+ 一个 binding(id).session 订阅。
- *   - 浮层渲染焦点会话的 playback；焦点 = 当前打开会话（sessions.list.current）。
- *   - error/permission 可紧急抢焦；消退后交还用户焦点。
+ * ADR-0016 四态收敛后的显示层管线（优先级高 → 低）：
+ *   1. 紧急态（permission/error）：任意会话紧急 → 立即接管显示（硬切，
+ *      打断一切进行中的表演/poke/彩蛋/工作轮换，紧急态即时原则）。
+ *   2. poke 惊吓（ADR-0011）：点击触发的显示层覆盖。
+ *   3. 一次性表演（done/welcome/nod-smile/frown-wave）：边沿触发、播完回落。
+ *   4. 摸鱼彩蛋（happy/angry/surprised）：并行驻留期间随机触发。
+ *   5. working 显示层轮换（thinking/reading 各播 2 整圈，经 idle 中转交替）。
+ *   6. 基础显示：并行驻留 → working 轮换；否则跟随焦点会话 SM
+ *      （idle → 变体轮换；working → 工作轮换）。
  *
- * ADR-0010：
- *   - 焦点层防抖：thinking/reading/replying/working 在焦点会话上防抖 3000ms，
- *     避免工具链高频切换导致动画僵硬；permission/error 硬切；done/idle 直接落。
- *   - 多会话并行驻留：≥2 会话 running 且至少一个非 idle 时，浮层显示 working。
- *   - 摸鱼彩蛋：并行驻留期间随机 2–5 分钟触发一次表情动画。
+ * 防抖（PRD 决策 5，约 2000ms）：仅作用于焦点会话 working 进入
+ * （防连续回合/多会话切焦抖动）；permission/error 硬切不防抖；
+ * working 回落的保护由 done 表演的整圈边界切出承担（回合重启时在
+ * 边界校验会话目标，已回 working 则取消收工表演）。
  *
- * 工单 09/10（焦点会话紧急态可见性）：紧急呈现查找含焦点会话自身——
- *   焦点会话进入 permission/error 时立即打断 poke 序列（含回落段）并压过
- *   并行驻留画面；否则紧急事件被遮蔽（poke 全程 ~8s / 审批等待全程）。
+ * 循环自然三原则（ADR-0016）：工作轮换切换只发生在整圈边界（单圈
+ * WORKING_LOOP_MS）；跨姿态必经 idle 中转过渡段；表演/轮换定时器按
+ * 过渡段实测时长（TRANSITION_EDGE_MS）排程——驻留从目标态可见后起算，
+ * 清除在退场过渡播完时。
  *
- * 显示层序列真实时长对齐：poke / 彩蛋的驻留与退场定时器按过渡段实测时长
- * （TRANSITION_EDGE_MS）排程——驻留从目标态可见后起算、退场在过渡播完时清除，
- * 消除「固定短值截断入场/退场过渡、目标态画面永远播不到」的缺陷。
+ * 事件打断语义（实现期裁决，见工单 03）：
+ *   - permission/error：从任何显示（含工作轮换中段）立即硬切接管——
+ *     紧急态即时原则（ADR-0011/0016、工单 06「紧急态硬切即时」）优先于
+ *     memorial 009 D9 的整圈边界措辞；
+ *   - done / idle 回落：等当前工作整圈播完再切出（D7/D9 整圈边界切出）；
+ *   - 表演被紧急态打断时立即让位；poke 与表演互斥（poke 播放中事件触发的
+ *     表演跳过、仅更新会话 SM；表演播放中 poke 忽略）；poke/表演打断彩蛋。
  *
  * 纯逻辑模块：不操作 DOM、不依赖 React。UI（CharacterOverlay）通过
  * useSyncExternalStore 订阅 runtime 快照。
@@ -36,17 +45,18 @@ import {
   createOverlayStateMachine,
   loopAssetUrl,
   transitionAssetUrl,
-  type IntermediateState,
+  workingLoopAssetUrl,
+  type LoopPlaybackItem,
   type OverlayState,
+  type PerformanceKind,
   type PlaybackItem,
-  type StateMachineSnapshot,
   type TransitionEndpoint,
+  type TransitionPlaybackItem,
+  type WorkingLoopAsset,
 } from "./overlay-state-machine.ts";
 import {
   extractCore,
   diffTarget,
-  READING_THRESHOLD_MS,
-  DONE_HOLD_MS,
   type SnapshotCore,
 } from "./session-follow.ts";
 import {
@@ -61,37 +71,20 @@ import {
 // 常量
 // ---------------------------------------------------------------------------
 
-/** 工作态防抖窗口 ms（ADR-0010 D1）。 */
-export const FOCUS_DEBOUNCE_MS = 3000;
+/** working 进入防抖窗口 ms（PRD 决策 5「约 2000ms」；permission/error 硬切不防抖）。 */
+export const FOCUS_DEBOUNCE_MS = 2000;
 
-/** 工作态集合：走防抖。 */
-const DEBOUNCE_STATES: ReadonlySet<OverlayState> = new Set([
-  "thinking",
-  "reading",
-  "replying",
-  "working",
-]);
+/** poke 惊吓循环驻留时长 ms（惊吓循环态可见后开始计时，ADR-0011）。 */
+export const POKE_HOLD_MS = 3000;
 
-/** 硬切白名单：permission/error 立即打断当前动画（ADR-0010 D1）。 */
-const HARD_CUT_STATES: ReadonlySet<OverlayState> = new Set([
-  "permission",
-  "error",
-]);
+/** done / welcome 表演驻留时长 ms（表演循环体可见后起算，PRD 决策 7）。 */
+export const PERFORMANCE_HOLD_MS = 3000;
 
-/** 非防抖直接落状态：done / idle。 */
-const DIRECT_STATES: ReadonlySet<OverlayState> = new Set(["done", "idle"]);
+/** nod-smile / frown-wave 权限反馈表演驻留时长 ms（循环体约 2s，PRD 决策 7）。 */
+export const PERMISSION_FEEDBACK_HOLD_MS = 2000;
 
-/** 无会话时浮层停留的初始态。 */
-const IDLE: OverlayState = "idle";
-
-/** 摸鱼彩蛋状态池（6 中间态表情 + 3 新增生活化表情循环态，ADR-0010 D7）。 */
-const EASTER_EGG_POOL: ReadonlyArray<OverlayState | IntermediateState> = [
-  "shy-smile",
-  "shush",
-  "nod-smile",
-  "frown-wave",
-  "chin-rest",
-  "cheek-rest",
+/** 摸鱼彩蛋表情池（ADR-0016 收敛为 3 表情；surprised 与 poke 共用循环体）。 */
+const EASTER_EGG_POOL: readonly PerformanceKind[] = [
   "happy",
   "angry",
   "surprised",
@@ -105,77 +98,127 @@ const EASTER_EGG_MAX_MS = 5 * 60 * 1000;
 const EASTER_EGG_HOLD_MS = 3000;
 
 /**
- * 过渡段实测时长表（ms）。2026-08-23 全量测量（复测脚本
+ * working 轮换素材单圈时长 ms（实测：thinking/reading 均 148 帧 × 67ms
+ * pingpong 烘焙 = 9916ms。素材重生成后需复测，脚本
+ * `.temp/scripts/measure_all_durations.mjs`）。
+ */
+export const WORKING_LOOP_MS: Readonly<Record<WorkingLoopAsset, number>> =
+  Object.freeze({
+    thinking: 9916,
+    reading: 9916,
+  });
+
+/** 每段工作素材播几整圈后轮换（PRD 决策 5「各播约两整圈」）。 */
+export const WORKING_ROTATION_LOOPS = 2;
+
+/**
+ * 过渡段实测时长表（ms）。2026-08-23 素材重组后全量复测（复测脚本
  * `.temp/scripts/measure_all_durations.mjs`，素材重生成后需同步重测）。
- * 结构三档：表情边（33ms × 23 帧）= 766；长经典边（67ms × 74 帧 + 536 定格）= 5494；
- * 标准经典边（67ms × 44 帧 + 536 定格）= 3484。
+ * 三档：表情边（33ms × 23 帧）= 766；标准经典边（67×44 + 536 定格）= 3484；
+ * 长经典边（67×74 + 536 定格）= 5494。共 22 边，与 TRANSITION_EDGES 一一对应。
  *
- * 用途：poke / 摸鱼彩蛋的显示层序列定时器按「过渡段真实总时长 + 驻留时长」排程，
- * 替代旧版从序列起点计时的固定值——旧值小于入场过渡总长时，目标态画面
- * （惊吓循环/表情循环）永远播不到就被切到退场计划（截断缺陷）。
+ * 用途：poke / 彩蛋 / 表演 / 工作轮换的显示层序列定时器按「过渡段真实
+ * 总时长 + 驻留时长」排程——驻留从目标态可见后起算、退场在过渡播完时清除。
  */
 const TRANSITION_EDGE_MS: Readonly<Record<string, number>> = Object.freeze({
   "angry-idle": 766,
-  "cheek-rest-idle": 5494,
-  "chin-rest-idle": 5494,
   "done-idle": 3484,
   "error-idle": 5494,
   "frown-wave-idle": 5494,
-  "frown-wave-permission": 3484,
   "happy-idle": 766,
   "idle-angry": 766,
-  "idle-cheek-rest": 5494,
-  "idle-chin-rest": 5494,
   "idle-done": 3484,
   "idle-error": 5494,
-  "idle-frown-wave": 5494,
   "idle-happy": 766,
-  "idle-listening": 5494,
-  "idle-nod-smile": 5494,
   "idle-permission": 3484,
   "idle-reading": 5494,
-  "idle-replying": 3484,
-  "idle-shush": 5494,
-  "idle-shy-smile": 5494,
   "idle-surprised": 766,
   "idle-thinking": 3484,
   "idle-welcome": 3484,
-  "idle-working": 3484,
-  "listening-idle": 5494,
   "nod-smile-idle": 5494,
-  "nod-smile-permission": 3484,
   "permission-frown-wave": 3484,
   "permission-idle": 3484,
   "permission-nod-smile": 3484,
   "reading-idle": 5494,
-  "replying-idle": 3484,
-  "replying-thinking": 5494,
-  "shush-idle": 5494,
-  "shy-smile-idle": 5494,
   "surprised-idle": 766,
   "thinking-idle": 3484,
-  "thinking-replying": 5494,
   "welcome-idle": 3484,
-  "working-idle": 3484,
 });
 
 /** 表内缺项边的回退时长：取表内最大档（宁晚勿早——晚切落在定格/循环帧，早切截断过渡）。 */
 const TRANSITION_EDGE_MS_FALLBACK = 5494;
 
 /** 查过渡段实测时长（键为 `${from}-${to}` 边名，同素材文件名去前缀）。 */
-function edgeTransitionMs(from: TransitionEndpoint, to: TransitionEndpoint): number {
+function edgeTransitionMs(
+  from: TransitionEndpoint,
+  to: TransitionEndpoint,
+): number {
   return TRANSITION_EDGE_MS[`${from}-${to}`] ?? TRANSITION_EDGE_MS_FALLBACK;
 }
 
-/** poke 惊吓循环驻留时长 ms（惊吓循环态可见后开始计时，ADR-0011）。 */
-export const POKE_HOLD_MS = 3000;
+/** 无会话时浮层停留的初始态。 */
+const IDLE: OverlayState = "idle";
+// ---------------------------------------------------------------------------
+// 播放计划构造辅助
+// ---------------------------------------------------------------------------
 
-/** 表情循环态集合（拥有 {state}.webp 循环素材）。 */
-const EXPRESSION_LOOP_STATES: ReadonlySet<OverlayState> = new Set([
-  "happy",
-  "angry",
-  "surprised",
-]);
+/** 过渡段播放项。 */
+function transitionItem(
+  from: TransitionEndpoint,
+  to: TransitionEndpoint,
+): TransitionPlaybackItem {
+  return { kind: "transition", from, to, url: transitionAssetUrl(from, to) };
+}
+
+/** 循环态播放项。 */
+function loopItem(
+  state: OverlayState | PerformanceKind,
+  url: string,
+): LoopPlaybackItem {
+  return { kind: "loop", state, url };
+}
+
+/**
+ * 经 idle 中转的显示计划：[source→idle?, idle→target?, loop]。
+ * source/target 为 idle 时省略对应过渡段（无 idle→idle 自环边）。
+ */
+function viaIdlePlan(
+  source: TransitionEndpoint,
+  target: TransitionEndpoint,
+  finalLoop: LoopPlaybackItem,
+): PlaybackItem[] {
+  const seq: PlaybackItem[] = [];
+  if (source !== "idle") seq.push(transitionItem(source, "idle"));
+  if (target !== "idle") seq.push(transitionItem("idle", target));
+  seq.push(finalLoop);
+  return seq;
+}
+
+/** 计划前导过渡段总时长 ms（工作轮换/表演排程用）。 */
+function planPrefixMs(plan: readonly PlaybackItem[]): number {
+  let total = 0;
+  for (const item of plan) {
+    if (item.kind !== "transition") break;
+    total += edgeTransitionMs(item.from, item.to);
+  }
+  return total;
+}
+
+/** 计划末尾循环项的落点姿态（working 取轮换素材姿态）。 */
+function planHeadingPose(plan: readonly PlaybackItem[]): TransitionEndpoint {
+  const last = plan[plan.length - 1];
+  if (last === undefined || last.kind !== "loop") return "idle";
+  return loopPose(last);
+}
+
+
+/** 循环项对应的显示姿态（working → thinking/reading，其余即状态）。 */
+function loopPose(item: LoopPlaybackItem): TransitionEndpoint {
+  if (item.state === "working") {
+    return item.url === workingLoopAssetUrl("reading") ? "reading" : "thinking";
+  }
+  return item.state;
+}
 
 // ---------------------------------------------------------------------------
 // 快照
@@ -186,26 +229,28 @@ export interface RuntimeSnapshot {
   /** 焦点会话 id（undefined 表示无会话，浮层显示 idle）。 */
   readonly focusSessionId: SessionId | undefined;
   /**
-   * 当前显示的状态。
-   * 通常是焦点会话的循环态；并行驻留时为 working 或彩蛋表情；
-   * 紧急抢焦时为 emergency 会话的 permission/error。
+   * 当前显示的状态：4 循环态或一次性表演态（表演/彩蛋/poke 期间为对应
+   * 表情，紧急抢焦时为 emergency 会话的 permission/error）。
    */
-  readonly currentState: OverlayState | IntermediateState;
+  readonly currentState: OverlayState | PerformanceKind;
   /** 当前显示的播放序列。 */
   readonly playback: readonly PlaybackItem[];
   /**
-   * 焦点切换 nonce：焦点会话变化（含紧急抢焦/交还）时递增，UI 据此触发 150ms 淡入淡出。
-   * 同一会话内的防抖、并行驻留、彩蛋切换不递增。
+   * 焦点切换 nonce：焦点会话变化（含紧急抢焦/交还）时递增。
+   * 同一会话内的防抖、并行驻留、彩蛋切换不递增（UI 淡入淡出改由播放项
+   * url 变化触发，nonce 仅保留焦点切换语义，ADR-0016 D15）。
    */
   readonly focusNonce: number;
 }
 
 // ---------------------------------------------------------------------------
-// 每会话运行时条目
+// 每会话运行时条目与显示层状态
 // ---------------------------------------------------------------------------
 
 interface SessionEntry {
-  /** 该会话的状态机实例。 */
+  /** 会话 id（防抖归属判定用）。 */
+  readonly id: SessionId;
+  /** 该会话的状态机实例（状态跟踪；显示计划由 runtime 显示层统一构造）。 */
   readonly stateMachine: ReturnType<typeof createOverlayStateMachine>;
   /** binding.session 订阅取消函数。 */
   unsub: (() => void) | undefined;
@@ -213,12 +258,61 @@ interface SessionEntry {
   prevCore: SnapshotCore | null;
   /** 上一次实际派发到状态机的循环态。 */
   lastState: OverlayState;
-  /** 当前底层目标态（可能与 lastState 不同，焦点会话防抖期间）。 */
+  /** 当前底层目标态（可能与 lastState 不同：焦点会话 working 进入防抖期间）。 */
   pendingTarget: OverlayState;
-  /** thinking 进入时间戳（reading 超时判定用）。 */
-  thinkingSince: number | undefined;
-  /** done 进入时间戳（idle 驻留判定用）。 */
-  doneSince: number | undefined;
+}
+
+/** 紧急态显示层（permission/error 接管，入场源姿态捕获）。 */
+interface EmergencyDisplay {
+  readonly sessionId: SessionId;
+  readonly state: "permission" | "error";
+  /** 入场源姿态（捕获一次；紧急链切换时取上一紧急态）。 */
+  readonly pose: TransitionEndpoint;
+}
+
+/** 一次性表演种类（显示层调度；surprised/happy/angry 归 poke/彩蛋机制）。 */
+type PerformanceKindLayer = "done" | "welcome" | "nod-smile" | "frown-wave";
+
+/** 一次性表演显示层。 */
+interface PerformanceLayer {
+  readonly kind: PerformanceKindLayer;
+  /** entry：入场过渡+循环驻留；exit：退场过渡+回落目标循环。 */
+  phase: "entry" | "exit";
+  /** 入场源姿态。 */
+  readonly sourcePose: TransitionEndpoint;
+  /** 驻留时长 ms（entry 相位起算，从前导过渡播完起）。 */
+  readonly holdMs: number;
+  /** exit 相位的退场计划（构建于退出时刻，回落目标按当时基础显示态裁决）。 */
+  exitPlan: readonly PlaybackItem[] | undefined;
+}
+
+/** poke 显示层（ADR-0011）。 */
+interface PokeLayer {
+  /** entry：入场+驻留；exit：回落过渡+回落目标循环。 */
+  phase: "entry" | "exit";
+  /** 入场源姿态（入场时刻捕获一次；驻留期间事件不改变计划内容）。 */
+  readonly sourcePose: TransitionEndpoint;
+  /** exit 相位的回落计划（构建于回落时刻，回落目标按当时基础显示态裁决）。 */
+  exitPlan: readonly PlaybackItem[] | undefined;
+}
+
+/** 摸鱼彩蛋显示层。 */
+interface EasterEggLayer {
+  readonly expression: PerformanceKind;
+  phase: "entry" | "exit";
+  /** 入场源姿态（入场时刻捕获一次；驻留期间事件不改变计划内容）。 */
+  readonly sourcePose: TransitionEndpoint;
+  exitPlan: readonly PlaybackItem[] | undefined;
+}
+
+/** working 显示层轮换段。 */
+interface WorkingRotation {
+  /** 当前轮换素材（thinking/reading）。 */
+  asset: WorkingLoopAsset;
+  /** 当前段显示计划（入场/换段时重建；末项为 loop-working(asset)）。 */
+  plan: readonly PlaybackItem[];
+  /** 本段已播整圈数（达到 WORKING_ROTATION_LOOPS 后换段）。 */
+  loopsPlayed: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -231,11 +325,11 @@ export interface OverlaySessionRuntime {
   getSnapshot(): RuntimeSnapshot;
   /** 订阅快照变化；返回取消订阅函数。 */
   subscribe(listener: (snapshot: RuntimeSnapshot) => void): () => void;
-  /** 点击惊吓：触发一次「当前态→idle→惊吓→惊吓循环→idle→当前态」（ADR-0011）。 */
+  /** 点击惊吓：触发一次「当前姿态→idle→惊吓→惊吓循环→idle→回落目标」（ADR-0011）。 */
   poke(): void;
-  /** 释放全部订阅（list + 各会话 binding.session + tick timer）。 */
+  /** 释放全部订阅（list + 各会话 binding.session + tick timer + 显示层定时器）。 */
   dispose(): void;
-  /** 测试用：手动触发一次 tick（时间驱动判定）。 */
+  /** 测试用：手动触发一次 tick（防抖 deadline 判定）。 */
   __tick(): void;
   /**
    * 重新评估显示层（变体轮换开关变化时由接线层调用，ADR-0013 D7）：
@@ -246,12 +340,12 @@ export interface OverlaySessionRuntime {
 
 /** runtime 选项。 */
 export interface CreateOverlaySessionRuntimeOptions {
-  /** 时钟注入（默认 Date.now，测试可注入虚拟时钟）。 */
+  /** 时钟注入（默认 Date.now，测试可注入虚拟时钟；用于防抖 deadline 判定）。 */
   now?: () => number;
   /** tick 间隔 ms（默认 1000，测试可缩短以加速）。 */
   tickIntervalMs?: number;
   /**
-   * 摸鱼彩蛋随机数注入（测试用）。
+   * 随机数注入（测试用）：工作轮换抽段/变体轮换/彩蛋抽取与间隔共用。
    * 返回 [0,1) 之间浮点数；默认 Math.random。
    */
   random?: () => number;
@@ -260,6 +354,10 @@ export interface CreateOverlaySessionRuntimeOptions {
    * 未注入时变体轮换禁用（纯测试环境默认行为与现状一致）。
    */
   variantRotationEnabled?: () => boolean;
+  /**
+   * 浮层首次入场是否播 welcome 表演（默认 true；测试可关闭以断言初始 idle）。
+   */
+  welcomeOnStart?: boolean;
 }
 
 /**
@@ -276,6 +374,8 @@ export function createOverlaySessionRuntime(
   const now = opts?.now ?? (() => Date.now());
   const tickIntervalMs = opts?.tickIntervalMs ?? 1000;
   const random = opts?.random ?? Math.random;
+  const rotationEnabled = opts?.variantRotationEnabled ?? (() => false);
+  const welcomeOnStart = opts?.welcomeOnStart ?? true;
 
   const entries = new Map<SessionId, SessionEntry>();
   const listeners = new Set<(snapshot: RuntimeSnapshot) => void>();
@@ -285,77 +385,109 @@ export function createOverlaySessionRuntime(
   let currentFocusSessionId: SessionId | undefined = undefined; // 当前显示焦点（可能被 emergency 抢占）
   let focusNonce = 0;
 
-  // 防抖相关（仅作用于焦点会话）：使用 deadline 而非 setTimeout，便于注入 now 测试。
-  let debounceDeadline: number | undefined = undefined;
-  let debouncePendingTarget: OverlayState | undefined = undefined;
+  // 防抖相关（仅焦点会话 working 进入）：deadline 判定走注入时钟，便于测试。
+  // 记录归属会话——紧急抢焦期间显示焦点会变化，到期 dispatch 不应错发给当前显示会话。
+  let debounce:
+    | { readonly sessionId: SessionId; readonly deadline: number }
+    | undefined = undefined;
 
-  // 摸鱼彩蛋相关
-  let easterEggTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  let easterEggHoldTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  let easterEggExitTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  let easterEggState: OverlayState | IntermediateState | undefined = undefined;
-  let easterEggExiting = false;
+  // 显示层状态
+  let displayPose: TransitionEndpoint = "idle"; // 当前显示计划落点姿态
+  let emergency: EmergencyDisplay | undefined = undefined;
+  let performance: PerformanceLayer | undefined = undefined;
+  let poke: PokeLayer | undefined = undefined;
+  let egg: EasterEggLayer | undefined = undefined;
+  let rotation: WorkingRotation | undefined = undefined;
+  /** 待整圈边界执行的 done 表演所属会话（回合重启时在边界校验取消）。 */
+  let pendingDone: SessionId | undefined = undefined;
 
-  // 点击惊吓（poke，ADR-0011）相关
-  let pokeState: OverlayState | undefined = undefined;
-  let pokeExiting = false;
-  let pokeReturnState: OverlayState = IDLE;
-  let pokeHoldTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  let pokeExitTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  // 显示层定时器
+  let performanceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  let pokeTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  let eggTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  let eggScheduleTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  let rotationTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
-  // 变体轮换（ADR-0013）相关：当前轮换段 + 推进计时。
+  // idle 变体轮换（ADR-0013）：当前轮换段 + 推进计时。
   // 打断（状态切换/彩蛋/poke/紧急态）时丢弃位置，回落后重抽（D9）。
   let rotationSegment:
     | { state: RotatableState; url: string }
     | undefined = undefined;
-  let rotationTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  const rotationEnabled = opts?.variantRotationEnabled ?? (() => false);
+  let variantTimer: ReturnType<typeof setTimeout> | undefined = undefined;
 
-  let cachedSnapshot: RuntimeSnapshot = computeSnapshot();
   let disposed = false;
+  /**
+   * 缓存快照：useSyncExternalStore 要求 getSnapshot 在状态未变时返回稳定
+   * 引用。构造期（handleListChange 初始同步 → emit）即会被写入，故先以
+   * 占位快照初始化，构造尾部再正式重算。
+   */
+  let cachedSnapshot: RuntimeSnapshot = {
+    focusSessionId: undefined,
+    currentState: IDLE,
+    playback: [loopItem(IDLE, loopAssetUrl(IDLE))],
+    focusNonce: 0,
+  };
 
   // ---------------------------------------------------------------------------
-  // 播放计划构造辅助
+  // 定时器清理辅助
   // ---------------------------------------------------------------------------
 
-  function loopPlayback(state: OverlayState): readonly PlaybackItem[] {
-    return [{ kind: "loop", state, url: loopAssetUrl(state) }];
+  function clearPerformanceTimer(): void {
+    if (performanceTimer !== undefined) {
+      clearTimeout(performanceTimer);
+      performanceTimer = undefined;
+    }
   }
 
-  function transitionPlayback(
-    from: OverlayState | IntermediateState,
-    to: OverlayState | IntermediateState,
-  ): readonly PlaybackItem[] {
-    return [
-      {
-        kind: "transition",
-        from,
-        to,
-        url: transitionAssetUrl(from, to),
-      },
-    ];
+  function clearPokeTimer(): void {
+    if (pokeTimer !== undefined) {
+      clearTimeout(pokeTimer);
+      pokeTimer = undefined;
+    }
   }
 
-  // -------------------------------------------------------------------------
-  // 变体轮换（ADR-0013）
-  // -------------------------------------------------------------------------
+  function clearEggTimers(): void {
+    if (eggTimer !== undefined) {
+      clearTimeout(eggTimer);
+      eggTimer = undefined;
+    }
+    if (eggScheduleTimer !== undefined) {
+      clearTimeout(eggScheduleTimer);
+      eggScheduleTimer = undefined;
+    }
+  }
 
-  /** 停止轮换：丢弃当前位置与推进计时（打断语义，D9）。 */
-  function stopRotation(): void {
+  function clearRotationTimer(): void {
     if (rotationTimer !== undefined) {
       clearTimeout(rotationTimer);
       rotationTimer = undefined;
     }
+  }
+
+  function clearVariantTimer(): void {
+    if (variantTimer !== undefined) {
+      clearTimeout(variantTimer);
+      variantTimer = undefined;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // idle 变体轮换（ADR-0013，仅 idle 池）
+  // -------------------------------------------------------------------------
+
+  /** 停止 idle 变体轮换：丢弃当前位置与推进计时（打断语义，D9）。 */
+  function stopVariantRotation(): void {
+    clearVariantTimer();
     rotationSegment = undefined;
   }
 
-  /** 排程当前轮换段的推进：名义时长 + 段间停顿后抽下一段。 */
-  function scheduleRotationAdvance(): void {
+  /** 排程当前变体段的推进：名义时长 + 段间停顿后抽下一段。 */
+  function scheduleVariantAdvance(): void {
     if (rotationSegment === undefined) return;
-    if (rotationTimer !== undefined) clearTimeout(rotationTimer);
+    clearVariantTimer();
     const period = rotationPeriodMs(rotationSegment.url);
-    rotationTimer = setTimeout(() => {
-      rotationTimer = undefined;
+    variantTimer = setTimeout(() => {
+      variantTimer = undefined;
       if (rotationSegment === undefined) return;
       const state = rotationSegment.state;
       const next = pickNextVariant(
@@ -365,130 +497,402 @@ export function createOverlaySessionRuntime(
       );
       if (next === undefined) return;
       rotationSegment = { state, url: next };
-      scheduleRotationAdvance();
+      scheduleVariantAdvance();
       emit();
     }, period);
   }
 
   /**
-   * 确保某可轮换状态有进行中的轮换段，返回其 playback（ADR-0013 D4/D9）。
+   * 确保某可轮换状态有进行中的变体段，返回其 playback（ADR-0013 D4/D9）。
    *
    * - 开关关闭：停止轮换，回退基础循环。
-   * - 首次进入该状态：随机抽一个变体起播（过渡段已落在中性姿，帧级衔接）；
-   *   无变体可抽（池只有主素材）时回退基础循环。
+   * - 首次进入该状态：随机抽一个变体起播；无变体可抽时回退基础循环。
    * - 已在轮换中：沿用当前段。
    */
-  function ensureRotation(state: RotatableState): readonly PlaybackItem[] {
+  function ensureVariantRotation(
+    state: RotatableState,
+  ): readonly PlaybackItem[] {
     if (!rotationEnabled()) {
-      stopRotation();
-      return loopPlayback(state);
+      stopVariantRotation();
+      return [loopItem(state, loopAssetUrl(state))];
     }
-    if (
-      rotationSegment === undefined ||
-      rotationSegment.state !== state
-    ) {
-      stopRotation();
+    if (rotationSegment === undefined || rotationSegment.state !== state) {
+      stopVariantRotation();
       const pool = rotationPool(state);
       // 首次进入抽变体（跳过基础主素材，直接打破单调）；无变体则用主素材。
       const firstPick =
         pool.length > 1
           ? pickNextVariant(pool.slice(1), undefined, random)
           : pool[0];
-      if (firstPick === undefined) return loopPlayback(state);
+      if (firstPick === undefined) {
+        return [loopItem(state, loopAssetUrl(state))];
+      }
       rotationSegment = { state, url: firstPick };
-      scheduleRotationAdvance();
+      scheduleVariantAdvance();
     }
-    return [{ kind: "loop", state, url: rotationSegment.url }];
+    return [loopItem(state, rotationSegment.url)];
+  }
+
+  // -------------------------------------------------------------------------
+  // working 显示层轮换（ADR-0016 决策 5）
+  // -------------------------------------------------------------------------
+
+  /** 随机抽下一段工作素材（不连续重复，随机源可注入）。 */
+  function pickWorkingAsset(
+    exclude: WorkingLoopAsset | undefined,
+  ): WorkingLoopAsset {
+    if (exclude === undefined) {
+      return random() < 0.5 ? "thinking" : "reading";
+    }
+    return exclude === "thinking" ? "reading" : "thinking";
+  }
+
+  /** 清除工作轮换（显示层被接管/退出 working 时）。 */
+  function clearWorkingRotation(): void {
+    clearRotationTimer();
+    rotation = undefined;
   }
 
   /**
-   * 彩蛋 playback：working → idle → 表情 →（展示）→ idle → working。
-   * 对拥有循环素材的表情，展示阶段用 loop；否则用 transition 往返一次。
+   * 以给定计划起播工作轮换段（计划末项为 loop-working(asset)）。
+   * 首个整圈边界 = 前导过渡播完 + 单圈时长。
    */
-  function easterEggEntryPlayback(
-    expression: OverlayState | IntermediateState,
-  ): readonly PlaybackItem[] {
-    const seq: PlaybackItem[] = [];
-    seq.push(
-      ...transitionPlayback("working", "idle"),
-      ...transitionPlayback("idle", expression),
+  function armWorkingRotation(
+    plan: readonly PlaybackItem[],
+    asset: WorkingLoopAsset,
+  ): void {
+    clearRotationTimer();
+    rotation = { asset, plan, loopsPlayed: 0 };
+    rotationTimer = setTimeout(
+      rotationBoundary,
+      planPrefixMs(plan) + WORKING_LOOP_MS[asset],
     );
-    if (EXPRESSION_LOOP_STATES.has(expression as OverlayState)) {
-      seq.push({ kind: "loop", state: expression as OverlayState, url: loopAssetUrl(expression as OverlayState) });
-    } else {
-      // 中间态表情无循环素材：直接播表情→idle 过渡
-      seq.push(...transitionPlayback(expression, "idle"));
-    }
-    seq.push(...transitionPlayback("idle", "working"));
-    seq.push(...loopPlayback("working"));
-    return seq;
-  }
-
-  /** 彩蛋退出 playback：表情 → idle → working。 */
-  function easterEggExitPlayback(
-    expression: OverlayState | IntermediateState,
-  ): readonly PlaybackItem[] {
-    const seq: PlaybackItem[] = [];
-    if (EXPRESSION_LOOP_STATES.has(expression as OverlayState)) {
-      seq.push(...transitionPlayback(expression, "idle"));
-    }
-    seq.push(...transitionPlayback("idle", "working"));
-    seq.push(...loopPlayback("working"));
-    return seq;
   }
 
   /**
-   * poke 入场 playback：当前显示态 → idle → 惊吓 →（惊吓循环驻留）。
-   * 当前态为 idle 时省略「当前态→idle」段（ADR-0011 D2）。
+   * 进入 working 显示：从当前显示姿态经 idle 中转入场（PRD 决策 5
+   * 「进入 working 时经 idle→thinking 过渡起播」；入场素材随机抽取）。
    */
-  function pokeEntryPlayback(
-    returnState: OverlayState,
-  ): readonly PlaybackItem[] {
-    const seq: PlaybackItem[] = [];
-    if (returnState !== "idle") {
-      seq.push(...transitionPlayback(returnState, "idle"));
+  function enterWorkingDisplay(): WorkingRotation | undefined {
+    if (rotation !== undefined) return rotation;
+    const asset = pickWorkingAsset(undefined);
+    const plan = viaIdlePlan(
+      displayPose,
+      asset,
+      loopItem("working", workingLoopAssetUrl(asset)),
+    );
+    armWorkingRotation(plan, asset);
+    return rotation;
+  }
+
+  /** 整圈边界：待边界切出（done）优先，其次满 2 圈换段，否则续播下一圈。 */
+  function rotationBoundary(): void {
+    rotationTimer = undefined;
+    if (rotation === undefined) return;
+    rotation.loopsPlayed += 1;
+    // 整圈边界切出校验（D7/D9）：done 待边界执行；会话已重新工作则取消。
+    if (pendingDone !== undefined) {
+      const entry = entries.get(pendingDone);
+      pendingDone = undefined;
+      if (entry !== undefined && entry.pendingTarget === "idle") {
+        const asset = rotation.asset;
+        clearWorkingRotation();
+        startPerformance("done", asset);
+        return;
+      }
     }
-    seq.push(...transitionPlayback("idle", "surprised"));
-    seq.push({ kind: "loop", state: "surprised", url: loopAssetUrl("surprised") });
-    return seq;
-  }
-
-  /** poke 回落 playback：惊吓 → idle → 当前态 →（当前态循环，ADR-0011 D6）。 */
-  function pokeExitPlayback(
-    returnState: OverlayState,
-  ): readonly PlaybackItem[] {
-    const seq: PlaybackItem[] = [];
-    seq.push(...transitionPlayback("surprised", "idle"));
-    if (returnState !== "idle") {
-      seq.push(...transitionPlayback("idle", returnState));
+    if (rotation.loopsPlayed >= WORKING_ROTATION_LOOPS) {
+      const prevAsset = rotation.asset;
+      const next = pickWorkingAsset(prevAsset);
+      const plan = viaIdlePlan(
+        prevAsset,
+        next,
+        loopItem("working", workingLoopAssetUrl(next)),
+      );
+      armWorkingRotation(plan, next);
+      emit();
+      return;
     }
-    seq.push(...loopPlayback(returnState));
-    return seq;
+    rotationTimer = setTimeout(rotationBoundary, WORKING_LOOP_MS[rotation.asset]);
+  }
+  // -------------------------------------------------------------------------
+  // 一次性表演调度（PRD 决策 7 / ADR-0016 决策 2）
+  // -------------------------------------------------------------------------
+
+  /**
+   * 表演入场计划：
+   * - 权限反馈（nod-smile/frown-wave）从 permission 出发走直达反馈链
+   *   permission→kind（批准/拒绝链边，不经 idle 中转——idle→kind 为弃用边）；
+   * - 其余（done/welcome 及任意源姿态）经 idle 中转 [source→idle?, idle→kind, loop]。
+   */
+  function performanceEntryPlan(
+    kind: PerformanceKindLayer,
+    sourcePose: TransitionEndpoint,
+  ): readonly PlaybackItem[] {
+    if (kind === "nod-smile" || kind === "frown-wave") {
+      // 批准/拒绝只发生在 permission 态之后；非 permission 源（理论不可达，防御未来
+      // 调用点变化）同样从 permission 直达链入场，绝不产出 idle→kind 弃用边 URL。
+      return [
+        transitionItem("permission", kind),
+        loopItem(kind, loopAssetUrl(kind)),
+      ];
+    }
+    return viaIdlePlan(sourcePose, kind, loopItem(kind, loopAssetUrl(kind)));
   }
 
-  // ---------------------------------------------------------------------------
-  // 焦点仲裁与快照
-  // ---------------------------------------------------------------------------
-
-  /** 判断某会话是否处于 emergency 态。 */
-  function isEmergencyState(state: OverlayState): boolean {
-    return HARD_CUT_STATES.has(state);
+  /**
+   * 退场计划：[source→idle, (idle→target)?, loop-target]。
+   * 回落目标按退场时刻的基础显示态裁决（期间事件已更新 SM/驻留状态）。
+   */
+  function buildExitPlan(
+    source: TransitionEndpoint,
+  ): readonly PlaybackItem[] {
+    const base = baseDisplayState();
+    if (base === "working") {
+      const asset = pickWorkingAsset(undefined);
+      return viaIdlePlan(
+        source,
+        asset,
+        loopItem("working", workingLoopAssetUrl(asset)),
+      );
+    }
+    return viaIdlePlan(source, base, loopItem(base, loopAssetUrl(base)));
   }
+
+  /**
+   * 显示层退场收尾（表演/彩蛋/poke 共用）：退场计划落点为工作姿态时直切
+   * 续接工作轮换（计划内容收敛为单项 loop，游标可见项不变，无视觉重播），
+   * 否则交还基础显示；最后重算快照。
+   */
+  function adoptExitPlan(plan: readonly PlaybackItem[] | undefined): void {
+    if (plan !== undefined) {
+      const pose = planHeadingPose(plan);
+      if (pose === "thinking" || pose === "reading") {
+        armWorkingRotation(
+          [loopItem("working", workingLoopAssetUrl(pose))],
+          pose,
+        );
+      }
+    }
+    emit();
+  }
+
+  /** 触发表演（边沿触发；打断彩蛋与工作轮换）。 */
+  function startPerformance(
+    kind: PerformanceKindLayer,
+    sourcePose: TransitionEndpoint,
+  ): void {
+    clearPerformanceTimer();
+    cancelEasterEgg();
+    clearWorkingRotation();
+    pendingDone = undefined;
+    stopVariantRotation();
+    const holdMs =
+      kind === "done" || kind === "welcome"
+        ? PERFORMANCE_HOLD_MS
+        : PERMISSION_FEEDBACK_HOLD_MS;
+    performance = {
+      kind,
+      phase: "entry",
+      sourcePose,
+      holdMs,
+      exitPlan: undefined,
+    };
+    // 驻留从表演循环体可见后起算：按实际入场计划的前导过渡总时长排程
+    // （权限反馈链走 permission→kind 直达边，不经 idle 中转）。
+    const entryPrefixMs = planPrefixMs(performanceEntryPlan(kind, sourcePose));
+    performanceTimer = setTimeout(performanceExit, entryPrefixMs + holdMs);
+    emit();
+  }
+
+  /** 表演退场：构建退场计划，播完后清除表演层（working 回落时接续工作轮换）。 */
+  function performanceExit(): void {
+    performanceTimer = undefined;
+    if (performance === undefined) return;
+    const kind = performance.kind;
+    const exitPlan = buildExitPlan(kind);
+    performance.phase = "exit";
+    performance.exitPlan = exitPlan;
+    performanceTimer = setTimeout(() => {
+      performanceTimer = undefined;
+      const plan = performance?.exitPlan;
+      performance = undefined;
+      adoptExitPlan(plan);
+    }, planPrefixMs(exitPlan));
+    emit();
+  }
+
+  /** 清除表演层（紧急态打断/替代触发时）。 */
+  function clearPerformance(): void {
+    clearPerformanceTimer();
+    performance = undefined;
+  }
+
+  // -------------------------------------------------------------------------
+  // 摸鱼彩蛋（ADR-0010 D7 + ADR-0016 彩蛋池收敛）
+  // -------------------------------------------------------------------------
+
+  function cancelEasterEgg(): void {
+    clearEggTimers();
+    egg = undefined;
+  }
+
+  function randomEasterEggIntervalMs(): number {
+    return (
+      EASTER_EGG_MIN_MS +
+      Math.floor(random() * (EASTER_EGG_MAX_MS - EASTER_EGG_MIN_MS))
+    );
+  }
+
+  function pickEasterEggState(): PerformanceKind {
+    const idx = Math.floor(random() * EASTER_EGG_POOL.length);
+    return EASTER_EGG_POOL[idx]!;
+  }
+
+  /** 彩蛋退场：按当时基础显示态构建退场计划，播完后清除彩蛋层。 */
+  function easterEggExit(): void {
+    eggTimer = undefined;
+    if (egg === undefined) return;
+    const exitPlan = buildExitPlan(egg.expression);
+    egg.phase = "exit";
+    egg.exitPlan = exitPlan;
+    eggTimer = setTimeout(() => {
+      eggTimer = undefined;
+      const plan = egg?.exitPlan;
+      egg = undefined;
+      adoptExitPlan(plan);
+      // 为下一轮彩蛋排期（并行驻留持续时周期性播放，ADR-0010 D3）。
+      if (isParallelHold()) scheduleEasterEgg();
+    }, planPrefixMs(exitPlan));
+    emit();
+  }
+
+  function enterEasterEgg(): void {
+    if (egg !== undefined || !isParallelHold()) return;
+    if (performance !== undefined || poke !== undefined) return;
+    const sourcePose = displayPose;
+    const expression = pickEasterEggState();
+    clearWorkingRotation();
+    pendingDone = undefined;
+    stopVariantRotation();
+    egg = { expression, phase: "entry", sourcePose, exitPlan: undefined };
+    // 驻留从表情循环可见后起算：按实际入场计划的前导过渡总时长排程。
+    const eggEntryPlan = viaIdlePlan(
+      sourcePose,
+      expression,
+      loopItem(expression, loopAssetUrl(expression)),
+    );
+    eggTimer = setTimeout(
+      easterEggExit,
+      planPrefixMs(eggEntryPlan) + EASTER_EGG_HOLD_MS,
+    );
+    emit();
+  }
+
+  function scheduleEasterEgg(): void {
+    if (eggScheduleTimer !== undefined) clearTimeout(eggScheduleTimer);
+    eggScheduleTimer = setTimeout(() => {
+      eggScheduleTimer = undefined;
+      if (isParallelHold()) {
+        enterEasterEgg();
+      }
+    }, randomEasterEggIntervalMs());
+  }
+
+  /** 并行驻留条件变化时重新调度彩蛋。 */
+  function onParallelHoldChanged(isHold: boolean): void {
+    if (!isHold) {
+      clearEggTimers();
+      // 驻留结束且基础显示已非 working（无待边界 done）：工作轮换随之退场。
+      const entry = focusSessionIdToEntry(currentFocusSessionId);
+      if (
+        rotation !== undefined &&
+        pendingDone === undefined &&
+        entry?.pendingTarget !== "working"
+      ) {
+        clearWorkingRotation();
+      }
+      return;
+    }
+    if (egg === undefined && eggScheduleTimer === undefined) {
+      scheduleEasterEgg();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // poke 点击惊吓（ADR-0011）
+  // -------------------------------------------------------------------------
+
+  function clearPoke(): void {
+    clearPokeTimer();
+    poke = undefined;
+  }
+
+  /**
+   * 点击惊吓：触发一次「当前姿态→idle→惊吓→惊吓循环→idle→回落目标」。
+   * - 冷却：播放中（含回落）重复调用忽略（ADR-0011 D8）。
+   * - 紧急态（permission/error，含焦点会话自身）或表演播放中不触发
+   *   （互斥：poke 期间事件触发的表演仅更新 SM；表演播放中 poke 忽略）。
+   * - 触发时取消进行中的摸鱼彩蛋与工作轮换（打断语义，回落后重新开始）。
+   * - 定时器按过渡段实测时长排程：驻留从惊吓循环可见后起算；回落目标按
+   *   回落时刻的基础显示态重新裁决（期间并行驻留/焦点可能已变化）。
+   */
+  function pokeAction(): void {
+    if (disposed) return;
+    if (poke !== undefined) return; // 冷却
+    if (performance !== undefined) return; // 表演播放中互斥
+    if (findEmergencySessionId() !== undefined) return; // 紧急态不触发
+    cancelEasterEgg();
+    clearWorkingRotation();
+    pendingDone = undefined;
+    stopVariantRotation();
+    const sourcePose = displayPose;
+    poke = { phase: "entry", sourcePose, exitPlan: undefined };
+    // 驻留从惊吓循环可见后起算：按实际入场计划的前导过渡总时长排程
+    // （source 已是 idle 时无「source→idle」段）。
+    const entryPlan = viaIdlePlan(
+      sourcePose,
+      "surprised",
+      loopItem("surprised", loopAssetUrl("surprised")),
+    );
+    pokeTimer = setTimeout(pokeExit, planPrefixMs(entryPlan) + POKE_HOLD_MS);
+    emit();
+  }
+
+  /** poke 回落：按当时基础显示态构建回落计划，播完后清除 poke 层。 */
+  function pokeExit(): void {
+    pokeTimer = undefined;
+    if (poke === undefined) return;
+    const exitPlan = buildExitPlan("surprised");
+    poke.phase = "exit";
+    poke.exitPlan = exitPlan;
+    pokeTimer = setTimeout(() => {
+      pokeTimer = undefined;
+      const plan = poke?.exitPlan;
+      poke = undefined;
+      adoptExitPlan(plan);
+    }, planPrefixMs(exitPlan));
+    emit();
+  }
+  // ---------------------------------------------------------------------------
+  // 焦点仲裁
+  // ---------------------------------------------------------------------------
 
   /**
    * 查找应紧急呈现的会话 id（按 sessions.list.ids 顺序取第一个）。
    *
    * 含焦点会话自身（工单 09/10）：焦点会话进入 permission/error 时同样走
-   * 紧急分支——否则 poke（1.5）与并行驻留（3）分支会覆盖焦点会话的紧急画面，
-   * 紧急事件最长被遮蔽整个 poke 序列乃至审批等待全程。紧急分支的输出与
-   * 正常跟随（4）对该会话一致（SM 原样 playback、不接轮换），行为无歧义。
+   * 紧急分支——否则 poke 与并行驻留分支会覆盖焦点会话的紧急画面，
+   * 紧急事件最长被遮蔽整个 poke 序列乃至审批等待全程。
    */
   function findEmergencySessionId(): SessionId | undefined {
     const list = sessions.list.getSnapshot();
     for (const id of list.ids) {
       const entry = entries.get(id);
       if (entry === undefined) continue;
-      if (isEmergencyState(entry.lastState)) return id;
+      if (entry.lastState === "permission" || entry.lastState === "error") {
+        return id;
+      }
     }
     return undefined;
   }
@@ -509,111 +913,12 @@ export function createOverlaySessionRuntime(
     return runningCount >= 2 && hasNonIdle;
   }
 
-  /** poke 触发时的回落目标显示态（取消彩蛋后的基础显示态，ADR-0011 D6）。 */
+  /** 基础显示态（无任何显示层接管时）：并行驻留 → working；否则跟随焦点会话。 */
   function baseDisplayState(): OverlayState {
-    if (currentFocusSessionId === undefined) return IDLE;
     if (isParallelHold()) return "working";
-    const entry = entries.get(currentFocusSessionId);
+    const entry = focusSessionIdToEntry(currentFocusSessionId);
     if (entry === undefined) return IDLE;
-    return entry.stateMachine.getSnapshot().currentState;
-  }
-
-  /** 计算当前快照。 */
-  function computeSnapshot(): RuntimeSnapshot {
-    // 1. 紧急抢焦：显示 emergency 会话的 SM 快照（优先于 poke，紧急打断由 reconcileFocus 取消 poke）
-    const emergencyId = findEmergencySessionId();
-    if (emergencyId !== undefined) {
-      const entry = entries.get(emergencyId);
-      if (entry !== undefined) {
-        const sm = entry.stateMachine.getSnapshot();
-        stopRotation(); // 紧急态打断轮换，回落后重抽（D9）
-        return {
-          focusSessionId: emergencyId,
-          currentState: sm.currentState,
-          playback: sm.playback,
-          focusNonce,
-        };
-      }
-    }
-
-    // 1.5 点击惊吓（poke）：显示层覆盖（ADR-0011），无会话时也可用
-    if (pokeState !== undefined) {
-      stopRotation(); // poke 打断轮换，回落后重抽（D9）
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: pokeExiting ? pokeReturnState : "surprised",
-        playback: pokeExiting
-          ? pokeExitPlayback(pokeReturnState)
-          : pokeEntryPlayback(pokeReturnState),
-        focusNonce,
-      };
-    }
-
-    // 2. 无焦点会话
-    if (currentFocusSessionId === undefined) {
-      return {
-        focusSessionId: undefined,
-        currentState: IDLE,
-        playback: ensureRotation("idle"),
-        focusNonce,
-      };
-    }
-
-    // 3. 并行驻留
-    if (isParallelHold()) {
-      if (easterEggState !== undefined) {
-        stopRotation(); // 彩蛋打断轮换，回落后重抽（D9）
-        return {
-          focusSessionId: currentFocusSessionId,
-          currentState: easterEggExiting ? "working" : easterEggState,
-          playback: easterEggExiting
-            ? easterEggExitPlayback(easterEggState)
-            : easterEggEntryPlayback(easterEggState),
-          focusNonce,
-        };
-      }
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: "working",
-        playback: ensureRotation("working"),
-        focusNonce,
-      };
-    }
-
-    // 4. 正常跟随焦点会话
-    const entry = entries.get(currentFocusSessionId);
-    if (entry === undefined) {
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: IDLE,
-        playback: ensureRotation("idle"),
-        focusNonce,
-      };
-    }
-    const sm = entry.stateMachine.getSnapshot();
-    // 循环态已落稳且为可轮换状态：接入变体轮换；过渡中或其他状态：停止轮换。
-    const settledLoop =
-      sm.playback.length === 1 && sm.playback[0].kind === "loop";
-    if (settledLoop && isRotatableState(sm.currentState)) {
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: sm.currentState,
-        playback: ensureRotation(sm.currentState),
-        focusNonce,
-      };
-    }
-    stopRotation();
-    return {
-      focusSessionId: currentFocusSessionId,
-      currentState: sm.currentState,
-      playback: sm.playback,
-      focusNonce,
-    };
-  }
-
-  function emit(): void {
-    cachedSnapshot = computeSnapshot();
-    for (const listener of listeners) listener(cachedSnapshot);
+    return entry.lastState;
   }
 
   /** 切换当前显示焦点，必要时递增 focusNonce。 */
@@ -623,295 +928,302 @@ export function createOverlaySessionRuntime(
     focusNonce += 1;
   }
 
-  /** 重新评估焦点：从 emergency 交还用户焦点，或保持 emergency。 */
+  /**
+   * 重新评估紧急接管与焦点：
+   * - 有紧急会话：打断 poke/表演/彩蛋/工作轮换（立即让位原则），接管显示焦点。
+   * - 无紧急会话：清除紧急层，交还用户焦点；基础显示由 computeSnapshot 重建。
+   */
   function reconcileFocus(): void {
     const emergencyId = findEmergencySessionId();
     if (emergencyId !== undefined) {
-      cancelPoke(); // 紧急事件打断进行中的点击惊吓（ADR-0011 D7）
+      clearPoke();
+      clearPerformance();
+      cancelEasterEgg();
+      clearWorkingRotation();
+      pendingDone = undefined;
+      stopVariantRotation();
+      const entry = entries.get(emergencyId);
+      if (entry === undefined) return;
+      const state = entry.lastState;
+      if (state !== "permission" && state !== "error") return;
+      if (
+        emergency === undefined ||
+        emergency.sessionId !== emergencyId ||
+        emergency.state !== state
+      ) {
+        // 紧急链切换（如 permission→error）时，源姿态取上一紧急态。
+        const pose = emergency !== undefined ? emergency.state : displayPose;
+        emergency = { sessionId: emergencyId, state, pose };
+      }
       setCurrentFocus(emergencyId);
       return;
     }
-    // 无 emergency 时回到用户焦点
+    emergency = undefined;
     setCurrentFocus(userFocusSessionId);
   }
 
   // ---------------------------------------------------------------------------
-  // 防抖
+  // 快照计算
   // ---------------------------------------------------------------------------
 
-  function clearDebounceTimer(): void {
-    debounceDeadline = undefined;
-  }
-
-  function dispatchFocusPending(entry: SessionEntry): void {
-    if (debouncePendingTarget === undefined) return;
-    if (entry.lastState !== debouncePendingTarget) {
-      entry.lastState = debouncePendingTarget;
-      entry.stateMachine.dispatch({ type: "switch", target: debouncePendingTarget });
+  function computeSnapshot(): RuntimeSnapshot {
+    // 1. 紧急抢焦：显示紧急会话（入场源姿态经 idle 中转，计划内容稳定）。
+    if (emergency !== undefined) {
+      stopVariantRotation();
+      const plan = viaIdlePlan(
+        emergency.pose,
+        emergency.state,
+        loopItem(emergency.state, loopAssetUrl(emergency.state)),
+      );
+      return {
+        focusSessionId: currentFocusSessionId,
+        currentState: emergency.state,
+        playback: plan,
+        focusNonce,
+      };
     }
-    debouncePendingTarget = undefined;
-  }
 
-  /**
-   * 对焦点会话应用目标态。
-   * - permission/error：立即硬切（取消防抖）。
-   * - done/idle：立即落。
-   * - permission 下降沿补态（force）：立即落，不等防抖窗口（授权完成应即刻恢复工作呈现）。
-   * - 工作态：防抖 3000ms，窗口内只保留最新 pending。
-   */
-  function applyFocusTarget(
-    entry: SessionEntry,
-    target: OverlayState,
-    force = false,
-  ): void {
-    if (
-      force ||
-      HARD_CUT_STATES.has(target) ||
-      DIRECT_STATES.has(target)
-    ) {
-      clearDebounceTimer();
-      debouncePendingTarget = undefined;
-      if (entry.lastState !== target) {
-        entry.lastState = target;
-        entry.stateMachine.dispatch({ type: "switch", target });
+    // 2. poke 惊吓（显示层覆盖，无会话时也可用）。
+    if (poke !== undefined) {
+      stopVariantRotation();
+      if (poke.phase === "entry") {
+        const plan = viaIdlePlan(
+          poke.sourcePose,
+          "surprised",
+          loopItem("surprised", loopAssetUrl("surprised")),
+        );
+        return {
+          focusSessionId: currentFocusSessionId,
+          currentState: "surprised",
+          playback: plan,
+          focusNonce,
+        };
       }
-      return;
+      return {
+        focusSessionId: currentFocusSessionId,
+        currentState: "surprised",
+        playback: poke.exitPlan ?? [],
+        focusNonce,
+      };
     }
 
-    if (DEBOUNCE_STATES.has(target)) {
-      debouncePendingTarget = target;
-      debounceDeadline = now() + FOCUS_DEBOUNCE_MS;
-      return;
-    }
-
-    // 其他状态兜底：直接落
-    clearDebounceTimer();
-    debouncePendingTarget = undefined;
-    if (entry.lastState !== target) {
-      entry.lastState = target;
-      entry.stateMachine.dispatch({ type: "switch", target });
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // 摸鱼彩蛋
-  // ---------------------------------------------------------------------------
-
-  function clearEasterEggTimers(): void {
-    if (easterEggTimer !== undefined) {
-      clearTimeout(easterEggTimer);
-      easterEggTimer = undefined;
-    }
-    if (easterEggHoldTimer !== undefined) {
-      clearTimeout(easterEggHoldTimer);
-      easterEggHoldTimer = undefined;
-    }
-    if (easterEggExitTimer !== undefined) {
-      clearTimeout(easterEggExitTimer);
-      easterEggExitTimer = undefined;
-    }
-  }
-
-  function randomEasterEggIntervalMs(): number {
-    return EASTER_EGG_MIN_MS + Math.floor(random() * (EASTER_EGG_MAX_MS - EASTER_EGG_MIN_MS));
-  }
-
-  function pickEasterEggState(): OverlayState | IntermediateState {
-    const idx = Math.floor(random() * EASTER_EGG_POOL.length);
-    return EASTER_EGG_POOL[idx]!;
-  }
-
-  function startEasterEggExit(): void {
-    if (easterEggState === undefined) return;
-    easterEggExiting = true;
-    // 退场定时器 = 退场过渡真实总时长（表情循环态多一段表情→idle）：
-    // 过渡播完恰落在退场计划末项（working 循环）起点，交还并行驻留时无缝。
-    const expr = easterEggState;
-    const exitMs =
-      (EXPRESSION_LOOP_STATES.has(expr as OverlayState)
-        ? edgeTransitionMs(expr as TransitionEndpoint, "idle")
-        : 0) + edgeTransitionMs("idle", "working");
-    if (easterEggExitTimer !== undefined) clearTimeout(easterEggExitTimer);
-    easterEggExitTimer = setTimeout(() => {
-      easterEggExitTimer = undefined;
-      easterEggState = undefined;
-      easterEggExiting = false;
-      scheduleEasterEgg(); // 为下一次彩蛋排期
-      reconcileFocus();
-      emit();
-    }, exitMs);
-  }
-
-  function startEasterEggHold(): void {
-    if (easterEggHoldTimer !== undefined) clearTimeout(easterEggHoldTimer);
-    // 驻留计时从表情**可见后**起算：入场过渡（working→idle→表情）按实测
-    // 时长播完才开始 3s 展示窗口——固定短值会让表情画面永远播不到。
-    const entryMs =
-      edgeTransitionMs("working", "idle") +
-      edgeTransitionMs("idle", easterEggState as TransitionEndpoint);
-    easterEggHoldTimer = setTimeout(() => {
-      easterEggHoldTimer = undefined;
-      startEasterEggExit();
-      emit();
-    }, entryMs + EASTER_EGG_HOLD_MS);
-  }
-
-  function enterEasterEgg(): void {
-    if (easterEggState !== undefined || easterEggExiting || !isParallelHold()) return;
-    easterEggExiting = false;
-    easterEggState = pickEasterEggState();
-    startEasterEggHold();
-    emit();
-  }
-
-  function scheduleEasterEgg(): void {
-    if (easterEggTimer !== undefined) clearTimeout(easterEggTimer);
-    easterEggTimer = setTimeout(() => {
-      easterEggTimer = undefined;
-      if (isParallelHold()) {
-        enterEasterEgg();
+    // 3. 一次性表演（done/welcome/nod-smile/frown-wave）。
+    if (performance !== undefined) {
+      stopVariantRotation();
+      if (performance.phase === "entry") {
+        return {
+          focusSessionId: currentFocusSessionId,
+          currentState: performance.kind,
+          playback: performanceEntryPlan(
+            performance.kind,
+            performance.sourcePose,
+          ),
+          focusNonce,
+        };
       }
-    }, randomEasterEggIntervalMs());
-  }
-
-  /** 并行驻留条件变化时重新调度彩蛋。 */
-  function onParallelHoldChanged(isHold: boolean): void {
-    if (!isHold) {
-      clearEasterEggTimers();
-      easterEggState = undefined;
-      easterEggExiting = false;
-      return;
+      return {
+        focusSessionId: currentFocusSessionId,
+        currentState: performance.kind,
+        playback: performance.exitPlan ?? [],
+        focusNonce,
+      };
     }
-    if (easterEggState === undefined && !easterEggExiting && easterEggTimer === undefined) {
-      scheduleEasterEgg();
+
+    // 4. 摸鱼彩蛋（并行驻留期间）。
+    if (egg !== undefined) {
+      stopVariantRotation();
+      if (egg.phase === "entry") {
+        const plan = viaIdlePlan(
+          egg.sourcePose,
+          egg.expression,
+          loopItem(egg.expression, loopAssetUrl(egg.expression)),
+        );
+        return {
+          focusSessionId: currentFocusSessionId,
+          currentState: egg.expression,
+          playback: plan,
+          focusNonce,
+        };
+      }
+      return {
+        focusSessionId: currentFocusSessionId,
+        currentState: egg.expression,
+        playback: egg.exitPlan ?? [],
+        focusNonce,
+      };
     }
-  }
 
-  // ---------------------------------------------------------------------------
-  // 点击惊吓（poke，ADR-0011）
-  // ---------------------------------------------------------------------------
-
-  function clearPokeTimers(): void {
-    if (pokeHoldTimer !== undefined) {
-      clearTimeout(pokeHoldTimer);
-      pokeHoldTimer = undefined;
+    // 5. 工作轮换（显示 working；含待整圈边界切出的 done 驻留）。
+    if (rotation !== undefined) {
+      return {
+        focusSessionId: currentFocusSessionId,
+        currentState: "working",
+        playback: rotation.plan,
+        focusNonce,
+      };
     }
-    if (pokeExitTimer !== undefined) {
-      clearTimeout(pokeExitTimer);
-      pokeExitTimer = undefined;
-    }
-  }
 
-  function cancelPoke(): void {
-    if (pokeState === undefined && !pokeExiting) return;
-    clearPokeTimers();
-    pokeState = undefined;
-    pokeExiting = false;
-  }
-
-  /**
-   * 点击惊吓：用户点击姜晓时触发一次「当前态→idle→惊吓→惊吓循环→idle→当前态」。
-   * - 冷却：poke 播放中（含回落）重复调用忽略（ADR-0011 D8）。
-   * - 紧急态（permission/error，含焦点会话自身）存在时不触发；播放中遇紧急
-   *   事件由 reconcileFocus 取消（D7 + 工单 09）。
-   * - 触发时取消进行中的摸鱼彩蛋，避免显示层覆盖叠加（D9）。
-   * - 定时器按过渡段实测时长排程（见 TRANSITION_EDGE_MS）：驻留计时从惊吓
-   *   循环**可见后**起算，回落清除在回落过渡播完时——固定短值会截断序列。
-   */
-  function poke(): void {
-    if (disposed) return;
-    if (pokeState !== undefined || pokeExiting) return; // 冷却
-    // 紧急态不触发：任意会话（含焦点自身）处于 permission/error（ADR-0011 D7）
-    if (findEmergencySessionId() !== undefined) return;
-    // 取消摸鱼彩蛋，避免显示层覆盖叠加
-    clearEasterEggTimers();
-    easterEggState = undefined;
-    easterEggExiting = false;
-
-    pokeReturnState = baseDisplayState();
-    pokeState = "surprised";
-    pokeExiting = false;
-    const entryMs =
-      (pokeReturnState !== "idle" ? edgeTransitionMs(pokeReturnState, "idle") : 0) +
-      edgeTransitionMs("idle", "surprised");
-    pokeHoldTimer = setTimeout(() => {
-      pokeHoldTimer = undefined;
-      pokeExiting = true;
-      const exitMs =
-        edgeTransitionMs("surprised", "idle") +
-        (pokeReturnState !== "idle" ? edgeTransitionMs("idle", pokeReturnState) : 0);
-      pokeExitTimer = setTimeout(() => {
-        pokeExitTimer = undefined;
-        pokeState = undefined;
-        pokeExiting = false;
-        reconcileFocus();
-        emit();
-      }, exitMs);
-      emit();
-    }, entryMs + POKE_HOLD_MS);
-    emit();
-  }
-
-  // ---------------------------------------------------------------------------
-  // 每会话差分推导
-  // ---------------------------------------------------------------------------
-
-  function setUnderlyingTarget(entry: SessionEntry, target: OverlayState): void {
-    if (target === entry.pendingTarget) return;
-    entry.pendingTarget = target;
-
-    // 维护时间驱动阈值
-    if (target === "thinking" && entry.thinkingSince === undefined) {
-      entry.thinkingSince = now();
-    } else if (target !== "thinking") {
-      entry.thinkingSince = undefined;
-    }
-    if (target === "done" && entry.doneSince === undefined) {
-      entry.doneSince = now();
-    } else if (target !== "done") {
-      entry.doneSince = undefined;
-    }
-  }
-
-  function processSnapshot(entry: SessionEntry, snapshot: ConversationSnapshot): void {
-    // 并行驻留基线必须在**本会话目标态应用之前**采样：第二个会话转入工作正是
-    // 发生在本次 processSnapshot 内，事后采样会让 wasParallel 恒等于 isHold，
-    // 上升沿（hold 开始）永远检测不到 → 摸鱼彩蛋从未被调度（2026-08-23 插桩实证）。
-    const wasParallel = isParallelHold();
-    const currCore = extractCore(snapshot);
-    const target = diffTarget(entry.prevCore, currCore);
-    // permission 下降沿（授权完成）：补出的目标态立即落，不经防抖
-    const permissionFalling =
-      entry.prevCore !== null && entry.prevCore.pending && !currCore.pending;
-    if (currCore.hasVisibleChunk || !currCore.running) entry.thinkingSince = undefined;
-    if (target !== null) {
-      setUnderlyingTarget(entry, target);
-      if (focusSessionIdToEntry(currentFocusSessionId) === entry) {
-        applyFocusTarget(entry, target, permissionFalling);
-      } else {
-        // 非焦点会话直接落（不可见，无需防抖）
-        if (entry.lastState !== target) {
-          entry.lastState = target;
-          entry.stateMachine.dispatch({ type: "switch", target });
-        }
+    // 6. 基础显示：并行驻留 → working（惰性起播工作轮换）。
+    if (isParallelHold()) {
+      const holdRotation = enterWorkingDisplay();
+      if (holdRotation !== undefined) {
+        return {
+          focusSessionId: currentFocusSessionId,
+          currentState: "working",
+          playback: holdRotation.plan,
+          focusNonce,
+        };
       }
     }
-    entry.prevCore = currCore;
 
-    // 任何会话状态变化都可能影响 emergency/并行驻留
-    reconcileFocus();
-    const isHold = isParallelHold();
-    if (wasParallel !== isHold) {
-      onParallelHoldChanged(isHold);
+    // 7. 基础显示：跟随焦点会话（idle 变体轮换 / working 工作轮换）。
+    const entry = focusSessionIdToEntry(currentFocusSessionId);
+    if (entry === undefined) {
+      return {
+        focusSessionId: currentFocusSessionId,
+        currentState: IDLE,
+        playback: ensureVariantRotation("idle"),
+        focusNonce,
+      };
     }
-    emit();
+    if (entry.lastState === "working") {
+      const focusRotation = enterWorkingDisplay();
+      if (focusRotation !== undefined) {
+        return {
+          focusSessionId: currentFocusSessionId,
+          currentState: "working",
+          playback: focusRotation.plan,
+          focusNonce,
+        };
+      }
+    }
+    if (entry.lastState === "idle" && isRotatableState("idle")) {
+      return {
+        focusSessionId: currentFocusSessionId,
+        currentState: IDLE,
+        playback: ensureVariantRotation("idle"),
+        focusNonce,
+      };
+    }
+    // 兜底（permission/error 理论上已被紧急层接管）：直接显示循环。
+    return {
+      focusSessionId: currentFocusSessionId,
+      currentState: entry.lastState,
+      playback: [loopItem(entry.lastState, loopAssetUrl(entry.lastState))],
+      focusNonce,
+    };
   }
+
+  function emit(): void {
+    cachedSnapshot = computeSnapshot();
+    displayPose = planHeadingPose(cachedSnapshot.playback);
+    for (const listener of listeners) listener(cachedSnapshot);
+  }
+  // ---------------------------------------------------------------------------
+  // 目标态应用与差分
+  // ---------------------------------------------------------------------------
 
   function focusSessionIdToEntry(
     id: SessionId | undefined,
   ): SessionEntry | undefined {
     if (id === undefined) return undefined;
     return entries.get(id);
+  }
+
+  /** 派发目标态到会话 SM（状态跟踪；显示计划由显示层统一构造）。 */
+  function dispatchState(entry: SessionEntry, target: OverlayState): void {
+    if (entry.lastState !== target) {
+      entry.lastState = target;
+      entry.stateMachine.dispatch({ type: "switch", target });
+    }
+  }
+
+  /** 清除属于指定会话的 working 进入防抖（表演结果直接落目标态时让位）。 */
+  function clearDebounceFor(entry: SessionEntry): void {
+    if (debounce?.sessionId === entry.id) debounce = undefined;
+  }
+
+  /**
+   * 对焦点会话应用差分目标态。
+   * - permission/error：立即派发（硬切，紧急层接管显示）。
+   * - working：防抖 FOCUS_DEBOUNCE_MS（防连续回合/多会话切焦抖动）。
+   * - idle：直接落（working→idle 的实际视觉退出经 done 表演整圈边界切出）。
+   * 非焦点会话直接派发（不可见，无需防抖）。
+   */
+  function applyTarget(entry: SessionEntry, target: OverlayState): void {
+    entry.pendingTarget = target;
+    if (focusSessionIdToEntry(currentFocusSessionId) !== entry) {
+      dispatchState(entry, target);
+      return;
+    }
+    if (target === "working") {
+      debounce = { sessionId: entry.id, deadline: now() + FOCUS_DEBOUNCE_MS };
+      return;
+    }
+    clearDebounceFor(entry);
+    dispatchState(entry, target);
+  }
+
+  /**
+   * 应用差分表演触发（display-focus 会话才展示；poke 播放中跳过仅更新 SM）。
+   * - done：SM 落 idle；显示经整圈边界切出（工作轮换在播时待边界，
+   *   否则立即入场——仅当会话确实处于 working，防止亚防抖幻影回合庆祝）。
+   * - nod-smile：SM 立即落 working（授权完成即刻恢复工作语义，不经防抖）。
+   * - frown-wave：SM 落 idle。
+   */
+  function applyPerformance(
+    entry: SessionEntry,
+    kind: "done" | "nod-smile" | "frown-wave",
+  ): void {
+    const isDisplayFocus =
+      focusSessionIdToEntry(currentFocusSessionId) === entry;
+    // 表演结果直接落目标态：本会话的 working 进入防抖让位（表演自带时序语义）。
+    clearDebounceFor(entry);
+    if (kind === "done") {
+      const wasWorking = entry.lastState === "working";
+      dispatchState(entry, IDLE);
+      entry.pendingTarget = IDLE;
+      if (!isDisplayFocus || !wasWorking || poke !== undefined) return;
+      if (rotation !== undefined) {
+        pendingDone = entry.id; // 整圈边界切出（D7）；绑定源会话而非焦点变量
+        cancelEasterEgg(); // 待边界期间不让彩蛋抢入（否则收工被吞，ADR-0016 边沿优先）
+      } else {
+        startPerformance("done", displayPose);
+      }
+      return;
+    }
+    // 权限反馈：SM 立即离开 permission（硬切让位），表演从 permission 姿态入场。
+    const target: OverlayState = kind === "nod-smile" ? "working" : IDLE;
+    dispatchState(entry, target);
+    entry.pendingTarget = target;
+    if (!isDisplayFocus || poke !== undefined) return;
+    startPerformance(kind, "permission");
+  }
+
+  function processSnapshot(
+    entry: SessionEntry,
+    snapshot: ConversationSnapshot,
+  ): void {
+    // 并行驻留基线必须在**本会话目标态应用之前**采样：第二个会话转入工作
+    // 正是发生在本次 processSnapshot 内，事后采样会让 wasParallel 恒等于
+    // isHold，上升沿（hold 开始）永远检测不到 → 摸鱼彩蛋从未被调度。
+    const wasParallel = isParallelHold();
+    const currCore = extractCore(snapshot);
+    const outcome = diffTarget(entry.prevCore, currCore);
+    entry.prevCore = currCore;
+    if (outcome !== null) {
+      if (outcome.kind === "switch") {
+        applyTarget(entry, outcome.target);
+      } else {
+        applyPerformance(entry, outcome.performance);
+      }
+    }
+    reconcileFocus();
+    const isHold = isParallelHold();
+    if (wasParallel !== isHold) {
+      onParallelHoldChanged(isHold);
+    }
+    emit();
   }
 
   // ---------------------------------------------------------------------------
@@ -924,13 +1236,12 @@ export function createOverlaySessionRuntime(
     if (binding === undefined) return;
     const stateMachine = createOverlayStateMachine(IDLE);
     const entry: SessionEntry = {
+      id,
       stateMachine,
       unsub: undefined,
       prevCore: null,
       lastState: IDLE,
       pendingTarget: IDLE,
-      thinkingSince: undefined,
-      doneSince: undefined,
     };
     entries.set(id, entry);
     entry.unsub = binding.session.subscribe(() => {
@@ -945,6 +1256,7 @@ export function createOverlaySessionRuntime(
     entry.unsub?.();
     entry.unsub = undefined;
     entries.delete(id);
+    if (pendingDone === id) pendingDone = undefined;
   }
 
   function syncSessions(ids: readonly SessionId[]): void {
@@ -968,29 +1280,41 @@ export function createOverlaySessionRuntime(
     const prevUserFocus = userFocusSessionId;
     userFocusSessionId = list.current;
     if (userFocusSessionId !== prevUserFocus) {
-      // 切焦前 flush 旧焦点的 pending，避免旧会话状态机长期落后
-      const oldFocusEntry = focusSessionIdToEntry(currentFocusSessionId);
-      if (oldFocusEntry !== undefined && debouncePendingTarget !== undefined) {
-        dispatchFocusPending(oldFocusEntry);
+      // 切焦前 flush 旧焦点的 working pending，避免旧会话状态机长期落后
+      if (debounce !== undefined) {
+        const pendingEntry = entries.get(debounce.sessionId);
+        if (
+          pendingEntry !== undefined &&
+          pendingEntry.pendingTarget === "working"
+        ) {
+          dispatchState(pendingEntry, "working");
+        }
+        debounce = undefined;
       }
-      clearDebounceTimer();
-      debouncePendingTarget = undefined;
-
+      // 焦点切换：显示直切目标会话当前 loop（不播过渡，ADR-0008 决策 3）。
+      pendingDone = undefined;
+      const prevAsset = rotation?.asset;
+      clearWorkingRotation();
       reconcileFocus();
-
-      // 新焦点立即显示其当前真实目标（不重新防抖）
       const newFocusEntry = focusSessionIdToEntry(currentFocusSessionId);
       if (
         newFocusEntry !== undefined &&
         newFocusEntry.pendingTarget !== newFocusEntry.lastState
       ) {
-        newFocusEntry.lastState = newFocusEntry.pendingTarget;
-        newFocusEntry.stateMachine.dispatch({
-          type: "switch",
-          target: newFocusEntry.pendingTarget,
-        });
+        dispatchState(newFocusEntry, newFocusEntry.pendingTarget);
       }
-
+      // 新焦点为 working：直切其工作循环（沿用原轮换素材保持画面连续）。
+      if (
+        emergency === undefined &&
+        newFocusEntry !== undefined &&
+        newFocusEntry.lastState === "working"
+      ) {
+        const asset = prevAsset ?? pickWorkingAsset(undefined);
+        armWorkingRotation(
+          [loopItem("working", workingLoopAssetUrl(asset))],
+          asset,
+        );
+      }
       onParallelHoldChanged(isParallelHold());
       emit();
       return;
@@ -1011,74 +1335,32 @@ export function createOverlaySessionRuntime(
   handleListChange();
 
   // ---------------------------------------------------------------------------
-  // tick：时间驱动（thinking→reading 超时、done→idle 驻留）
+  // welcome 入场表演（浮层首次入场，PRD 决策 7）
+  // ---------------------------------------------------------------------------
+
+  if (welcomeOnStart && emergency === undefined) {
+    startPerformance("welcome", "idle");
+  }
+
+  // ---------------------------------------------------------------------------
+  // tick：焦点会话 working 进入防抖 deadline 判定
   // ---------------------------------------------------------------------------
 
   function tick(): void {
     if (disposed) return;
     let changed = false;
-    // 与 processSnapshot 同理：基线在本次 tick 的任何落态之前采样，
-    // 否则防抖补齐第二个 running 会话造成的 hold 上升沿会被吞掉。
-    const wasParallel = isParallelHold();
-
-    // 焦点会话防抖 deadline 到点：dispatch pending
-    if (
-      debouncePendingTarget !== undefined &&
-      debounceDeadline !== undefined &&
-      now() >= debounceDeadline
-    ) {
-      debounceDeadline = undefined;
-      const focusEntry = focusSessionIdToEntry(currentFocusSessionId);
-      if (focusEntry !== undefined) {
-        dispatchFocusPending(focusEntry);
+    if (debounce !== undefined && now() >= debounce.deadline) {
+      const { sessionId } = debounce;
+      debounce = undefined;
+      // 会话最新意图仍为 working 才落（期间若已 done/拒绝，防抖作废）。
+      const entry = entries.get(sessionId);
+      if (entry !== undefined && entry.pendingTarget === "working") {
+        dispatchState(entry, "working");
         changed = true;
       }
     }
-
-    for (const entry of entries.values()) {
-      if (
-        entry.pendingTarget === "thinking" &&
-        entry.thinkingSince !== undefined
-      ) {
-        if (now() - entry.thinkingSince >= READING_THRESHOLD_MS) {
-          entry.thinkingSince = undefined;
-          setUnderlyingTarget(entry, "reading");
-          if (focusSessionIdToEntry(currentFocusSessionId) === entry) {
-            applyFocusTarget(entry, "reading");
-          } else {
-            if (entry.lastState !== "reading") {
-              entry.lastState = "reading";
-              entry.stateMachine.dispatch({ type: "switch", target: "reading" });
-            }
-          }
-          changed = true;
-        }
-      } else if (
-        entry.pendingTarget === "done" &&
-        entry.doneSince !== undefined
-      ) {
-        if (now() - entry.doneSince >= DONE_HOLD_MS) {
-          entry.doneSince = undefined;
-          setUnderlyingTarget(entry, IDLE);
-          if (focusSessionIdToEntry(currentFocusSessionId) === entry) {
-            applyFocusTarget(entry, IDLE);
-          } else {
-            if (entry.lastState !== IDLE) {
-              entry.lastState = IDLE;
-              entry.stateMachine.dispatch({ type: "switch", target: IDLE });
-            }
-          }
-          changed = true;
-        }
-      }
-    }
-
     if (changed) {
       reconcileFocus();
-      const isHold = isParallelHold();
-      if (wasParallel !== isHold) {
-        onParallelHoldChanged(isHold);
-      }
       emit();
     }
   }
@@ -1088,6 +1370,9 @@ export function createOverlaySessionRuntime(
   // ---------------------------------------------------------------------------
   // 公共接口
   // ---------------------------------------------------------------------------
+
+  cachedSnapshot = computeSnapshot();
+  displayPose = planHeadingPose(cachedSnapshot.playback);
 
   function getSnapshot(): RuntimeSnapshot {
     return cachedSnapshot;
@@ -1106,10 +1391,13 @@ export function createOverlaySessionRuntime(
     if (disposed) return;
     disposed = true;
     listUnsub();
-    clearDebounceTimer();
-    clearEasterEggTimers();
-    clearPokeTimers();
-    stopRotation();
+    debounce = undefined;
+    clearPerformanceTimer();
+    clearPokeTimer();
+    clearEggTimers();
+    clearRotationTimer();
+    clearVariantTimer();
+    rotationSegment = undefined;
     for (const entry of entries.values()) {
       entry.unsub?.();
       entry.unsub = undefined;
@@ -1122,14 +1410,14 @@ export function createOverlaySessionRuntime(
   /** 重新评估显示层（变体轮换开关变化时调用，ADR-0013 D7）。 */
   function refresh(): void {
     if (disposed) return;
-    stopRotation();
+    stopVariantRotation();
     emit();
   }
 
   return {
     getSnapshot,
     subscribe,
-    poke,
+    poke: pokeAction,
     dispose,
     __tick: tick,
     refresh,

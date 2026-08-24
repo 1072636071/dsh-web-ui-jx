@@ -8,14 +8,16 @@
 | 术语 | 定义 |
 | --- | --- |
 | dsh-web-ui-jx | 本项目：**独立 DSH Bundle 插件**（host/client 双半区），实现姜晓角色素材 UI。参考 `dsh-web-ui` 的 jiangxiao 皮肤做法，但不复用其任何包（ADR-0001）。 |
-| 素材（assets） | 插件运行所需的真实资源，存放于 `assets/`：`character/`（webp：13 循环态 + 42 过渡段 + 6 变体）、`fonts/`（2 woff2）、`preview/`（2 png）。全部进 git（ADR-0003）。 |
+| 素材（assets） | 插件运行所需的真实资源，存放于 `assets/`：`character/`（webp：37 个 = 15 循环素材（idle/permission/error 循环态、thinking/reading 工作轮换、done/welcome/nod-smile/frown-wave 表演体、happy/angry/surprised 表情、3 idle 变体）+ 22 过渡段，ADR-0016 素材重组后）、`fonts/`（2 woff2）、`preview/`（2 png）。全部进 git（ADR-0003）。 |
 | 素材处理工具 | `tools/` 下 Python 脚本（循环修复 / 绿幕转码 / 运动诊断 / 变体白点重定靶——变体白平衡目标是**状态主素材白点**而非中性白，见 `tools/variant_color_match.py`），用法见 `tools/README.md`。 |
-| 角色浮层 | client 半区注入的透明角色层：13 循环态 WebP 切换 + 台词气泡；整盒可拖动（ADR-0006，反转装饰层穿透原则）；待机/工作态支持变体轮换（ADR-0013）。 |
-| 循环态 | 持续循环播放的稳态节点（`OverlayState`，素材 `{state}.webp`）：10 经典态（idle/thinking/reading/replying/working/error/welcome/done/permission/listening）+ 3 生活化表情（happy/angry/surprised）。 |
+| 角色浮层 | client 半区注入的透明角色层：四态状态机驱动的 WebP 播放序列 + 台词气泡；整盒可拖动（ADR-0006，反转装饰层穿透原则）；待机支持变体轮换（ADR-0013）。 |
+| 循环态 | 持续循环播放的稳态节点（`OverlayState`，素材 `{state}.webp`）：idle / working / permission / error 四态（ADR-0016）。working 的画面由显示层轮换 thinking/reading 素材担当。 |
 | 过渡段 | 两端点间的单次播放素材 `transition-{from}-{to}.webp`；无直接边时经 idle 中转。6 个**中间态表情**（shy-smile/shush/nod-smile/frown-wave/chin-rest/cheek-rest）只作过渡段端点、无循环素材；ADR-0009 起活化（permission 情绪化 + idle 低频点缀）。 |
 | 生活化表情 | ADR-0009 新增 3 表情（各 `idle↔表情` 2 边）：happy = 会话完成（done）；angry = 审批等待升级线（ADR-0014：卡住 ≥30s）；surprised = 点击惊吓一次播完即回（ADR-0011）。 |
 | 点击惊吓（poke） | 点击姜晓触发的显示层覆盖（ADR-0011）：pointerup 位移 <5px 且 ≤300ms 判点击（拖动/长按/`[data-jx-interactive]` 不触发）；runtime 覆盖序列「当前态→idle→surprised→循环 3s→idle→当前态」；显式弹惊吓台词并抑制自动双弹；摸鱼彩蛋互斥、紧急态可打断。 |
-| 焦点层防抖 | runtime 焦点呈现层缓冲（ADR-0010 D1）：工作态（thinking/reading/replying/working）目标稳定 3000ms 才切一次动画；permission/error 硬切例外（仍播过渡段）。 |
+| 焦点层防抖 | runtime 焦点呈现层缓冲（ADR-0010 D1 + ADR-0016 收敛）：仅 working 进入防抖约 2000ms（防连续回合/多会话切焦抖动）；permission/error 硬切例外；working 回落保护由 done 表演整圈边界切出承担。 |
+| 一次性表演 | 边沿触发、播完自动回落、不占循环态的固定演出序列（`PerformanceKind`，ADR-0016）：done（收工）/ welcome（入场）/ nod-smile（批准）/ frown-wave（拒绝）/ surprised（poke 惊吓）/ happy、angry（摸鱼彩蛋）。 |
+| 循环自然三原则 | 切换只发生在整圈边界；跨姿态必经过渡段；过渡段首尾帧与源/目标循环首帧对齐（ADR-0016）。 |
 | 并行驻留 | 多会话全局忙碌表达（ADR-0010 D2）：≥2 会话 running 且至少一个非 idle 时，浮层驻留 working 不跟随焦点演变；紧急态仍抢焦，消退后重评条件。 |
 | 摸鱼彩蛋 | 并行驻留期间的随机表情点缀（ADR-0010 D3）：非紧急态下每 2–5 分钟随机播「working→idle→彩蛋→idle→working」，不抢焦、不写入会话 SM 状态。 |
 | 会话级状态机 | 角色浮层状态机形态（ADR-0008）：`Map<sessionId, SM>` 每会话一实例，随 `sessions.list.ids` 同步生灭；浮层只渲染焦点会话的 playback；跨会话切换不播过渡（直接切 loop + 150ms 淡入淡出）。 |
@@ -75,7 +77,7 @@
 | ADR-0007 | 会话气泡列：常驻 + 可点击跳转，反转「气泡不拦截指针」规（仅气泡本体）；上限默认 10 可配，超出折叠「+N」。 |
 | ADR-0008 | 会话级状态机 + 焦点仲裁；跨会话切换直接切 loop 不播过渡；过渡段时长播放期 ANMF 解析缓存、失败回退 800ms。 |
 | ADR-0009 | 表情体系扩展：6 中间态表情活化；新增 3 生活化表情（happy=done、angry=审批等待升级线〔原 10s 语义后经 ADR-0014 修正〕、surprised=点击一次播完即回）。 |
-| ADR-0010 | 焦点层防抖（工作态 3000ms）+ 并行驻留（≥2 running 驻留 working）+ 摸鱼彩蛋（2–5min 随机）；permission/error 恒硬切。 |
+| ADR-0010 | 焦点层防抖 + 并行驻留（≥2 running 驻留 working）+ 摸鱼彩蛋（2–5min 随机）；permission/error 恒硬切。防抖对象后经 ADR-0016 收敛为 working 进入约 2000ms。 |
 | ADR-0011 | poke 显示层覆盖：<5px 且 ≤300ms 判点击；runtime 覆盖惊吓序列（不在焦点 SM dispatch），驻留 3s 回落；显式弹台词防双弹；紧急态优先。 |
 | ADR-0012 | 循环缺陷资产侧修复：happy/angry/surprised 整段倒放烘焙 + working 局部镜像 splice；降采样 360×640 重编码，原件备份 `bak/`（不入 git）；运行期零改动。 |
 | ADR-0013 | 多动作变体播放列表拼接：中性帧约定、随机不重复抽取、段间停 ~400ms、打断即弃重抽、SettingsCard 开关默认开。 |

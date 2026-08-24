@@ -61,8 +61,8 @@ import {
 import styles from "../styles/overlay.module.css";
 import {
   loopAssetUrl,
-  type IntermediateState,
   type OverlayState,
+  type PerformanceKind,
 } from "../state-machine/overlay-state-machine.ts";
 import { createPlaybackCursor } from "../state-machine/playback-cursor.ts";
 import {
@@ -128,23 +128,23 @@ function initialReducedMotion(): boolean {
   );
 }
 
-/** 当前可显示在浮层上的状态类型（循环态 + 中间态表情彩蛋）。 */
-type DisplayState = OverlayState | IntermediateState;
+/** 当前可显示在浮层上的状态类型（4 循环态 + 一次性表演态，ADR-0016）。 */
+type DisplayState = OverlayState | PerformanceKind;
 
 /**
- * 各循环态的演示台词（状态切换时触发，工单 06 演示用）。
+ * 各循环态的演示台词（状态切换时触发）。
+ * ADR-0016 四态收敛 + 表演态（done/welcome/nod-smile/frown-wave/happy/angry）；
+ * thinking/reading 为 working 显示层轮换素材，不配独立台词（标签恒为工作中）。
  * 匹配设计 demo 的唐风角色语气。idle 不配台词（切回 idle 不弹气泡）。
  */
-const STATE_SPEECH: Partial<Record<OverlayState, string>> = {
-  thinking: "容姜晓思量片刻……",
-  reading: "正在阅卷，稍候。",
-  replying: "为大人细细道来。",
+const STATE_SPEECH: Partial<Record<DisplayState, string>> = {
   working: "遵命，这就去办。",
   error: "此事有蹊跷，容我再查。",
-  welcome: "大人来了，姜晓候久。",
-  done: "此事已毕，大人过目。",
   permission: "此事需大人首肯。",
-  listening: "姜晓静候大人示下。",
+  done: "此事已毕，大人过目。",
+  welcome: "大人来了，姜晓候久。",
+  "nod-smile": "大人英明，姜晓这便去办。",
+  "frown-wave": "既如此，姜晓告退。",
   happy: "大人笑了，姜晓也欢喜。",
   angry: "久候无应，姜晓有些不耐。",
 };
@@ -165,33 +165,25 @@ function pickSurpriseLine(): string {
 /** 取某状态的台词：surprised 走台词池随机；其余查 STATE_SPEECH（ADR-0011 D4）。 */
 function speechForState(state: DisplayState): string | undefined {
   if (state === "surprised") return pickSurpriseLine();
-  return STATE_SPEECH[state as OverlayState];
+  return STATE_SPEECH[state];
 }
 
 /**
- * 角色下方状态文案标签。
- * 包含 13 个循环态 + 6 个中间态表情（彩蛋期间显示）。
+ * 角色下方状态文案标签（工单 05：四态语义收敛 + 表演态）。
+ * working 轮换期间（thinking/reading 素材切换）标签恒为「工作中」。
  */
 const STATE_LABEL: Partial<Record<DisplayState, string>> = {
   idle: "候命中",
-  thinking: "思量中",
-  reading: "阅卷中",
-  replying: "回复中",
-  working: "遵命，吾这就去办",
+  working: "工作中",
   error: "此事有蹊跷",
-  welcome: "大人来了",
-  done: "此事已毕",
   permission: "需大人首肯",
-  listening: "静候示下",
-  happy: "甚好",
-  angry: "久候无应",
-  surprised: "何人",
-  "shy-smile": "害羞",
-  shush: "噤声",
+  done: "此事已毕",
+  welcome: "大人来了",
   "nod-smile": "颔首",
   "frown-wave": "皱眉",
-  "chin-rest": "托腮",
-  "cheek-rest": "倚脸",
+  surprised: "何人",
+  happy: "甚好",
+  angry: "久候无应",
 };
 
 /** 外部触发的台词（通过 props 注入，供后续工单调用）. */
@@ -530,22 +522,29 @@ export function CharacterOverlay({
     });
   }
 
-  // ADR-0008 决策 3：焦点切换 150ms 淡入淡出（cross-fade 双 img 层）。
-  // focusNonce 变化时，旧 item.url 作为 underlay 淡出，新 item.url 在上层淡入。
+  // ADR-0016 D15（工单 04）：全素材切换统一 150ms 淡入淡出（cross-fade 双
+  // img 层）。触发条件从焦点 nonce 变化扩展为播放项 url 任意变化——过渡段
+  // 入场、过渡→循环落稳、变体轮换换段、工作轮换段间、焦点切换统一一套
+  // 路径：旧 item.url 作 underlay 淡出、新 item.url 在上层淡入（key 变化
+  // 重挂载重放淡入动画）；150ms 内连续再切时 underlay 直接替换为最新旧帧
+  // （单一 underlay 槽位，盒内 img 恒 ≤2 的守卫不变量保持）。
   // underlay 160ms 后移除（CSS animation 150ms 淡出 + 10ms 余量）。
-  // render 期间 setState 模式（React 允许，见 React docs "storing information from
-  // previous renders"）：从 prevItemUrl 捕获旧 url，条件检查避免循环。
-  const prevFocusNonceRef = useRef(snapshot.focusNonce);
+  // render 期间 setState 模式（React 允许，见 React docs "storing information
+  // from previous renders"）：从 prevItemUrlRef 捕获旧 url，条件检查避免循环。
+  const urlChangeSeqRef = useRef(0);
   const prevItemUrlRef = useRef(item.url);
   const [underlay, setUnderlay] = useState<{
     url: string;
     key: number;
   } | null>(null);
-  if (snapshot.focusNonce !== prevFocusNonceRef.current) {
-    setUnderlay({ url: prevItemUrlRef.current, key: prevFocusNonceRef.current });
-    prevFocusNonceRef.current = snapshot.focusNonce;
+  if (item.url !== prevItemUrlRef.current) {
+    urlChangeSeqRef.current += 1;
+    setUnderlay({
+      url: prevItemUrlRef.current,
+      key: urlChangeSeqRef.current,
+    });
+    prevItemUrlRef.current = item.url;
   }
-  prevItemUrlRef.current = item.url;
 
   useEffect(() => {
     if (underlay === null) return;
@@ -588,7 +587,7 @@ export function CharacterOverlay({
         />
       )}
       <img
-        key={snapshot.focusNonce}
+        key={item.url}
         ref={mainImgRef}
         className={styles.image}
         src={item.url}

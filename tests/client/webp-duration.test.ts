@@ -1,16 +1,19 @@
 /**
- * webp-duration 纯逻辑测试（工单 01 验收，seam：素材字节 → 动画总时长）。
+ * webp-duration 纯逻辑测试（工单 01/02 验收，seam：素材字节 → 动画总时长）。
  *
  * seam：parseWebpDurationMs（输入字节输出时长，纯函数）+ loadWebpDurationMs
  * （URL → 时长，带缓存与失败回退）。不依赖 DOM、不依赖 React（vitest node 环境）。
  *
- * 覆盖：
+ * 覆盖（素材重组后 37 素材，ADR-0016）：
  *   - 合成字节：帧时长累加、单帧、空帧（非动画）、非法容器、截断 chunk。
- *   - 真实素材（assets/character/）：55 个全量解析，过渡段原两档（16 × 3484ms /
- *     20 × 5494ms）+ 6 个新增表情过渡段（6 × 766ms），循环态：10 经典态
- *     --pingpong-classic 正反倒放烘焙后（9 × 9916ms + working 11390ms）+
- *     新增生活化表情循环态 3 × 各异（权威值来自 sub-task/002 调查结论 +
- *     ADR-0010/0012/0015 素材）。
+ *   - 真实素材（assets/character/，2026-08-23 重组后）：
+ *     循环素材 15 个 = 9 经典态 × 9916ms（idle/thinking/reading/permission/
+ *     error/done/welcome/nod-smile/frown-wave，148 帧 × 67ms pingpong 烘焙）
+ *     + 3 表情循环（happy 7524 / angry 6204 / surprised 5214，33ms 帧）
+ *     + 3 idle 变体 × 5025ms（75 帧 × 67ms，loops=1）；
+ *     过渡段 22 个 = 6 × 766ms（表情边 33ms × 23 帧）
+ *     + 10 × 3484ms（标准经典边 67×44 + 536 定格）
+ *     + 6 × 5494ms（长经典边 67×74 + 536 定格）。
  *   - 加载缓存：同 URL 只 fetch 一次；解析失败/网络失败回退 null 且不重复请求。
  */
 
@@ -103,10 +106,10 @@ describe("parseWebpDurationMs: 合成字节", () => {
 });
 
 // ---------------------------------------------------------------------------
-// parseWebpDurationMs：真实素材回归（权威值：sub-task/002 结论）
+// parseWebpDurationMs：真实素材回归（素材重组后 37 个，2026-08-23 实测）
 // ---------------------------------------------------------------------------
 
-describe("parseWebpDurationMs: 现有 62 素材回归", () => {
+describe("parseWebpDurationMs: 现有 37 素材回归（ADR-0016 素材重组）", () => {
   const assetsDir = resolve("assets/character");
   const files = readdirSync(assetsDir)
     .filter((f) => f.toLowerCase().endsWith(".webp"))
@@ -114,31 +117,29 @@ describe("parseWebpDurationMs: 现有 62 素材回归", () => {
   const transitions = files.filter((f) => f.startsWith("transition-"));
   const loops = files.filter((f) => !f.startsWith("transition-"));
 
-  it("素材总数 = 62（13 循环态 + 7 变体 + 42 过渡段）", () => {
-    expect(files).toHaveLength(62);
-    expect(loops).toHaveLength(20);
-    expect(transitions).toHaveLength(42);
+  it("素材总数 = 37（15 循环素材 + 22 过渡段）", () => {
+    expect(files).toHaveLength(37);
+    expect(loops).toHaveLength(15);
+    expect(transitions).toHaveLength(22);
   });
 
-  it("循环态时长：10 经典态正反倒放烘焙后（9×9916ms + working 11390ms）；3 表情倒放烘焙后各不同；6 变体 5025ms", () => {
-    // memorial 008 补充：10 经典态 --pingpong-classic 整段烘焙（端点不重复，
-    // 单圈 2n-2 帧 × 67ms）。此前：9 经典态 5025ms、working 局部镜像 5762ms。
+  it("循环素材：9 经典态 pingpong 烘焙 9916ms；3 表情各异；3 idle 变体 5025ms", () => {
     const classicPingpong: Record<string, number> = {
-      idle: 9916,      // 148 帧 × 67ms
+      // 148 帧 × 67ms（--pingpong-classic 烘焙，端点不重复）
+      idle: 9916,
       thinking: 9916,
       reading: 9916,
-      replying: 9916,
-      error: 9916,
-      welcome: 9916,
-      done: 9916,
       permission: 9916,
-      listening: 9916,
-      working: 11390,  // splice 版 86 帧 → 170 帧 × 67ms
+      error: 9916,
+      done: 9916,
+      welcome: 9916,
+      "nod-smile": 9916, // 新转码循环体（工单 01）
+      "frown-wave": 9916, // 新转码循环体（工单 01）
     };
     const exprLoops: Record<string, number> = {
-      // memorial 008 整段倒放烘焙（裁淡入 + 裁死定格 + 镜像）后的单圈时长
-      happy: 7524,    // 228 帧 × 33ms
-      angry: 6204,    // 188 帧 × 33ms
+      // memorial 008 整段倒放烘焙后的单圈时长
+      happy: 7524, // 228 帧 × 33ms
+      angry: 6204, // 188 帧 × 33ms
       surprised: 5214, // 158 帧 × 33ms
     };
     for (const [name, ms] of Object.entries(classicPingpong)) {
@@ -146,7 +147,7 @@ describe("parseWebpDurationMs: 现有 62 素材回归", () => {
       const bytes = readFileSync(join(assetsDir, f));
       expect(
         parseWebpDurationMs(new Uint8Array(bytes)),
-        `循环态 ${f}`,
+        `循环素材 ${f}`,
       ).toBe(ms);
     }
     for (const [name, ms] of Object.entries(exprLoops)) {
@@ -154,11 +155,11 @@ describe("parseWebpDurationMs: 现有 62 素材回归", () => {
       const bytes = readFileSync(join(assetsDir, f));
       expect(
         parseWebpDurationMs(new Uint8Array(bytes)),
-        `循环态 ${f}`,
+        `循环素材 ${f}`,
       ).toBe(ms);
     }
-    // memorial 008 变体素材：75 帧 × 67ms
-    for (const name of ["idle-v2", "idle-v3", "idle-v4", "working-v2", "working-v3", "working-v4", "working-v5"]) {
+    // idle 变体：75 帧 × 67ms，loops=1（播完定格中性姿）
+    for (const name of ["idle-v2", "idle-v3", "idle-v4"]) {
       const f = `${name}.webp`;
       const bytes = readFileSync(join(assetsDir, f));
       expect(
@@ -168,7 +169,7 @@ describe("parseWebpDurationMs: 现有 62 素材回归", () => {
     }
   });
 
-  it("过渡段 42 个：原两档（16 × 3484ms + 20 × 5494ms）+ 新增表情过渡 6 × 766ms", () => {
+  it("过渡段 22 个：三档（6 × 766ms + 10 × 3484ms + 6 × 5494ms）", () => {
     const counts: Record<number, number> = {};
     for (const f of transitions) {
       const bytes = readFileSync(join(assetsDir, f));
@@ -176,14 +177,16 @@ describe("parseWebpDurationMs: 现有 62 素材回归", () => {
       expect(dur, `过渡段 ${f}`).toBeGreaterThan(0);
       if (dur !== null) counts[dur] = (counts[dur] ?? 0) + 1;
     }
-    expect(counts).toEqual({ 3484: 16, 5494: 20, 766: 6 });
+    expect(counts).toEqual({ 766: 6, 3484: 10, 5494: 6 });
   });
 
-  it("抽样过渡段：idle-thinking 45 帧型 / reading-idle 75 帧型", () => {
+  it("抽样过渡段：idle-thinking 3484ms 型 / reading-idle 5494ms 型 / idle-surprised 766ms 型", () => {
     const t1 = readFileSync(join(assetsDir, "transition-idle-thinking.webp"));
     expect(parseWebpDurationMs(new Uint8Array(t1))).toBe(3484);
     const t2 = readFileSync(join(assetsDir, "transition-reading-idle.webp"));
     expect(parseWebpDurationMs(new Uint8Array(t2))).toBe(5494);
+    const t3 = readFileSync(join(assetsDir, "transition-idle-surprised.webp"));
+    expect(parseWebpDurationMs(new Uint8Array(t3))).toBe(766);
   });
 });
 

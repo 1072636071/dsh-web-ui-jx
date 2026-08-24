@@ -1,11 +1,16 @@
 /**
- * session-follow 纯函数测试：diffTarget 差分推导。
+ * session-follow 纯函数测试：diffTarget 差分推导（工单 02：事件映射收敛）。
  *
- * 重点覆盖 permission（pending）的上升沿与**下降沿**：
- *   - 上升沿（请求授权）→ "permission"（既有行为）。
- *   - 下降沿（授权完成/拒绝/问题回答）必须补一个目标态——否则工具调用计数、
- *     running 等其余字段无上升沿时返回 null，角色会在授权完成后一直停在
- *     「要权限」动画上（回归：授权完毕动画还在要权限）。
+ * ADR-0016 D13 收敛后的全分支覆盖：
+ *   - error 上升沿 → switch error（硬切）。
+ *   - pending 上升沿 → switch permission（硬切）。
+ *   - pending 下降沿 + running 继续 → perform nod-smile（批准）；
+ *     pending 下降沿 + running 终止 → perform frown-wave（拒绝）；
+ *     error 在场时 pending 下降沿跳过（紧急态优先）。
+ *   - running 下降沿（无 error/pending）→ perform done。
+ *   - error 下降沿（错误恢复）→ running 继续 switch working / 等审批回 permission。
+ *   - running 上升沿 → switch working（防抖由 runtime 承担）。
+ *   - 全静 → switch idle。
  *
  * @module dsh-web-ui-jx/client
  */
@@ -32,68 +37,178 @@ function core(
   };
 }
 
-describe("diffTarget: permission 上升沿（既有行为）", () => {
-  it("初次快照 pending=true → permission", () => {
-    expect(diffTarget(null, core({ pending: true }))).toBe("permission");
+describe("diffTarget: error 上升沿（硬切）", () => {
+  it("初次快照 hasError=true → switch error", () => {
+    expect(diffTarget(null, core({ hasError: true }))).toEqual({
+      kind: "switch",
+      target: "error",
+    });
   });
 
-  it("pending false→true → permission", () => {
+  it("hasError false→true → switch error", () => {
     const prev = core({ running: true, runningCallsCount: 1 });
-    const curr = core({ running: true, runningCallsCount: 1, pending: true });
-    expect(diffTarget(prev, curr)).toBe("permission");
+    const curr = core({ running: true, runningCallsCount: 1, hasError: true });
+    expect(diffTarget(prev, curr)).toEqual({ kind: "switch", target: "error" });
   });
 });
 
-describe("diffTarget: permission 下降沿（授权完成必须补目标态）", () => {
-  it("授权通过、工具调用继续（runningCalls 不变 >0）→ working（回归主场景）", () => {
-    const prev = core({
-      running: true,
-      runningCallsCount: 1,
-      pending: true,
+describe("diffTarget: permission 上升沿（硬切）", () => {
+  it("初次快照 pending=true → switch permission", () => {
+    expect(diffTarget(null, core({ pending: true }))).toEqual({
+      kind: "switch",
+      target: "permission",
     });
-    const curr = core({
-      running: true,
-      runningCallsCount: 1,
-      pending: false,
-    });
-    expect(diffTarget(prev, curr)).toBe("working");
   });
 
-  it("问题回答后模型继续输出（running + 可见 chunk）→ replying", () => {
-    const prev = core({
-      running: true,
-      hasVisibleChunk: true,
-      pending: true,
+  it("pending false→true → switch permission", () => {
+    const prev = core({ running: true, runningCallsCount: 1 });
+    const curr = core({ running: true, runningCallsCount: 1, pending: true });
+    expect(diffTarget(prev, curr)).toEqual({
+      kind: "switch",
+      target: "permission",
     });
-    const curr = core({
-      running: true,
-      hasVisibleChunk: true,
-      pending: false,
+  });
+});
+
+describe("diffTarget: pending 下降沿（批准/拒绝启发式）", () => {
+  it("批准（running 继续，工具调用中）→ perform nod-smile", () => {
+    const prev = core({ running: true, runningCallsCount: 1, pending: true });
+    const curr = core({ running: true, runningCallsCount: 1, pending: false });
+    expect(diffTarget(prev, curr)).toEqual({
+      kind: "perform",
+      performance: "nod-smile",
     });
-    expect(diffTarget(prev, curr)).toBe("replying");
   });
 
-  it("授权后会话继续但暂无工具与输出 → thinking", () => {
-    const prev = core({ running: true, pending: true });
-    const curr = core({ running: true, pending: false });
-    expect(diffTarget(prev, curr)).toBe("thinking");
+  it("批准（running 继续，可见输出中）→ perform nod-smile（不再细分 replying）", () => {
+    const prev = core({ running: true, hasVisibleChunk: true, pending: true });
+    const curr = core({ running: true, hasVisibleChunk: true, pending: false });
+    expect(diffTarget(prev, curr)).toEqual({
+      kind: "perform",
+      performance: "nod-smile",
+    });
   });
 
-  it("拒绝/中止导致回合结束（running 落 false）→ done", () => {
+  it("拒绝/中止（running 终止）→ perform frown-wave", () => {
     const prev = core({ running: true, runningCallsCount: 1, pending: true });
     const curr = core({ running: false, runningCallsCount: 1, pending: false });
-    expect(diffTarget(prev, curr)).toBe("done");
+    expect(diffTarget(prev, curr)).toEqual({
+      kind: "perform",
+      performance: "frown-wave",
+    });
   });
 
-  it("pending 下降沿同时 error 在场 → error 优先", () => {
+  it("pending 下降沿同时 error 在场 → 不触发表演（紧急态优先，error 上升沿已先行）", () => {
     const prev = core({ running: true, pending: true });
     const curr = core({ running: false, pending: false, hasError: true });
-    expect(diffTarget(prev, curr)).toBe("error");
+    expect(diffTarget(prev, curr)).toEqual({ kind: "switch", target: "error" });
   });
 
-  it("无下降沿时其余字段不变仍返回 null（不误报）", () => {
+  it("error 持续在场时 pending 下降沿 → null（角色停在 error）", () => {
+    const prev = core({ running: true, pending: true, hasError: true });
+    const curr = core({ running: true, pending: false, hasError: true });
+    expect(diffTarget(prev, curr)).toBe(null);
+  });
+});
+
+describe("diffTarget: running 下降沿 → done 表演", () => {
+  it("running true→false（无 error/pending）→ perform done", () => {
+    const prev = core({ running: true, runningCallsCount: 1 });
+    const curr = core({ running: false, runningCallsCount: 0 });
+    expect(diffTarget(prev, curr)).toEqual({
+      kind: "perform",
+      performance: "done",
+    });
+  });
+
+  it("running 下降沿 + pending 在场 → 不触发 done", () => {
+    const prev = core({ running: true, pending: true });
+    const curr = core({ running: false, pending: true });
+    expect(diffTarget(prev, curr)).toBe(null);
+  });
+});
+
+describe("diffTarget: error 下降沿（错误恢复）", () => {
+  it("恢复时回合继续（running）→ switch working", () => {
+    const prev = core({ running: true, hasError: true });
+    const curr = core({ running: true, hasError: false });
+    expect(diffTarget(prev, curr)).toEqual({
+      kind: "switch",
+      target: "working",
+    });
+  });
+
+  it("恢复时已在等审批 → switch permission", () => {
+    const prev = core({ running: true, hasError: true, pending: true });
+    const curr = core({ running: true, hasError: false, pending: true });
+    expect(diffTarget(prev, curr)).toEqual({
+      kind: "switch",
+      target: "permission",
+    });
+  });
+
+  it("恢复时全静 → 落全静兜底 switch idle", () => {
+    const prev = core({ hasError: true });
+    const curr = core({});
+    expect(diffTarget(prev, curr)).toEqual({ kind: "switch", target: "idle" });
+  });
+});
+
+describe("diffTarget: working 上升沿（统一映射）", () => {
+  it("初次快照 running=true → switch working", () => {
+    expect(diffTarget(null, core({ running: true }))).toEqual({
+      kind: "switch",
+      target: "working",
+    });
+  });
+
+  it("running false→true（无工具调用）→ switch working（不再细分 thinking）", () => {
+    const prev = core({});
+    const curr = core({ running: true });
+    expect(diffTarget(prev, curr)).toEqual({
+      kind: "switch",
+      target: "working",
+    });
+  });
+
+  it("running false→true（有工具调用）→ switch working", () => {
+    const prev = core({});
+    const curr = core({ running: true, runningCallsCount: 2 });
+    expect(diffTarget(prev, curr)).toEqual({
+      kind: "switch",
+      target: "working",
+    });
+  });
+
+  it("可见 chunk 出现但 running 未变 → null（已并入 working，无细分目标）", () => {
+    const prev = core({ running: true });
+    const curr = core({ running: true, hasVisibleChunk: true });
+    expect(diffTarget(prev, curr)).toBe(null);
+  });
+});
+
+describe("diffTarget: 全静兜底", () => {
+  it("初次快照全静 → switch idle", () => {
+    expect(diffTarget(null, core({}))).toEqual({
+      kind: "switch",
+      target: "idle",
+    });
+  });
+
+  it("prev running → 全静是 running 下降沿（done 表演优先于兜底）", () => {
+    expect(diffTarget(core({ running: true }), core({}))).toEqual({
+      kind: "perform",
+      performance: "done",
+    });
+  });
+
+  it("无变化返回 null（不误报）", () => {
     const prev = core({ running: true, runningCallsCount: 1 });
     const curr = core({ running: true, runningCallsCount: 1 });
     expect(diffTarget(prev, curr)).toBe(null);
+  });
+
+  it("持续全静 → null", () => {
+    expect(diffTarget(core({}), core({}))).toBe(null);
   });
 });

@@ -1,18 +1,17 @@
 /**
- * variant-rotation 纯逻辑测试（memorial 008 / ADR-0013，工单 03/04 验收）。
+ * variant-rotation 纯逻辑测试（ADR-0013 + ADR-0016 工单 02/05 验收）。
  *
  * seam 1（模块）：输入池/上一段/随机源 → 断言抽取结果与周期常量。
  * seam 2（runtime 集成）：输入会话事件 + 开关读取器 + 时间推进
  *   → 断言 playback url 的轮换、推进、打断与回落。
  * 纯逻辑，不依赖 DOM、不依赖 React（vitest node 环境）。
  *
- * 覆盖（对齐工单 03/04 验收标准）：
- *   - 池配置：idle/working 各 = 基础主素材（v1）+ 3 变体，基础在首位
+ * 覆盖（ADR-0016 收敛后仅 idle 池）：
+ *   - 池配置：idle = 基础主素材（v1）+ 3 变体（idle-v2/v3/v4）
  *   - pickNextVariant：空池 undefined / 单元素池直返 / 不连续重复
- *   - rotationPeriodMs：基础段与变体段周期 = 名义时长 + 段间停顿
- *   - runtime：开关未注入默认关闭，行为与现状一致（基础 loop）
- *   - runtime：开关开启 + 无会话 → idle 变体轮换，周期后推进且不重复
- *   - runtime：并行驻留 working 期间照常轮换
+ *   - rotationPeriodMs：基础段=整圈时长，变体段=名义时长+段间停顿
+ *   - runtime：开关未注入默认关闭；开关开启 + 无会话 → idle 变体轮换
+ *   - runtime：working 驻留走工作轮换（非变体轮换池，URL 为 thinking/reading）
  *   - runtime：poke 打断轮换，回落后重新开始（不续播半截）
  *   - runtime：运行中关闭开关 + refresh → 回退基础 loop
  *   - 设置存储：轮换开关默认开、set 通知订阅者
@@ -32,10 +31,13 @@ import {
 } from "../../src/client/state-machine/variant-rotation.ts";
 import {
   createOverlaySessionRuntime,
+  FOCUS_DEBOUNCE_MS,
+  WORKING_LOOP_MS,
   type RuntimeSnapshot,
 } from "../../src/client/state-machine/overlay-session-runtime.ts";
 import {
   loopAssetUrl,
+  workingLoopAssetUrl,
   CHARACTER_ASSET_PREFIX,
 } from "../../src/client/state-machine/overlay-state-machine.ts";
 import {
@@ -209,23 +211,20 @@ function currentUrl(snapshot: RuntimeSnapshot): string {
 // 模块纯逻辑
 // ---------------------------------------------------------------------------
 
-describe("variant-rotation 模块", () => {
-  it("轮换池 = 基础主素材（首位）+ 变体", () => {
-    // idle: v2–v4（3 变体）；working: v2–v5（4 变体，2026-08-23 新增上半圆弧）
-    const expectedVariants: Record<string, number> = { idle: 4, working: 5 };
-    for (const state of ROTATABLE_STATES) {
-      const pool = rotationPool(state);
-      expect(pool.length).toBe(expectedVariants[state]);
-      expect(pool[0]).toBe(loopAssetUrl(state));
-      for (let i = 2; i <= expectedVariants[state]; i++) {
-        expect(pool).toContain(`${CHARACTER_ASSET_PREFIX}/${state}-v${i}.webp`);
-      }
+describe("variant-rotation 模块（ADR-0016 收敛：仅 idle 池）", () => {
+  it("轮换池 = idle 基础主素材（首位）+ 3 变体", () => {
+    expect(ROTATABLE_STATES).toEqual(["idle"]);
+    const pool = rotationPool("idle");
+    expect(pool.length).toBe(4);
+    expect(pool[0]).toBe(loopAssetUrl("idle"));
+    for (let i = 2; i <= 4; i++) {
+      expect(pool).toContain(`${CHARACTER_ASSET_PREFIX}/idle-v${i}.webp`);
     }
   });
 
-  it("isRotatableState 仅 idle/working", () => {
+  it("isRotatableState 仅 idle（working 池已移除，PRD 决策 6）", () => {
     expect(isRotatableState("idle")).toBe(true);
-    expect(isRotatableState("working")).toBe(true);
+    expect(isRotatableState("working")).toBe(false);
     expect(isRotatableState("thinking")).toBe(false);
     expect(isRotatableState("happy")).toBe(false);
   });
@@ -246,23 +245,15 @@ describe("variant-rotation 模块", () => {
   });
 
   it("rotationPeriodMs：基础段=整圈时长（无停顿，切点=回卷点），变体段=名义时长+段间停顿", () => {
-    // memorial 008 补充：经典态正反倒放烘焙后，idle/working 单圈不同（148/170 帧）。
-    // 基础素材 loops=0 不停帧——若在整圈之外再加停顿，切换点已滑入下一圈动作中段
-    // （可见跳变）；整圈回卷点首尾同为中性帧，恰是唯一无缝切点。
     expect(rotationPeriodMs(loopAssetUrl("idle"))).toBe(BASE_SEGMENT_MS.idle);
-    expect(rotationPeriodMs(loopAssetUrl("working"))).toBe(
-      BASE_SEGMENT_MS.working,
-    );
     expect(BASE_SEGMENT_MS.idle).toBe(9916); // 148 帧 × 67ms
-    expect(BASE_SEGMENT_MS.working).toBe(11390); // 170 帧 × 67ms
+    expect(BASE_SEGMENT_MS.working).toBeUndefined(); // working 池已移除
     // 变体 loops=1 播完定格末帧（中性姿），+400ms 停顿读作自然微动
     expect(rotationPeriodMs(`${CHARACTER_ASSET_PREFIX}/idle-v2.webp`)).toBe(
       VARIANT_SEGMENT_MS + ROTATION_HOLD_MS,
     );
     expect(isBaseLoopUrl(loopAssetUrl("idle"))).toBe(true);
-    expect(isBaseLoopUrl(`${CHARACTER_ASSET_PREFIX}/working-v3.webp`)).toBe(
-      false,
-    );
+    expect(isBaseLoopUrl(workingLoopAssetUrl("thinking"))).toBe(false);
   });
 });
 
@@ -296,7 +287,10 @@ describe("runtime 变体轮换集成", () => {
   it("开关未注入默认关闭：idle 显示基础 loop（与现状一致）", () => {
     vi.useFakeTimers();
     const sessions = createMockSessions(makeListState([], undefined));
-    const runtime = createOverlaySessionRuntime(sessions, { tickIntervalMs: 100 });
+    const runtime = createOverlaySessionRuntime(sessions, {
+      tickIntervalMs: 100,
+      welcomeOnStart: false,
+    });
     expect(runtime.getSnapshot().currentState).toBe("idle");
     expect(currentUrl(runtime.getSnapshot())).toBe(loopAssetUrl("idle"));
     runtime.dispose();
@@ -307,6 +301,7 @@ describe("runtime 变体轮换集成", () => {
     const sessions = createMockSessions(makeListState([], undefined));
     const runtime = createOverlaySessionRuntime(sessions, {
       tickIntervalMs: 100,
+      welcomeOnStart: false,
       variantRotationEnabled: () => true,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9, 0.55, 0.2]),
     });
@@ -324,16 +319,17 @@ describe("runtime 变体轮换集成", () => {
       expect(pool).toContain(url);
       seen.push(url);
     }
-    // 轮换不递增 focusNonce（不触发 cross-fade）
+    // 轮换不递增 focusNonce（焦点切换语义保留，淡入淡出由 url 变化触发）
     expect(runtime.getSnapshot().focusNonce).toBe(0);
     runtime.dispose();
   });
 
-  it("并行驻留 working 期间照常轮换", () => {
+  it("并行驻留 working 显示走工作轮换（thinking/reading 素材，非变体池）", () => {
     vi.useFakeTimers();
     const sessions = createMockSessions(makeListState([A], A));
     const runtime = createOverlaySessionRuntime(sessions, {
       tickIntervalMs: 100,
+      welcomeOnStart: false,
       variantRotationEnabled: () => true,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9]),
     });
@@ -345,12 +341,23 @@ describe("runtime 变体轮换集成", () => {
     sessions.__session(B)?.__push(
       makeSnapshot(B, { running: true, runningCallsCount: 2 }),
     );
-    expect(runtime.getSnapshot().currentState).toBe("working");
-    const first = currentUrl(runtime.getSnapshot());
-    expect(first).not.toBe(loopAssetUrl("working"));
-    expect(rotationPool("working")).toContain(first);
-    vi.advanceTimersByTime(VARIANT_SEGMENT_MS + ROTATION_HOLD_MS);
-    expect(currentUrl(runtime.getSnapshot())).not.toBe(first);
+    const s = runtime.getSnapshot();
+    expect(s.currentState).toBe("working");
+    const url = currentUrl(s);
+    // working 轮换素材为 thinking/reading 之一，绝不出现已退役的 working-v*.webp
+    expect(
+      url === workingLoopAssetUrl("thinking") ||
+        url === workingLoopAssetUrl("reading"),
+    ).toBe(true);
+    // 推进 2 整圈后换段（不连续重复）
+    const firstUrl = url;
+    vi.advanceTimersByTime(WORKING_LOOP_MS.thinking * 2 + 5000);
+    const nextUrl = currentUrl(runtime.getSnapshot());
+    expect(nextUrl).not.toBe(firstUrl);
+    expect(
+      nextUrl === workingLoopAssetUrl("thinking") ||
+        nextUrl === workingLoopAssetUrl("reading"),
+    ).toBe(true);
     runtime.dispose();
   });
 
@@ -359,14 +366,15 @@ describe("runtime 变体轮换集成", () => {
     const sessions = createMockSessions(makeListState([A], A));
     const runtime = createOverlaySessionRuntime(sessions, {
       tickIntervalMs: 100,
+      welcomeOnStart: false,
       variantRotationEnabled: () => true,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9]),
     });
     expect(currentUrl(runtime.getSnapshot())).not.toBe(loopAssetUrl("idle"));
     runtime.poke();
     expect(runtime.getSnapshot().currentState).toBe("surprised");
-    // poke 全程后回落 idle：轮换重新抽取（仍是变体，非基础 loop）
-    vi.advanceTimersByTime(3000 + 5000);
+    // poke 全程（入场 766 + 驻留 3000 + 回落 766）后回落 idle：轮换重新抽取
+    vi.advanceTimersByTime(766 + 3000 + 766 + 100);
     expect(runtime.getSnapshot().currentState).toBe("idle");
     const url = currentUrl(runtime.getSnapshot());
     expect(rotationPool("idle")).toContain(url);
@@ -380,6 +388,7 @@ describe("runtime 变体轮换集成", () => {
     const sessions = createMockSessions(makeListState([], undefined));
     const runtime = createOverlaySessionRuntime(sessions, {
       tickIntervalMs: 100,
+      welcomeOnStart: false,
       variantRotationEnabled: () => enabled,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9]),
     });
