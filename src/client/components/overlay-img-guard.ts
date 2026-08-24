@@ -44,7 +44,10 @@ export function createOverlayImgGuard(
   keep: () => ReadonlySet<Element>,
   onPruned?: (count: number) => void,
 ): OverlayImgGuard {
+  let connected = true;
+
   function prune(): void {
+    if (!connected) return; // disconnect 后不再裁（卸载语义）。
     let removed = 0;
     const whitelist = keep();
     for (const img of Array.from(box.querySelectorAll(":scope > img"))) {
@@ -59,13 +62,14 @@ export function createOverlayImgGuard(
     prune();
   });
   observer.observe(box, { childList: true });
-  // 建观察时裁剪一次，兜住 observer 建立前窗口内的残留。
-  // 延迟到下一微任务，避免 React ref 尚未赋值时误裁合法 img（ADR-0025）。
-  queueMicrotask(() => prune());
+  // 建观察时同步裁剪一次，兜住 observer 建立前窗口内的残留。调用方在
+  // useEffect 中创建守卫（commit 后 ref 已就绪），同步裁剪不会误裁合法 img。
+  prune();
 
   return {
     prune,
     disconnect: () => {
+      connected = false;
       observer.disconnect();
     },
   };
