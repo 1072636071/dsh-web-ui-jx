@@ -122,6 +122,7 @@ import {
   type DropZoneKind,
   type SessionListEntry,
 } from "../state-machine/session-bubbles.ts";
+import { deriveSessionListEntries } from "../state-machine/session-list-adapter.ts";
 import {
   subscribeMaxSessionBubbles,
   getMaxSessionBubblesSnapshot,
@@ -162,37 +163,9 @@ function undefinedGetSnapshot(): undefined {
   return undefined;
 }
 
-// ---------------------------------------------------------------------------
-// 从 SDK SessionListState 派生 SessionListEntry[]（纯函数）
-// ---------------------------------------------------------------------------
-
-/**
- * 把 SDK SessionListState（ids + byId）投影为气泡列关心的 SessionListEntry[]。
- *
- * 取 sessionId / title / running / completed / pendingInteraction，并透传
- * 谱系字段 parentId / origin（ADR-0018：归组引擎沿 parentId 上溯根祖先、
- * 按 origin === 'subagent' 判定折叠成员）；保持 ids 顺序。
- */
-function deriveItems(state: SessionListState): readonly SessionListEntry[] {
-  const items: SessionListEntry[] = [];
-  for (const id of state.ids) {
-    const summary = state.byId[id];
-    if (summary === undefined) continue;
-    items.push({
-      sessionId: summary.id,
-      title: summary.title,
-      running: summary.running,
-      completed: summary.completed ?? false,
-      // SDK PendingInteractionStatus 与纯逻辑层字面量联合同形状（ADR-0020 pending-interaction-bubble-effect）。
-      pendingInteraction: summary.pendingInteraction,
-      // 谱系透传（ADR-0018 D2/D7）：SDK 字段与纯逻辑层 string 解耦同形状；
-      // undefined 缺省不落键（对齐 exactOptionalPropertyTypes 纪律）。
-      ...(summary.parentId !== undefined ? { parentId: summary.parentId } : {}),
-      ...(summary.origin !== undefined ? { origin: summary.origin } : {}),
-    });
-  }
-  return items;
-}
+// SDK SessionListState → SessionListEntry[] 的投影已沉入
+// state-machine/session-list-adapter.ts（架构审查候选者：接缝适配器，
+// 可独立测试），本组件只消费。
 
 // ---------------------------------------------------------------------------
 // 共享键盘激活（Enter/Space 触发，与 button 行为一致）
@@ -691,7 +664,8 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
 
   // 派生 items + current（仅 rawState 变化时重算）。
   const items = useMemo(
-    () => (rawState === undefined ? EMPTY_ITEMS : deriveItems(rawState)),
+    () =>
+      rawState === undefined ? EMPTY_ITEMS : deriveSessionListEntries(rawState),
     [rawState],
   );
   const current = rawState?.current;

@@ -1,7 +1,9 @@
 /**
- * session-bubbles — 会话气泡列纯逻辑模块（ADR-0007）。
+ * session-bubbles — 会话气泡列纯逻辑模块（ADR-0007 → ADR-0018 归组模型）。
  *
  * 工单 05-session-bubbles：角色浮层会话气泡列的可测地基。
+ * 架构审查候选者 4：ADR-0018 归组逻辑落位本模块（D8 指定的
+ * `buildBubbleGroups` 接缝），组件只消费——谱系规则不埋进 React 壳。
  *
  * 提供：
  *   - buildBubbleGroups（ADR-0018）：唯一气泡投影入口——范围过滤（running ||

@@ -112,3 +112,17 @@ L3 组件       : 只消费 --dsw-alias-* / --dsw-specific-*，禁止写颜色�
 - 角色不加背景/光晕/背光；装饰层不拦截指针（角色浮层除外，见 §4 ADR-0006 整盒可拖）。
 - 不在次要/长尾区域堆装饰。
 - 深/浅两套必须都覆盖（同一套令牌双值），缺一即违规。
+
+## 8. overlay-session-runtime 深模块设计（接口基准）
+
+状态机运行时是**深模块**：小接口承载大量隐藏行为（每会话独立状态机、焦点三层仲裁、防抖、紧急抢焦、并行驻留、摸鱼彩蛋、poke 惊吓、变体轮换）。UI 只经两个接缝穿行，禁止在 CharacterOverlay 内重演其规则。
+
+- **接口面（OverlaySessionRuntime）**：`getSnapshot()` / `subscribe(listener: () => void)` / `poke()` / `dispose()` / `resetRotation()` / `__tick()`。`subscribe` 回调不携带参数——监听者一律经 `getSnapshot()` 读取（`useSyncExternalStore` 契约），接口如实承诺。
+- **输出（RuntimeSnapshot）**：`focusSessionId / currentState / playback / focusNonce`。模块返回结果、不产生副作用；`focusNonce` 焦点切换才递增，UI 据此触发 cross-fade。
+- **接缝位置**：依赖一律注入（`ISessions`、`now/random/tickIntervalMs/variantRotationEnabled`），适配器 `ISessions` 是真实外部服务。时间接缝**唯一化**：
+  - 所有定时（防抖、reading/done 超时、彩蛋、poke、轮换）统一为「注入 `now()` 的截止时刻 + `tick()` 扫描」，不再有真实 `setTimeout`。
+  - `__tick()` 是唯一测试钩子：测试「推进 now + `__tick()`」驱动全部时间推进，无需 `vi.useFakeTimers`。
+  - 显示层推进量化到 `tickIntervalMs`（生产 1000ms）；对 5–11s 的轮换段与装饰性 poke 无感。
+- **命令命名**：`resetRotation()`（变体轮换开关翻转时丢弃轮换段并重算快照，ADR-0013 D7）；`__tick()` 双下划线标注仅为测试钩子。消费者（`index.ts` 接线、CharacterOverlay）只调用命令方法，`__tick` 不进入生产路径。
+
+> 深模块三问自查：能否少方法（目前 6 个恰够）？能否简参数（已最小注入）？能否内藏更多（浮层全部规则已藏）？

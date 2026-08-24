@@ -2,7 +2,10 @@
 
 ## 状态
 
-已接受（grill 会话定稿）。已实施。
+已接受（grill 会话定稿）。已实施（架构审查候选者 4 落位：纯逻辑 `buildBubbleGroups` /
+`foldBubbleGroups` 在 `state-machine/session-bubbles.ts`，组件
+`SessionBubbleList` 只订阅渲染；`session-list-adapter` 投影谱系字段
+`parentId`/`origin`；tests/client/session-bubbles.test.ts 覆盖归组全规则）。
 
 ## 背景
 

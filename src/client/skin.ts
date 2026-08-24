@@ -7,14 +7,30 @@
  *   - setSkinEnabled()：开/关并持久化到 localStorage('jx-skin')，即时生效。
  * 关闭 = 移除 body 属性，全部唐风覆盖失效 → 一键按回宿主原皮；开启可再按回。
  *
+ * 架构审查候选者 3 起：持久化由 `persistent-setting.ts` 工厂承载（"on"/"off"
+ * 字符串经 parse/serialize 保持既有存储格式），并顺带获得跨标签页同步。
+ *
  * @module dsh-web-ui-jx/client
  */
 
-/** localStorage 键名。 */
-const SKIN_STORAGE_KEY = "jx-skin";
+import { createPersistentSetting } from "./state-machine/persistent-setting.ts";
 
 /** body 上启用唐风皮肤的作用域属性名。 */
 export const SKIN_ATTR = "data-dsh-jiangxiao";
+
+/** 皮肤开关设置实例（"on"/"off" 持久化格式，默认开）. */
+const skinEnabled = createPersistentSetting<boolean>("jx-skin", {
+  serialize: (enabled) => (enabled ? "on" : "off"),
+  parse: (raw) => {
+    if (raw === "on") return true;
+    if (raw === "off") return false;
+    return undefined;
+  },
+  default: true,
+});
+
+// 跨标签页同步：其他标签页切换皮肤时本标签页即时增删 body 属性。
+skinEnabled.subscribe(toggleSkinAttr);
 
 /**
  * 打开/关闭唐风皮肤。
@@ -24,24 +40,13 @@ export const SKIN_ATTR = "data-dsh-jiangxiao";
  * @param enabled - 开/关。
  */
 export function setSkinEnabled(enabled: boolean): void {
-  try {
-    localStorage.setItem(SKIN_STORAGE_KEY, enabled ? "on" : "off");
-  } catch {
-    // localStorage 不可用，静默忽略（仅本次会话生效）。
-  }
+  skinEnabled.set(enabled);
   toggleSkinAttr(enabled);
 }
 
 /** 读取皮肤是否启用（默认开）。 */
 export function getSkinEnabled(): boolean {
-  try {
-    const stored = localStorage.getItem(SKIN_STORAGE_KEY);
-    if (stored === "off") return false;
-    if (stored === "on") return true;
-  } catch {
-    // 回退默认。
-  }
-  return true;
+  return skinEnabled.get();
 }
 
 /**
@@ -49,7 +54,7 @@ export function getSkinEnabled(): boolean {
  * 与 setSkinEnabled 幂等共存；返回当前生效状态，供 UI 初始化显示。
  */
 export function initSkin(): boolean {
-  const enabled = getSkinEnabled();
+  const enabled = skinEnabled.reload();
   toggleSkinAttr(enabled);
   return enabled;
 }

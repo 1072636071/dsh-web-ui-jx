@@ -36,6 +36,7 @@ import {
   transitionAssetUrl,
   workingLoopAssetUrl,
   type OverlayState,
+  type PerformanceKind,
 } from "../../src/client/state-machine/overlay-state-machine.ts";
 import type {
   ConversationSnapshot,
@@ -253,7 +254,7 @@ function sequenceRandom(values: number[]): () => number {
 
 function finalLoopState(
   snapshot: RuntimeSnapshot,
-): OverlayState | undefined {
+): OverlayState | PerformanceKind | undefined {
   const last = snapshot.playback[snapshot.playback.length - 1];
   return last && last.kind === "loop" ? last.state : undefined;
 }

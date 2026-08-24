@@ -35,10 +35,14 @@ import type {
 } from "@deepseek-ai/dsh-client-runtime/client";
 import { createElement, Fragment } from "react";
 import { createRoot } from "react-dom/client";
-import type { Root } from "react-dom/client";
 import { CharacterOverlay } from "./components/CharacterOverlay.tsx";
 import { SidebarEntry } from "./components/SidebarEntry.tsx";
 import { applyFx, teardownFx } from "./fx/index.ts";
+import {
+  createRootContainer,
+  sweepResidualRoots,
+  type RootHostElement,
+} from "./root-lifecycle.ts";
 import { createOverlaySessionRuntime } from "./state-machine/overlay-session-runtime.ts";
 import type { OverlaySessionRuntime } from "./state-machine/overlay-session-runtime.ts";
 import {
@@ -57,70 +61,6 @@ import "./styles/fx.css";
 /** Client services required（令牌基座 + 动画挂钩需 sessions；ADR-0022 D3/D8
  * 归档排除/真归档需 workspaces）. */
 export const inject: string[] = ["sessions", "workspaces"];
-
-/** 容器元素形状：暂存 React root 引用（ADR-0017 D2 跨闭包清扫用）. */
-interface RootHostElement extends HTMLElement {
-  /** 本容器对应的 React root；挂载后立即写入（ADR-0017 D2）. */
-  __jxRoot?: Root | undefined;
-}
-
-/**
- * 判定一个 body 直接子元素是否为姜晓插件自身的「逃逸残留」React root 容器。
- *
- * ADR-0017 起 `apply()` 挂载的容器都带 `data-dsh-jx-root` 标记；但在那之前的
- * 旧版本（及宿主侧历史缓存的服务态）生成的容器**不带该标记**，却以 React root
- * 直接挂在 `document.body` 下渲染姜晓浮层。识别依据就一个：**body 直接子、
- * 无标记、但内含本插件浮层特征 `[data-jx-character]`**。宿主或其他插件不会
- * 在 body 直接子元素里挂我们的浮层却不打标记，故该判断不会误伤；带标记的
- * 规范容器已由主路径（标记选择器）处理，这里也不会重复命中。
- *
- * @param el - body 直接子元素候选。
- * @returns true 表示是本插件无标记的残留浮层容器。
- */
-function isJxResidualRoot(el: HTMLElement): boolean {
-  // 已带规范标记 → 由标记选择器路径清扫，这里不算。
-  if (el.hasAttribute("data-dsh-jx-root")) return false;
-  // 含本插件浮层特征（直接或间接包含 [data-jx-character]）即视为残留宿主。
-  return el.querySelector('[data-jx-character]') !== null;
-}
-
-/**
- * 清扫残留的插件根容器（ADR-0017 D2）：先借暂存引用完整卸载旧 root
- * （终止其内部订阅与 effects），再移除节点。unmount 失败不阻断新挂载
- * （旧 fiber 已死，最坏退化为摘除 DOM——仍好于叠加孤儿浮层）。
- *
- * 兼容两类残留：
- *   1. 规范容器（带 `data-dsh-jx-root` 标记）——ADR-0017 起 apply 挂载的形态；
- *   2. 旧版无标记容器——历史 bundle 生成的 React root 容器（不带标记逃逸清扫，
- *      渲染多只姜晓并叠加）。按 {@link isJxResidualRoot} 识别后一并清理。
- *
- * @param doc - 承载插件容器的文档。
- */
-function sweepResidualRoots(doc: Document): void {
-  for (const el of Array.from(doc.querySelectorAll("[data-dsh-jx-root]"))) {
-    const stale = el as RootHostElement;
-    try {
-      stale.__jxRoot?.unmount();
-    } catch {
-      // 旧 root 卸载失败：静默继续摘除节点。
-    }
-    stale.remove();
-  }
-
-  // ADR-0017 加固（本工单）：旧版无标记的逃逸容器不会命中上面的标记选择器，
-  // 需按 isJxResidualRoot 逐个识别清理，堵住「硬刷新后仍多只姜晓」的缺口。
-  for (const el of Array.from(doc.body.children)) {
-    if (!(el instanceof HTMLElement)) continue;
-    if (!isJxResidualRoot(el)) continue;
-    const stale = el as RootHostElement;
-    try {
-      stale.__jxRoot?.unmount();
-    } catch {
-      // 同上：unmount 失败退化为摘除 DOM。
-    }
-    el.remove();
-  }
-}
 
 /**
  * 清扫残留的 FX 装饰层容器（ADR-0017 可重入约束覆盖面补全）。
@@ -208,8 +148,8 @@ export function apply(ctx: ClientContext): void {
   // body > [data-jx-backdrop] 容器（其清理函数随模块失效不可达）。
   sweepResidualBackdrops(document);
 
-  const container = document.createElement("div");
-  container.dataset.dshJxRoot = "";
+  // ADR-0017 D1/D2：创建带标记的容器并暂存 root 引用，供未来清扫完整卸载。
+  const container = createRootContainer(document);
   const root = createRoot(container);
   // 暂存 root 供未来清扫（含跨模块闭包）完整卸载（ADR-0017 D2）。
   (container as RootHostElement).__jxRoot = root;

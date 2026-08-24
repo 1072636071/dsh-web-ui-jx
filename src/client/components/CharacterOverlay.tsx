@@ -38,8 +38,9 @@
  *   - MutationObserver 监听盒 childList，任何外部来源塞入的越界 img 即时裁掉；
  *     裁剪事件节流告警（健康环境永不触发，触发即诊断信号）。
  *
- * 台词气泡触发（工单 06）：
- *   - 演示触发：currentState 变化时显示对应台词（STATE_SPEECH，idle 不弹）。
+ * 台词气泡触发（工单 06 + 架构审查候选者 1）：
+ *   - 演示触发：currentState 变化时经台词决策器（overlay-speech）决策台词
+ *     （STATE_SPEECH 映射，idle 不弹）。
  *   - 外部触发：props.speech 的 nonce 变化即显示新台词（供后续工单调用）。
  *
  * 状态文案标签（工单 06 追加）：
@@ -73,15 +74,13 @@ import {
   subscribeOverlayPositionStore,
   getOverlayPositionSnapshot,
   overlayPositionStore,
-  dragStart,
-  dragMove,
-  dragEnd,
   getViewportSize,
-  type DragSession,
   type OverlayPosition,
   type OverlaySize,
   type ViewportSize,
 } from "../state-machine/overlay-position.ts";
+import { createOverlayGesture } from "../state-machine/overlay-gesture.ts";
+import { createOverlaySpeech } from "../state-machine/overlay-speech.ts";
 import {
   getShowStateLabel,
   subscribeShowStateLabel,
@@ -97,12 +96,6 @@ import type {
 
 /** 拖动中提视缩放（ADR-0006 决策 5：scale 1.02）. */
 const DRAG_SCALE = 1.02;
-
-/** 点击判定：pointerup 相对 pointerdown 的位移阈值 px（ADR-0011 D1）。 */
-const CLICK_MOVE_THRESHOLD = 5;
-
-/** 点击判定：按下到松开的时长上限 ms，超过视为长按/拖动不触发（ADR-0011 D1）。 */
-const CLICK_TIME_MS = 300;
 
 /**
  * img 守卫裁剪告警的最小间隔 ms（健康环境下永不触发；触发即说明有外部
@@ -134,42 +127,9 @@ function initialReducedMotion(): boolean {
 /** 当前可显示在浮层上的状态类型（4 循环态 + 一次性表演态，ADR-0016）。 */
 type DisplayState = OverlayState | PerformanceKind;
 
-/**
- * 各循环态的演示台词（状态切换时触发）。
- * ADR-0016 四态收敛 + 表演态（done/nod-smile/frown-wave/happy/angry）；
- * welcome 入场表演已随 ADR-0023 移除。
- * thinking/reading 为 working 显示层轮换素材，不配独立台词（标签恒为工作中）。
- * 匹配设计 demo 的唐风角色语气。idle 不配台词（切回 idle 不弹气泡）。
- */
-const STATE_SPEECH: Partial<Record<DisplayState, string>> = {
-  working: "遵命，这就去办。",
-  error: "此事有蹊跷，容我再查。",
-  permission: "此事需大人首肯。",
-  done: "此事已毕，大人过目。",
-  "nod-smile": "大人英明，姜晓这便去办。",
-  "frown-wave": "既如此，姜晓告退。",
-  happy: "大人笑了，姜晓也欢喜。",
-  angry: "久候无应，姜晓有些不耐。",
-};
-
-/** 惊吓台词池（点击触发随机一句；摸鱼彩蛋随机惊吓亦从池取，ADR-0011 D4）。 */
-const SURPRISE_LINES: readonly string[] = [
-  "吓！",
-  "何人！",
-  "休要动手动脚！",
-  "咦？可是吓到大人了？",
-];
-
-/** 取惊吓台词（随机一句）。 */
-function pickSurpriseLine(): string {
-  return SURPRISE_LINES[Math.floor(Math.random() * SURPRISE_LINES.length)]!;
-}
-
-/** 取某状态的台词：surprised 走台词池随机；其余查 STATE_SPEECH（ADR-0011 D4）。 */
-function speechForState(state: DisplayState): string | undefined {
-  if (state === "surprised") return pickSurpriseLine();
-  return STATE_SPEECH[state];
-}
+// 台词决策（STATE_SPEECH 映射 / 惊吓台词池 / 点击惊吓抑制规则，ADR-0011 D4）
+// 已沉入 state-machine/overlay-speech.ts（架构审查候选者 1）；点击判据
+// （位移/时长阈值，ADR-0011 D1）与拖动会话编排沉入 overlay-gesture.ts。
 
 /**
  * 角色下方状态文案标签（工单 05：四态语义收敛 + 表演态）。
@@ -252,9 +212,10 @@ export function CharacterOverlay({
   const posRef = useRef(position);
   posRef.current = position;
 
-  // ADR-0006 决策 7：拖动会话 + 拖动中标志。dragging 驱动 cursor/opacity/scale 提视。
+  // ADR-0006 决策 7：拖动手势判定器（架构审查候选者 1，overlay-gesture）+
+  // 拖动中标志。dragging 驱动 cursor/opacity/scale 提视。
   const [dragging, setDragging] = useState(false);
-  const dragSession = useRef<DragSession | null>(null);
+  const gesture = useMemo(() => createOverlayGesture(), []);
   // viewportRef 保存最新视口供 pointermove/up 读取（resize 时同步更新）。
   const viewportRef = useRef<ViewportSize>(getViewportSize());
   // 浮层尺寸（dragMove/dragEnd 钳制用，复用 OverlaySize 类型避免内联字面量重复）。
@@ -284,10 +245,9 @@ export function CharacterOverlay({
   } | null>(null);
   const bubbleKeyRef = useRef(0);
 
-  // 点击判定（ADR-0011 D1）：pointerdown 记录按下信息，pointerup 判位移/时长。
-  const pressRef = useRef<{ x: number; y: number; t: number } | null>(null);
-  // 点击惊吓路径抑制自动弹台词（入场/退场各一次，避免双弹，ADR-0011 D4）。
-  const suppressAutoSpeechRef = useRef(false);
+  // 台词决策器（架构审查候选者 1，overlay-speech）：状态台词映射 + 惊吓台词池
+  // + 点击惊吓抑制规则（入场/退场各一次，避免双弹，ADR-0011 D4）。
+  const speechDecider = useMemo(() => createOverlaySpeech(), []);
 
   // ---- img 节点自愈守卫（overlay-img-guard）--------------------------------
   // 不变量：浮层盒直接子级 <img> 集合 ≡ React 挂载的 ref 集合（主图 +
@@ -329,15 +289,15 @@ export function CharacterOverlay({
   // 必须在 pointer 处理器之前声明（其 useCallback deps 引用 triggerPoke）。
   const triggerPoke = useCallback(() => {
     if (!runtime) return; // 无 runtime（测试/未注入）不触发
-    suppressAutoSpeechRef.current = true;
+    speechDecider.suppressAuto();
     runtime.poke();
     bubbleKeyRef.current += 1;
     setBubble({
-      text: pickSurpriseLine(),
+      text: speechDecider.pickSurpriseLine(),
       duration: DEFAULT_BUBBLE_DURATION_MS,
       key: bubbleKeyRef.current,
     });
-  }, [runtime]);
+  }, [runtime, speechDecider]);
 
   // ADR-0006 决策 4：window resize 监听 → store.setViewport 重钳制，浮层不跑到屏幕外。
   useEffect(() => {
@@ -377,19 +337,17 @@ export function CharacterOverlay({
       const interactive =
         e.target instanceof Element &&
         e.target.closest("[data-jx-interactive]") !== null;
-      const start = dragStart(
-        { x: e.clientX, y: e.clientY },
-        posRef.current,
+      const start = gesture.down({
+        point: { x: e.clientX, y: e.clientY },
+        position: posRef.current,
         interactive,
-      );
-      if (!start.active) return;
-      dragSession.current = start.session;
-      // 记录按下信息供 pointerup 做点击/拖动判定（ADR-0011 D1）。
-      pressRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
+      });
+      if (!start.dragging) return;
+      // 按下信息由 gesture 记录，供 pointerup 做点击/拖动判定（ADR-0011 D1）。
       setDragging(true);
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [],
+    [gesture],
   );
 
   // ADR-0006 决策 2/4：pointermove 跟手（dragMove 钳制到视口）→ store.move 仅内存
@@ -397,44 +355,33 @@ export function CharacterOverlay({
   // （ADR-0006 决策 3「拖动结束钳制后写入」）。
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      const session = dragSession.current;
-      if (!session) return;
-      const next = dragMove(
-        session,
-        { x: e.clientX, y: e.clientY },
-        viewportRef.current,
-        overlaySize,
-      );
-      overlayPositionStore.move(next);
+      const next = gesture.move({
+        point: { x: e.clientX, y: e.clientY },
+        viewport: viewportRef.current,
+        size: overlaySize,
+      });
+      if (next.position === undefined) return;
+      overlayPositionStore.move(next.position);
     },
-    [overlaySize],
+    [gesture, overlaySize],
   );
 
-  // ADR-0006 决策 2/3：pointerup 提交钳制结果（dragEnd）+ set 持久化，结束会话。
-  // 点击判定（ADR-0011 D1/D5）：位移 < CLICK_MOVE_THRESHOLD 且时长 ≤ CLICK_TIME_MS
-  // 视为点击 → 触发惊吓动画 + 台词；否则视为拖动/长按，不触发。
+  // ADR-0006 决策 2/3：pointerup 提交钳制结果 + set 持久化，结束会话。
+  // 点击判定（ADR-0011 D1/D5）由 gesture.up 给出：位移/时长阈值内视为
+  // 点击 → 触发惊吓动画 + 台词；否则视为拖动/长按，不触发。
   const handlePointerUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      const session = dragSession.current;
-      const press = pressRef.current;
-      pressRef.current = null;
-      if (session) {
-        const next = dragEnd(
-          session,
-          { x: e.clientX, y: e.clientY },
-          viewportRef.current,
-          overlaySize,
-        );
-        overlayPositionStore.set(next);
-        dragSession.current = null;
+      const result = gesture.up({
+        point: { x: e.clientX, y: e.clientY },
+        viewport: viewportRef.current,
+        size: overlaySize,
+      });
+      if (result.position !== undefined) {
+        overlayPositionStore.set(result.position);
         setDragging(false);
       }
-      if (press) {
-        const moved = Math.hypot(e.clientX - press.x, e.clientY - press.y);
-        const held = performance.now() - press.t;
-        if (moved < CLICK_MOVE_THRESHOLD && held <= CLICK_TIME_MS) {
-          triggerPoke();
-        }
+      if (result.click) {
+        triggerPoke();
       }
       try {
         e.currentTarget.releasePointerCapture(e.pointerId);
@@ -442,23 +389,19 @@ export function CharacterOverlay({
         // pointer capture 已释放或未设置，静默忽略。
       }
     },
-    [overlaySize, triggerPoke],
+    [gesture, overlaySize, triggerPoke],
   );
 
   // pointercancel：系统取消指针（触摸被打断等），不判点击、不触发惊吓（ADR-0011 D1）。
   const handlePointerCancel = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
-      pressRef.current = null;
-      const session = dragSession.current;
-      if (session) {
-        const next = dragEnd(
-          session,
-          { x: e.clientX, y: e.clientY },
-          viewportRef.current,
-          overlaySize,
-        );
-        overlayPositionStore.set(next);
-        dragSession.current = null;
+      const result = gesture.cancel({
+        point: { x: e.clientX, y: e.clientY },
+        viewport: viewportRef.current,
+        size: overlaySize,
+      });
+      if (result.position !== undefined) {
+        overlayPositionStore.set(result.position);
         setDragging(false);
       }
       try {
@@ -467,7 +410,7 @@ export function CharacterOverlay({
         // pointer capture 已释放或未设置，静默忽略。
       }
     },
-    [overlaySize],
+    [gesture, overlaySize],
   );
 
   // ADR-0016 播放游标：计划结构等价门槛吸收 runtime 快照引用抖动——
@@ -494,26 +437,25 @@ export function CharacterOverlay({
     };
   }, [cursor, item]);
 
-  // 演示触发：currentState 变化时显示对应台词（idle 不弹）。
-  // 与 snapshotRef 同模式：render 期间检测变化并同步 ref，避免 useEffect 闭包陈旧。
-  // 点击惊吓（ADR-0011 D4）：惊吓入场/退场时 suppressAutoSpeechRef 为真 → 抑制自动弹
-  // （台词由 triggerPoke 显式弹出）；状态回到非 surprised 后解除抑制。
+  // 演示触发：currentState 变化时经台词决策器（overlay-speech）决策台词
+  // （idle 不弹）。与 snapshotRef 同模式：render 期间检测变化并同步 ref，
+  // 避免 useEffect 闭包陈旧。
+  // 点击惊吓（ADR-0011 D4）：惊吓入场/退场期间决策器处于抑制态 → 不弹自动
+  // 台词（台词由 triggerPoke 显式弹出）；状态回到非 surprised 后解除抑制。
   const prevStateRef = useRef<DisplayState>(snapshot.currentState);
   if (snapshot.currentState !== prevStateRef.current) {
+    const decision = speechDecider.decide(
+      prevStateRef.current,
+      snapshot.currentState,
+    );
     prevStateRef.current = snapshot.currentState;
-    if (!suppressAutoSpeechRef.current) {
-      const speechText = speechForState(snapshot.currentState);
-      if (speechText) {
-        bubbleKeyRef.current += 1;
-        setBubble({
-          text: speechText,
-          duration: DEFAULT_BUBBLE_DURATION_MS,
-          key: bubbleKeyRef.current,
-        });
-      }
-    }
-    if (snapshot.currentState !== "surprised") {
-      suppressAutoSpeechRef.current = false;
+    if (decision.text !== undefined) {
+      bubbleKeyRef.current += 1;
+      setBubble({
+        text: decision.text,
+        duration: DEFAULT_BUBBLE_DURATION_MS,
+        key: bubbleKeyRef.current,
+      });
     }
   }
 

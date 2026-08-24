@@ -15,6 +15,21 @@
  *
  * 纯逻辑模块：不操作 DOM、不依赖 React。UI 经 useSyncExternalStore 订阅。
  *
+ * ## 时间接缝（与 overlay-session-runtime 的差异说明）
+ *
+ * runtime（overlay-session-runtime）统一「注入 `now()` 截止时刻 + `__tick()` 扫描」，
+ * **无真实 `setTimeout`**，测试推进 now + `__tick()` 驱动全部时间。本模块则用
+ * **真实 `setTimeout`** 排程推进，注入 `now()` 仅用于 `resolveDuration` 重排时的
+ * 锚定一致性，测试经 `vi.useFakeTimers` 驱动。二者并存是有意的分工，**不是缺陷**：
+ *
+ *   - runtime 是全浮层状态调度（防抖/彩蛋/poke/轮换，跨会话、长周期 2–5min），
+ *     需要单一可注入时钟在测试里整体推进；
+ *   - cursor 是 UI 侧每播放项的局部推进（当前可见项，时长 800ms–6s），真实
+ *     `setTimeout` 即足够，fake timers 测试直接、无状态泄漏。
+ *
+ * 维护提醒：新增时间相关行为时，先判断它属于「浮层状态调度」（走 runtime 的
+ * 注入时钟）还是「单个播放项的推进」（走 cursor 的 setTimeout），不要混用。
+ *
  * @module dsh-web-ui-jx/client
  */
 

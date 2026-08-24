@@ -28,6 +28,7 @@ import { startGrain, stopGrain } from "./grain.ts";
 import { startMicro, stopMicro } from "./micro.ts";
 import { startShimmer, stopShimmer } from "./shimmer.ts";
 import { startWarp, stopWarp } from "./warp.ts";
+import { createPersistentSetting } from "../state-machine/persistent-setting.ts";
 
 /** localStorage 键名. */
 const FX_STORAGE_KEY = "jx-fx";
@@ -102,16 +103,14 @@ function allOffState(): FxState {
 }
 
 /**
- * 从 localStorage 读取 FX 状态。
+ * 从持久化字符串解析 FX 状态。
  *
- * 容错：JSON 解析失败、字段缺失、类型错误均返回 null（调用方回退默认）。
+ * 容错：JSON 解析失败、字段缺失、类型错误均返回 undefined（工厂回落默认全开）。
  *
- * @returns 解析成功且至少有一个有效字段时返回状态，否则 null。
+ * @returns 解析成功且至少有一个有效字段时返回状态，否则 undefined。
  */
-function readStoredState(): FxState | null {
+function parseFxState(raw: string): FxState | undefined {
   try {
-    const raw = localStorage.getItem(FX_STORAGE_KEY);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<Record<FxName, unknown>>;
     const state = defaultState();
     let valid = false;
@@ -122,24 +121,23 @@ function readStoredState(): FxState | null {
         valid = true;
       }
     }
-    return valid ? state : null;
+    return valid ? state : undefined;
   } catch {
-    return null;
+    return undefined;
   }
 }
 
 /**
- * 写入 FX 状态到 localStorage。
+ * FX 意图状态设置实例（架构审查候选者 3：持久化统一走工厂）。
  *
- * 容错：localStorage 不可用（隐私模式等）时静默忽略。
+ * 注意此处持久化的是用户**意图**（reduced-motion 下不覆盖），与
+ * getFxState 反射的「实际生效状态」不同。
  */
-function writeStoredState(state: FxState): void {
-  try {
-    localStorage.setItem(FX_STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // localStorage 不可用，静默忽略
-  }
-}
+const fxIntent = createPersistentSetting<FxState>(FX_STORAGE_KEY, {
+  serialize: (state) => JSON.stringify(state),
+  parse: parseFxState,
+  default: defaultState(),
+});
 
 /**
  * 检测 prefers-reduced-motion: reduce.
@@ -189,7 +187,7 @@ function syncJsEffects(state: FxState): void {
  * @returns 当前生效的 FX 状态。
  */
 export function applyFx(): FxState {
-  let state = readStoredState() ?? defaultState();
+  let state = { ...fxIntent.reload() };
   if (prefersReducedMotion()) {
     state = allOffState();
   }
@@ -207,7 +205,7 @@ export function applyFx(): FxState {
         syncJsEffects(off);
       } else {
         // 离开 reduce：恢复 localStorage 状态（无值则默认全开）
-        const restored = readStoredState() ?? defaultState();
+        const restored = { ...fxIntent.reload() };
         applyClasses(restored);
         syncJsEffects(restored);
       }
@@ -253,10 +251,10 @@ export function teardownFx(): void {
  * @returns 更新后的完整状态。
  */
 export function setFxEnabled(name: FxName, enabled: boolean): FxState {
-  // 从 localStorage 读当前意图状态（不从 html 类读，因为 reduced-motion 下 html 类全无）
-  const stored = readStoredState() ?? defaultState();
+  // 从持久化意图状态读当前意图（不从 html 类读，因为 reduced-motion 下 html 类全无）
+  const stored = { ...fxIntent.reload() };
   stored[name] = enabled;
-  writeStoredState(stored);
+  fxIntent.set(stored);
 
   // reduced-motion 下不实际生效（仅持久化意图）
   if (prefersReducedMotion()) {

@@ -81,7 +81,7 @@ if (
 /** effect 清理器类型（与 ctx.effect 注册 fn 的返回值一致）. */
 type Disposer = () => void;
 
-/** 带暂存 root 的容器元素形状（与 src/client/index.ts 的 RootHostElement 对齐）. */
+/** 带暂存 root 的容器元素形状（与 src/client/root-lifecycle.ts 的 RootHostElement 对齐）. */
 interface RootHostLike extends HTMLElement {
   __jxRoot?: { unmount(): void } | undefined;
 }

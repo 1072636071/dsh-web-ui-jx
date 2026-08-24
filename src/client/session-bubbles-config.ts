@@ -2,10 +2,15 @@
  * session-bubbles-config — 会话气泡数量上限配置（ADR-0007 决策 5）。
  *
  * 读写 localStorage('jx-max-session-bubbles')，默认 10，钳制 [1,10]。
- * 容错对齐 skin.ts / overlay-position.ts：读失败回落默认、写失败静默忽略。
+ *
+ * 架构审查候选者 3 起：持久化 / 订阅 / 跨标签页同步统一由
+ * `persistent-setting.ts` 工厂承载（此前本模块缺失跨标签页同步，与
+ * overlay-settings 不一致）；钳制在 parse 中完成，越界 / 非法输入回落默认。
  *
  * @module dsh-web-ui-jx/client
  */
+
+import { createPersistentSetting } from "./state-machine/persistent-setting.ts";
 
 /** localStorage 键名（对齐 jx-skin / jx-fx / jx-overlay-pos 命名）. */
 const STORAGE_KEY = "jx-max-session-bubbles";
@@ -34,42 +39,42 @@ export function clampMaxSessionBubbles(value: number): number {
   );
 }
 
+/** 解析持久化值：数字解析 + 钳制；非法输入回落默认（工厂语义）. */
+function parseMax(raw: string): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_MAX_SESSION_BUBBLES;
+  return clampMaxSessionBubbles(parsed);
+}
+
+/** 上限设置实例（工厂承载持久化 / 订阅 / 跨标签页同步）. */
+const maxSessionBubbles = createPersistentSetting<number>(STORAGE_KEY, {
+  parse: parseMax,
+  default: DEFAULT_MAX_SESSION_BUBBLES,
+});
+
 /**
  * 读取会话气泡数量上限。
  *
- * 容错：localStorage 不可用、键缺失、解析失败、越界均回落默认 10。
- * 对齐 skin.ts 的 try/catch 静默忽略模式。
+ * 容错：localStorage 不可用、键缺失、解析失败、越界均回落默认 10（工厂语义）。
  *
  * @returns 钳制到 [1,10] 的上限值。
  */
 export function getMaxSessionBubbles(): number {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === null) return DEFAULT_MAX_SESSION_BUBBLES;
-    const parsed = Number(raw);
-    return clampMaxSessionBubbles(parsed);
-  } catch {
-    return DEFAULT_MAX_SESSION_BUBBLES;
-  }
+  return maxSessionBubbles.get();
 }
 
 /**
  * 写入会话气泡数量上限。
  *
- * 钳制到 [1,10] 后写入 localStorage。容错：localStorage 不可用时静默忽略。
- * 写入后通知订阅者（SessionBubbleList 即时生效，ADR-0007 决策 5「上限变化即时生效」）。
+ * 钳制到 [1,10] 后写入 localStorage（不可用时静默忽略）并通知订阅者
+ * （SessionBubbleList 即时生效，ADR-0007 决策 5「上限变化即时生效」）。
  *
  * @param value - 待写入值（越界自动钳制）。
  * @returns 钳制后实际写入的值（供调用方即时更新视图状态）。
  */
 export function setMaxSessionBubbles(value: number): number {
   const clamped = clampMaxSessionBubbles(value);
-  try {
-    localStorage.setItem(STORAGE_KEY, String(clamped));
-  } catch {
-    // localStorage 不可用，静默忽略（仅本次会话生效）。
-  }
-  notifyMaxSessionBubbles(clamped);
+  maxSessionBubbles.set(clamped);
   return clamped;
 }
 
@@ -77,14 +82,14 @@ export function setMaxSessionBubbles(value: number): number {
 // 轻量 store（供 SessionBubbleList useSyncExternalStore 订阅，即时生效）
 // ---------------------------------------------------------------------------
 
-let cachedMax = getMaxSessionBubbles();
+let cachedMax = maxSessionBubbles.get();
 const maxListeners = new Set<() => void>();
 
-function notifyMaxSessionBubbles(value: number): void {
+maxSessionBubbles.subscribe((value) => {
   if (value === cachedMax) return;
   cachedMax = value;
   for (const listener of maxListeners) listener();
-}
+});
 
 /**
  * 订阅上限变化（供 useSyncExternalStore）。

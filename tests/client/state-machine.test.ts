@@ -419,7 +419,8 @@ describe("createHostEventAdapter: 宿主事件接入口（五目标）", () => {
 describe("素材 URL 构造", () => {
   it("loopAssetUrl: /api/dsh-jx/character/{state}.webp（含表演态）", () => {
     expect(loopAssetUrl("idle")).toBe("/api/dsh-jx/character/idle.webp");
-    expect(loopAssetUrl("thinking")).toBe(
+    // thinking/reading 为 working 显示层轮换素材（ADR-0016），走 workingLoopAssetUrl。
+    expect(workingLoopAssetUrl("thinking")).toBe(
       "/api/dsh-jx/character/thinking.webp",
     );
     expect(loopAssetUrl("surprised")).toBe(

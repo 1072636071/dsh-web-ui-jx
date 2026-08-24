@@ -59,13 +59,13 @@ import {
   type TransitionPlaybackItem,
   type WorkingLoopAsset,
 } from "./overlay-state-machine.ts";
+import { resolveDisplayLayer } from "./display-arbiter.ts";
 import {
   extractCore,
   diffTarget,
   type SnapshotCore,
 } from "./session-follow.ts";
 import {
-  isRotatableState,
   pickNextVariant,
   rotationPeriodMs,
   rotationPool,
@@ -936,152 +936,156 @@ export function createOverlaySessionRuntime(
   // 快照计算
   // ---------------------------------------------------------------------------
 
+  /**
+   * 计算当前快照。
+   *
+   * 显示层仲裁沉入 display-arbiter（架构审查候选者 2）：优先级
+   * emergency > poke > performance > easter-egg > working-rotation >
+   * parallel-working > focus-* > idle 是 resolveDisplayLayer 的接口承诺；
+   * 本函数只按胜出层组装快照（各层计划构造依赖会话/姿态闭包，留在本模块）。
+   */
   function computeSnapshot(): RuntimeSnapshot {
-    // 1. 紧急抢焦：显示紧急会话（入场源姿态经 idle 中转，计划内容稳定）。
-    if (emergency !== undefined) {
-      stopVariantRotation();
-      const plan = viaIdlePlan(
-        emergency.pose,
-        emergency.state,
-        loopItem(emergency.state, loopAssetUrl(emergency.state)),
-      );
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: emergency.state,
-        playback: plan,
-        focusNonce,
-      };
-    }
+    const entry = focusSessionIdToEntry(currentFocusSessionId);
+    const layer = resolveDisplayLayer({
+      emergencyActive: emergency !== undefined,
+      pokeActive: poke !== undefined,
+      performanceActive: performance !== undefined,
+      easterEggActive: egg !== undefined,
+      workingRotationActive: rotation !== undefined,
+      parallelHold: isParallelHold(),
+      focusState: entry?.lastState,
+    });
 
-    // 2. poke 惊吓（显示层覆盖，无会话时也可用）。
-    if (poke !== undefined) {
-      stopVariantRotation();
-      if (poke.phase === "entry") {
+    switch (layer) {
+      case "emergency": {
+        // 紧急抢焦：显示紧急会话（入场源姿态经 idle 中转，计划内容稳定）。
+        stopVariantRotation();
+        const em = emergency!;
         const plan = viaIdlePlan(
-          poke.sourcePose,
-          "surprised",
-          loopItem("surprised", loopAssetUrl("surprised")),
+          em.pose,
+          em.state,
+          loopItem(em.state, loopAssetUrl(em.state)),
         );
+        return {
+          focusSessionId: currentFocusSessionId,
+          currentState: em.state,
+          playback: plan,
+          focusNonce,
+        };
+      }
+      case "poke": {
+        // poke 惊吓（显示层覆盖，无会话时也可用）。
+        stopVariantRotation();
+        const pk = poke!;
+        if (pk.phase === "entry") {
+          const plan = viaIdlePlan(
+            pk.sourcePose,
+            "surprised",
+            loopItem("surprised", loopAssetUrl("surprised")),
+          );
+          return {
+            focusSessionId: currentFocusSessionId,
+            currentState: "surprised",
+            playback: plan,
+            focusNonce,
+          };
+        }
         return {
           focusSessionId: currentFocusSessionId,
           currentState: "surprised",
-          playback: plan,
+          playback: pk.exitPlan ?? [],
           focusNonce,
         };
       }
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: "surprised",
-        playback: poke.exitPlan ?? [],
-        focusNonce,
-      };
-    }
-
-    // 3. 一次性表演（done/nod-smile/frown-wave）。
-    if (performance !== undefined) {
-      stopVariantRotation();
-      if (performance.phase === "entry") {
+      case "performance": {
+        // 一次性表演（done/nod-smile/frown-wave）。
+        stopVariantRotation();
+        const pf = performance!;
+        if (pf.phase === "entry") {
+          return {
+            focusSessionId: currentFocusSessionId,
+            currentState: pf.kind,
+            playback: performanceEntryPlan(pf.kind, pf.sourcePose),
+            focusNonce,
+          };
+        }
         return {
           focusSessionId: currentFocusSessionId,
-          currentState: performance.kind,
-          playback: performanceEntryPlan(
-            performance.kind,
-            performance.sourcePose,
-          ),
+          currentState: pf.kind,
+          playback: pf.exitPlan ?? [],
           focusNonce,
         };
       }
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: performance.kind,
-        playback: performance.exitPlan ?? [],
-        focusNonce,
-      };
-    }
-
-    // 4. 摸鱼彩蛋（并行驻留期间）。
-    if (egg !== undefined) {
-      stopVariantRotation();
-      if (egg.phase === "entry") {
-        const plan = viaIdlePlan(
-          egg.sourcePose,
-          egg.expression,
-          loopItem(egg.expression, loopAssetUrl(egg.expression)),
-        );
+      case "easter-egg": {
+        // 摸鱼彩蛋（并行驻留期间）。
+        stopVariantRotation();
+        const eg = egg!;
+        if (eg.phase === "entry") {
+          const plan = viaIdlePlan(
+            eg.sourcePose,
+            eg.expression,
+            loopItem(eg.expression, loopAssetUrl(eg.expression)),
+          );
+          return {
+            focusSessionId: currentFocusSessionId,
+            currentState: eg.expression,
+            playback: plan,
+            focusNonce,
+          };
+        }
         return {
           focusSessionId: currentFocusSessionId,
-          currentState: egg.expression,
-          playback: plan,
+          currentState: eg.expression,
+          playback: eg.exitPlan ?? [],
           focusNonce,
         };
       }
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: egg.expression,
-        playback: egg.exitPlan ?? [],
-        focusNonce,
-      };
-    }
-
-    // 5. 工作轮换（显示 working；含待整圈边界切出的 done 驻留）。
-    if (rotation !== undefined) {
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: "working",
-        playback: rotation.plan,
-        focusNonce,
-      };
-    }
-
-    // 6. 基础显示：并行驻留 → working（惰性起播工作轮换）。
-    if (isParallelHold()) {
-      const holdRotation = enterWorkingDisplay();
-      if (holdRotation !== undefined) {
+      case "working-rotation":
+        // 工作轮换在播（显示 working；含待整圈边界切出的 done 驻留）。
         return {
           focusSessionId: currentFocusSessionId,
           currentState: "working",
-          playback: holdRotation.plan,
+          playback: rotation!.plan,
           focusNonce,
         };
-      }
-    }
-
-    // 7. 基础显示：跟随焦点会话（idle 变体轮换 / working 工作轮换）。
-    const entry = focusSessionIdToEntry(currentFocusSessionId);
-    if (entry === undefined) {
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: IDLE,
-        playback: ensureVariantRotation("idle"),
-        focusNonce,
-      };
-    }
-    if (entry.lastState === "working") {
-      const focusRotation = enterWorkingDisplay();
-      if (focusRotation !== undefined) {
+      case "parallel-working":
+      case "focus-working": {
+        // 基础显示：并行驻留 / 焦点会话 working → 工作轮换（惰性起播）。
+        const workingRotation = enterWorkingDisplay();
+        if (workingRotation !== undefined) {
+          return {
+            focusSessionId: currentFocusSessionId,
+            currentState: "working",
+            playback: workingRotation.plan,
+            focusNonce,
+          };
+        }
+        // 不可达（enterWorkingDisplay 惰性起播必返段），防御回落 idle。
         return {
           focusSessionId: currentFocusSessionId,
-          currentState: "working",
-          playback: focusRotation.plan,
+          currentState: IDLE,
+          playback: ensureVariantRotation("idle"),
           focusNonce,
         };
       }
+      case "focus-idle":
+      case "idle":
+        // 无焦点 / 焦点条目缺失 / 焦点 idle：idle 变体轮换（ADR-0013）。
+        return {
+          focusSessionId: currentFocusSessionId,
+          currentState: IDLE,
+          playback: ensureVariantRotation("idle"),
+          focusNonce,
+        };
+      case "focus-follow":
+        // 兜底（permission/error 理论上已被紧急层接管）：直接显示循环。
+        return {
+          focusSessionId: currentFocusSessionId,
+          currentState: entry!.lastState,
+          playback: [loopItem(entry!.lastState, loopAssetUrl(entry!.lastState))],
+          focusNonce,
+        };
     }
-    if (entry.lastState === "idle" && isRotatableState("idle")) {
-      return {
-        focusSessionId: currentFocusSessionId,
-        currentState: IDLE,
-        playback: ensureVariantRotation("idle"),
-        focusNonce,
-      };
-    }
-    // 兜底（permission/error 理论上已被紧急层接管）：直接显示循环。
-    return {
-      focusSessionId: currentFocusSessionId,
-      currentState: entry.lastState,
-      playback: [loopItem(entry.lastState, loopAssetUrl(entry.lastState))],
-      focusNonce,
-    };
   }
 
   function emit(): void {

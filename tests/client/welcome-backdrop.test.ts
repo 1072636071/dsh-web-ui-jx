@@ -31,6 +31,7 @@ import {
 } from "../../src/client/welcome-backdrop-config.ts";
 import {
   SKIN_ATTR,
+  initSkin,
   setSkinEnabled,
 } from "../../src/client/skin.ts";
 import {
@@ -48,8 +49,10 @@ beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = "";
   document.body.style.cssText = "";
-  // 默认皮肤开（apply 入口行为）
+  // 默认皮肤开（apply 入口行为）；皮肤设置已收敛为 persistent-setting 工厂
+  // 实例（内存缓存），localStorage.clear 后须 reload 重同步缓存（initSkin）。
   document.body.setAttribute(SKIN_ATTR, "");
+  initSkin();
 });
 
 // ---------------------------------------------------------------------------

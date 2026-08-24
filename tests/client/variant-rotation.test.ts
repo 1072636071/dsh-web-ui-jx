@@ -247,7 +247,10 @@ describe("variant-rotation 模块（ADR-0016 收敛：仅 idle 池）", () => {
   it("rotationPeriodMs：基础段=整圈时长（无停顿，切点=回卷点），变体段=名义时长+段间停顿", () => {
     expect(rotationPeriodMs(loopAssetUrl("idle"))).toBe(BASE_SEGMENT_MS.idle);
     expect(BASE_SEGMENT_MS.idle).toBe(9916); // 148 帧 × 67ms
-    expect(BASE_SEGMENT_MS.working).toBeUndefined(); // working 池已移除
+    // working 池已移除（ADR-0016：working 驻留走工作轮换，非变体池）
+    expect(
+      (BASE_SEGMENT_MS as Record<string, number | undefined>).working,
+    ).toBeUndefined();
     // 变体 loops=1 播完定格末帧（中性姿），+400ms 停顿读作自然微动
     expect(rotationPeriodMs(`${CHARACTER_ASSET_PREFIX}/idle-v2.webp`)).toBe(
       VARIANT_SEGMENT_MS + ROTATION_HOLD_MS,
