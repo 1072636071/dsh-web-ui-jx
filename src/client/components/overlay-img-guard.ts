@@ -59,8 +59,9 @@ export function createOverlayImgGuard(
     prune();
   });
   observer.observe(box, { childList: true });
-  // 建观察时同步裁剪一次，兜住 observer 建立前窗口内的残留。
-  prune();
+  // 建观察时裁剪一次，兜住 observer 建立前窗口内的残留。
+  // 延迟到下一微任务，避免 React ref 尚未赋值时误裁合法 img（ADR-0025）。
+  queueMicrotask(() => prune());
 
   return {
     prune,

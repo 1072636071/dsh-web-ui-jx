@@ -6,7 +6,7 @@
  *   1. 紧急态（permission/error）：任意会话紧急 → 立即接管显示（硬切，
  *      打断一切进行中的表演/poke/彩蛋/工作轮换，紧急态即时原则）。
  *   2. poke 惊吓（ADR-0011）：点击触发的显示层覆盖。
- *   3. 一次性表演（done/welcome/nod-smile/frown-wave）：边沿触发、播完回落。
+ *   3. 一次性表演（done/nod-smile/frown-wave）：边沿触发、播完回落。
  *   4. 摸鱼彩蛋（happy/angry/surprised）：并行驻留期间随机触发。
  *   5. working 显示层轮换（thinking/reading 各播 2 整圈，经 idle 中转交替）。
  *   6. 基础显示：并行驻留 → working 轮换；否则跟随焦点会话 SM
@@ -77,7 +77,7 @@ export const FOCUS_DEBOUNCE_MS = 2000;
 /** poke 惊吓循环驻留时长 ms（惊吓循环态可见后开始计时，ADR-0011）。 */
 export const POKE_HOLD_MS = 3000;
 
-/** done / welcome 表演驻留时长 ms（表演循环体可见后起算，PRD 决策 7）。 */
+/** done 表演驻留时长 ms（表演循环体可见后起算，PRD 决策 7）。 */
 export const PERFORMANCE_HOLD_MS = 3000;
 
 /** nod-smile / frown-wave 权限反馈表演驻留时长 ms（循环体约 2s，PRD 决策 7）。 */
@@ -115,7 +115,8 @@ export const WORKING_ROTATION_LOOPS = 2;
  * 过渡段实测时长表（ms）。2026-08-23 素材重组后全量复测（复测脚本
  * `.temp/scripts/measure_all_durations.mjs`，素材重生成后需同步重测）。
  * 三档：表情边（33ms × 23 帧）= 766；标准经典边（67×44 + 536 定格）= 3484；
- * 长经典边（67×74 + 536 定格）= 5494。共 22 边，与 TRANSITION_EDGES 一一对应。
+ * 长经典边（67×74 + 536 定格）= 5494。共 20 边（ADR-0023 移除 welcome 两边后），
+ * 与 TRANSITION_EDGES 一一对应。
  *
  * 用途：poke / 彩蛋 / 表演 / 工作轮换的显示层序列定时器按「过渡段真实
  * 总时长 + 驻留时长」排程——驻留从目标态可见后起算、退场在过渡播完时清除。
@@ -134,7 +135,6 @@ const TRANSITION_EDGE_MS: Readonly<Record<string, number>> = Object.freeze({
   "idle-reading": 5494,
   "idle-surprised": 766,
   "idle-thinking": 3484,
-  "idle-welcome": 3484,
   "nod-smile-idle": 5494,
   "permission-frown-wave": 3484,
   "permission-idle": 3484,
@@ -142,7 +142,6 @@ const TRANSITION_EDGE_MS: Readonly<Record<string, number>> = Object.freeze({
   "reading-idle": 5494,
   "surprised-idle": 766,
   "thinking-idle": 3484,
-  "welcome-idle": 3484,
 });
 
 /** 表内缺项边的回退时长：取表内最大档（宁晚勿早——晚切落在定格/循环帧，早切截断过渡）。 */
@@ -271,7 +270,7 @@ interface EmergencyDisplay {
 }
 
 /** 一次性表演种类（显示层调度；surprised/happy/angry 归 poke/彩蛋机制）。 */
-type PerformanceKindLayer = "done" | "welcome" | "nod-smile" | "frown-wave";
+type PerformanceKindLayer = "done" | "nod-smile" | "frown-wave";
 
 /** 一次性表演显示层。 */
 interface PerformanceLayer {
@@ -354,10 +353,6 @@ export interface CreateOverlaySessionRuntimeOptions {
    * 未注入时变体轮换禁用（纯测试环境默认行为与现状一致）。
    */
   variantRotationEnabled?: () => boolean;
-  /**
-   * 浮层首次入场是否播 welcome 表演（默认 true；测试可关闭以断言初始 idle）。
-   */
-  welcomeOnStart?: boolean;
 }
 
 /**
@@ -375,7 +370,6 @@ export function createOverlaySessionRuntime(
   const tickIntervalMs = opts?.tickIntervalMs ?? 1000;
   const random = opts?.random ?? Math.random;
   const rotationEnabled = opts?.variantRotationEnabled ?? (() => false);
-  const welcomeOnStart = opts?.welcomeOnStart ?? true;
 
   const entries = new Map<SessionId, SessionEntry>();
   const listeners = new Set<(snapshot: RuntimeSnapshot) => void>();
@@ -623,7 +617,7 @@ export function createOverlaySessionRuntime(
    * 表演入场计划：
    * - 权限反馈（nod-smile/frown-wave）从 permission 出发走直达反馈链
    *   permission→kind（批准/拒绝链边，不经 idle 中转——idle→kind 为弃用边）；
-   * - 其余（done/welcome 及任意源姿态）经 idle 中转 [source→idle?, idle→kind, loop]。
+   * - 其余（done 及任意源姿态）经 idle 中转 [source→idle?, idle→kind, loop]。
    */
   function performanceEntryPlan(
     kind: PerformanceKindLayer,
@@ -688,9 +682,7 @@ export function createOverlaySessionRuntime(
     pendingDone = undefined;
     stopVariantRotation();
     const holdMs =
-      kind === "done" || kind === "welcome"
-        ? PERFORMANCE_HOLD_MS
-        : PERMISSION_FEEDBACK_HOLD_MS;
+      kind === "done" ? PERFORMANCE_HOLD_MS : PERMISSION_FEEDBACK_HOLD_MS;
     performance = {
       kind,
       phase: "entry",
@@ -1007,7 +999,7 @@ export function createOverlaySessionRuntime(
       };
     }
 
-    // 3. 一次性表演（done/welcome/nod-smile/frown-wave）。
+    // 3. 一次性表演（done/nod-smile/frown-wave）。
     if (performance !== undefined) {
       stopVariantRotation();
       if (performance.phase === "entry") {
@@ -1333,14 +1325,6 @@ export function createOverlaySessionRuntime(
 
   // 初始同步
   handleListChange();
-
-  // ---------------------------------------------------------------------------
-  // welcome 入场表演（浮层首次入场，PRD 决策 7）
-  // ---------------------------------------------------------------------------
-
-  if (welcomeOnStart && emergency === undefined) {
-    startPerformance("welcome", "idle");
-  }
 
   // ---------------------------------------------------------------------------
   // tick：焦点会话 working 进入防抖 deadline 判定

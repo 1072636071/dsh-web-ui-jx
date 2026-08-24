@@ -8,15 +8,15 @@
 | 术语 | 定义 |
 | --- | --- |
 | dsh-web-ui-jx | 本项目：**独立 DSH Bundle 插件**（host/client 双半区），实现姜晓角色素材 UI。参考 `dsh-web-ui` 的 jiangxiao 皮肤做法，但不复用其任何包（ADR-0001）。 |
-| 素材（assets） | 插件运行所需的真实资源，存放于 `assets/`：`character/`（webp：37 个 = 15 循环素材（idle/permission/error 循环态、thinking/reading 工作轮换、done/welcome/nod-smile/frown-wave 表演体、happy/angry/surprised 表情、3 idle 变体）+ 22 过渡段，ADR-0016 素材重组后）、`fonts/`（2 woff2）、`preview/`（2 png）。全部进 git（ADR-0003）。 |
-| 素材处理工具 | `tools/` 下 Python 脚本（循环修复 / 绿幕转码 / 运动诊断 / 变体白点重定靶——变体白平衡目标是**状态主素材白点**而非中性白，见 `tools/variant_color_match.py`），用法见 `tools/README.md`。 |
+| 素材（assets） | 插件运行所需的真实资源，存放于 `assets/`：`character/`（webp：34 个 = 14 循环素材（idle/permission/error 循环态、thinking/reading 工作轮换、done/nod-smile/frown-wave 表演体、happy/angry/surprised 表情、3 idle 变体）+ 20 过渡段，四态收敛素材重组后；welcome 三件套已随 ADR-0023 移除（原「ADR-0016 素材重组」引用系笔误））、`fonts/`（2 woff2）、`preview/`（2 png）。全部进 git（ADR-0003）。 |
+| 素材处理工具 | `tools/` 下 Python 脚本。**绿幕转码现行管线 = `openmm_chroma_convert.py`**（openCodeMM 方式：ffmpeg YUV chromakey + auto-color，不做 despill/白平衡，ADR-0021——自研 despill 管线 `variant_video_convert.py` 因偏红四案降级留档）；另有循环修复（`anim_loop_repair.py`）/ 运动诊断（`diag_classic_motion.py`）/ 变体白点重定靶（`variant_color_match.py`，仅**换生成批次**时向状态主素材白点对齐）。用法见 `tools/README.md`。 |
 | 角色浮层 | client 半区注入的透明角色层：四态状态机驱动的 WebP 播放序列 + 台词气泡；整盒可拖动（ADR-0006，反转装饰层穿透原则）；待机支持变体轮换（ADR-0013）。 |
 | 循环态 | 持续循环播放的稳态节点（`OverlayState`，素材 `{state}.webp`）：idle / working / permission / error 四态（ADR-0016）。working 的画面由显示层轮换 thinking/reading 素材担当。 |
 | 过渡段 | 两端点间的单次播放素材 `transition-{from}-{to}.webp`；无直接边时经 idle 中转。6 个**中间态表情**（shy-smile/shush/nod-smile/frown-wave/chin-rest/cheek-rest）只作过渡段端点、无循环素材；ADR-0009 起活化（permission 情绪化 + idle 低频点缀）。 |
 | 生活化表情 | ADR-0009 新增 3 表情（各 `idle↔表情` 2 边）：happy = 会话完成（done）；angry = 审批等待升级线（ADR-0014：卡住 ≥30s）；surprised = 点击惊吓一次播完即回（ADR-0011）。 |
 | 点击惊吓（poke） | 点击姜晓触发的显示层覆盖（ADR-0011）：pointerup 位移 <5px 且 ≤300ms 判点击（拖动/长按/`[data-jx-interactive]` 不触发）；runtime 覆盖序列「当前态→idle→surprised→循环 3s→idle→当前态」；显式弹惊吓台词并抑制自动双弹；摸鱼彩蛋互斥、紧急态可打断。 |
 | 焦点层防抖 | runtime 焦点呈现层缓冲（ADR-0010 D1 + ADR-0016 收敛）：仅 working 进入防抖约 2000ms（防连续回合/多会话切焦抖动）；permission/error 硬切例外；working 回落保护由 done 表演整圈边界切出承担。 |
-| 一次性表演 | 边沿触发、播完自动回落、不占循环态的固定演出序列（`PerformanceKind`，ADR-0016）：done（收工）/ welcome（入场）/ nod-smile（批准）/ frown-wave（拒绝）/ surprised（poke 惊吓）/ happy、angry（摸鱼彩蛋）。 |
+| 一次性表演 | 边沿触发、播完自动回落、不占循环态的固定演出序列（`PerformanceKind`，设计沿革见 ADR-0023 背景）：done（收工）/ nod-smile（批准）/ frown-wave（拒绝）/ surprised（poke 惊吓）/ happy、angry（摸鱼彩蛋）。入场无表演：浮层首次出现直接落待机（ADR-0023）。 |
 | 循环自然三原则 | 切换只发生在整圈边界；跨姿态必经过渡段；过渡段首尾帧与源/目标循环首帧对齐（ADR-0016）。 |
 | 并行驻留 | 多会话全局忙碌表达（ADR-0010 D2）：≥2 会话 running 且至少一个非 idle 时，浮层驻留 working 不跟随焦点演变；紧急态仍抢焦，消退后重评条件。 |
 | 摸鱼彩蛋 | 并行驻留期间的随机表情点缀（ADR-0010 D3）：非紧急态下每 2–5 分钟随机播「working→idle→彩蛋→idle→working」，不抢焦、不写入会话 SM 状态。 |
@@ -48,6 +48,7 @@
 | 宣纸梅花（浅色） | 浅色主题名：宣纸 · 梅花。米白底面、粉梅、深金文字。 |
 | 官方三层 token 架构 | 唯一设计基准（ADR-0002）：L1 base（`--dsw-*`）→ L2 skin remap（`body[data-dsh-jiangxiao]`）→ L3 组件（只消费语义别名）。固化于根目录 `DESIGN.md`。 |
 | 暗/亮信号 | 官方主题信号 `body[data-ds-dark-theme]`；浅色变体 = `:not([data-ds-dark-theme])`。 |
+| 欢迎背景 | 整页视口背景图层：姜晓欢迎立绘（2560×1440，16:9）垫于全部宿主内容之下；素材随插件打包 `assets/welcome/`，经 `/api/dsh-jx` 本机路由服务，不依赖外网；设置卡开关可整体关闭（ADR-0024）。 |
 
 ## FX 特效系统
 
@@ -94,5 +95,7 @@
 | ADR-0020 | 色度键 alpha 改用 despill-first 距离（修衣物发红/发紫）：源视频绿灰阴影被原始色距误判半透明，un-premultiply 压垮 G 通道 → 品红；去溢色后同类比较使绿幕归零、衣料 opaque、金饰受保护。 |
 | ADR-0020-pending-interaction-bubble-effect | 等待用户交互的会话气泡朱砂印特效与折叠豁免：pendingInteraction 非空时气泡描边转朱砂、点位换涟漪扩散环、组级聚合豁免折叠；与 despill-first-alpha 同名异决策，引用须带全名。 |
 | ADR-0022 | 会话气泡单击保留 + 拖拽收纳双投放区（收起 = 本地 dismissed 可逆 / 归档 = archiveSession 不可逆）；双击方案否决；两开关：①查看后保留气泡（总开关，默认开）②拖拽归档（默认开）；仅 completed 类可拖；归档区拒当前泡；派生层排除 archivedSessionIds 防复活。 |
+| ADR-0023 | 移除 welcome 入场表演（彻底移除）：素材三件套、状态机节点与 idle↔welcome 边、`welcomeOnStart` 触发逻辑、台词标签全清（包体减约 15MB）；首次入场直接落待机无表演（否决复用现有表演顶替——业务语义稀释）；tools 历史脚本名单与 .scratch / memorial 历史记录不动。 |
+| ADR-0024 | 欢迎背景整页壁纸层（待实施）：fixed cover 视口背景，WebP 随包经 /api/dsh-jx 本机服务；开启时 --jx-surface-* 联动半透明；壁纸/面板双滑杆可调（默认 85% / 75%）+ 总开关归皮肤开关 section；深浅双主题显示（浅色白纱）；PNG 直录与仅深色生效两案否决。 |
 
 详见 `docs/adr/`。

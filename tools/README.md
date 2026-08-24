@@ -21,7 +21,7 @@ pip install Pillow numpy imageio-ffmpeg
 - `Pillow`：帧加载 / webp 读写 / 缩放。
 - `NumPy`：向量化色度键、去溢色、质检统计。
 - `imageio-ffmpeg`：自带 ffmpeg 二进制（`imageio_ffmpeg.get_ffmpeg_exe()` 取路径），
-  免装系统级 ffmpeg。仅 `variant_video_convert.py` 用。
+  免装系统级 ffmpeg。`variant_video_convert.py` 与 `openmm_chroma_convert.py` 用。
 
 > 本机曾经尝试 `pip install ffmpeg-python` + 系统 ffmpeg，路径问题多。
 > `imageio-ffmpeg` 最省心，直接拿到静态二进制。
@@ -34,15 +34,16 @@ pip install Pillow numpy imageio-ffmpeg
 |------|------|--------|
 | 修循环缺陷（单向动作/局部爆亮） | `anim_loop_repair.py` | 素材首尾缝 > 5 或局部突变（如符咒爆亮） |
 | 经典态烘焙正反倒放（重启突兀） | `anim_loop_repair.py --pingpong-classic` | 姿态回起点但动作方向单调、循环点速度反向可见（ADR-0015） |
-| 把绿幕视频转成变体 webp | `variant_video_convert.py` | 用户交付新动作视频，要进角色轮换池 |
-| 变体白点重定靶（对齐状态主素材） | `variant_color_match.py` | 变体与所属经典态并排可见冷暖差时（2026-08-23 首案） |
+| 把绿幕视频转成 webp（**现行管线**） | `openmm_chroma_convert.py` | 用户交付新动作视频（变体或循环体），openCodeMM 方式转码入库（ADR-0021） |
+| 变体白点重定靶（对齐状态主素材） | `variant_color_match.py` | **换生成批次**导致变体与经典态并排可见冷暖差时（同源生成不需要） |
 | 判断现有素材是真循环还是单向动作 | `diag_classic_motion.py` | 决定是否要烘焙倒放 |
+| （留档）自研 despill 管线转码 | `variant_video_convert.py` | 已被 openmm_chroma_convert 取代（偏红第四案，ADR-0021）；QC 门与水印擦除仍被复用 |
 
 **典型新素材入库流程**：
-1. 用户把 `.mp4` 放到 `C:\Users\jxc1\Downloads\`，命名 `状态-动作.mp4`（中文可）。
-2. 在 `variant_video_convert.py` 的 `CONVERSIONS` 字典加一行映射。
-3. 跑 `python tools/variant_video_convert.py 目标名`（单文件）或全量跑。
-4. 看 QC 输出；不过门的换后备素材；通过的看 `_check.png` 目检条。
+1. 用户把绿幕 `.mp4` 放进 `E:\work\sp\openCodeMM\docs\video\`（中文可）。
+2. 在 `openmm_chroma_convert.py` 的 `CONVERSIONS` 字典加一行映射（模式：变体 `variant` / 循环体 `loop`）。
+3. 跑 `python tools/openmm_chroma_convert.py 目标名`（单文件）或全量；先 `--dry-run` 看指标。
+4. 看 QC 输出 + `.temp/output/openmm-reconvert/{name}_light.png` **浅底**目检条（最终闸门）。
 5. 入库后跑 `npm run build && npm run verify`，再推。
 
 **典型循环修复流程**：
@@ -120,7 +121,12 @@ REPAIRS = {
 
 ---
 
-## 4. `variant_video_convert.py` —— 视频→变体 webp
+## 4. `variant_video_convert.py` —— 视频→变体 webp（留档，已被 §5 取代）
+
+> **2026-08-24 起降级为留档**：本脚本的自研 despill 管线是「偏红」四轮投诉
+> 的根源（深色和服被洗成半透明粉灰，见 §5 踩坑第四案与 ADR-0021）。
+> 新素材一律走 `openmm_chroma_convert.py`；本脚本的 QC 门
+> （block-max / 中性帧复验）、水印擦除与规格常量仍被新脚本复用。
 
 ### 作用
 
@@ -206,7 +212,62 @@ NEUTRAL_WARN = 30.0  # 首尾帧 vs 中性帧 报告阈值（仅报告，不硬�
 
 ---
 
-## 5. `variant_color_match.py` —— 变体白点重定靶
+## 5. `openmm_chroma_convert.py` —— 绿幕转码（openCodeMM 方式，现行管线）
+
+### 作用
+
+把 openCodeMM `docs/video/` 下的绿幕 `.mp4` 按**素材源项目 openCodeMM 的
+`chroma_key_green.py` 方式**转码入库（ADR-0021）：每文件自动探测绿幕底色
+（首帧四角均值）→ ffmpeg `chromakey`（YUV 色度平面，similarity=0.20、
+blend=0.03）→ 水印矩形清透明 → Pillow 合成 WebP（360×640、67ms/帧、
+quality=90、method=4）。**不做** RGB 距离坡道、un-premultiply、despill、
+白平衡——颜色原样保留，与经典态（标准色盘）同源同法。
+
+两种模式：`variant`（loop=1 一次性，变体轮换）/ `loop`（pingpong 烘焙
+2n−2 帧、loop=0，循环体规格同经典态）。
+
+### 用法
+
+```bash
+python tools/openmm_chroma_convert.py             # 转 CONVERSIONS 全部
+python tools/openmm_chroma_convert.py idle-v2     # 只转一个
+python tools/openmm_chroma_convert.py --dry-run   # 只跑质检，不落盘
+```
+
+### 配置
+
+**`CONVERSIONS` 字典**（目标素材名 → 源视频相对路径 + 模式），源视频放
+`E:\work\sp\openCodeMM\docs\video\`。原件备份 `bak/openmm-reconvert/`。
+
+### 质检
+
+- 指标a 局部突变扫描（block-max，上限 165，报告制）；
+- 指标b 首/尾帧 vs 中性参考（变体=idle.webp 首帧 / 循环体=入场过渡尾帧）；
+- 指标c 不透明占比与暗部占比（洗白缺陷量化，经典态基准 ≈40%/44%）；
+- **浅色宣纸底目检条** `.temp/output/openmm-reconvert/{name}_light.png`
+  ——最终闸门（目检条底色必须贴近真实展示背景）。
+
+### 踩坑（偏红四案总结）
+
+- **第四案：自研管线整体洗白深色和服（本次替换管线的直接原因）**：
+  2026-08-24 用户复报「偏红问题依然存在」。浅底并排目检发现自研管线
+  产出的 idle-v2/v3/v4、nod-smile、frown-wave 深色和服被洗成半透明粉灰、
+  金纹褪色；白点测量 wpG-R ≈ −0.7~−2.6（近中性），而经典色盘
+  −11~−16（暖调）——despill + 中性白平衡把素材拉离了角色标准色盘。
+  改用 openCodeMM ffmpeg chromakey（不做任何颜色操作）重转 5 素材后：
+  白点归位 −12.1~−16.6、和服恢复深黑、体积减半（nod-smile 15.3→6.3MB）。
+  **教训：经典态之所以正常，恰恰因为它什么都没做；同源生成的新素材
+  不需要任何颜色校正，多轮「修偏红」是在错误目标（中性白）上迭代。**
+- **变体帧数随源视频时长浮动**：5.06s 源 @14.925fps 抽出 74 帧（4958ms），
+  旧批 75 帧（5025ms）。`webp-duration.test.ts` 真实素材回归值需同步；
+  `VARIANT_SEGMENT_MS=5092`（76 帧名义上界）无需动，运行期按 ANMF
+  真实时长推进。
+- **源视频文件名含中文**：PowerShell 直接传参会因控制台编码找不到文件，
+  用 Python（`subprocess` + Unicode 路径）驱动 ffmpeg 可靠。
+
+---
+
+## 6. `variant_color_match.py` —— 变体白点重定靶
 
 ### 作用
 
@@ -305,7 +366,7 @@ duration 信息，直接写死会丢节奏）。
 
 ---
 
-## 5. `diag_classic_motion.py` —— 经典态运动轨迹诊断
+## 7. `diag_classic_motion.py` —— 经典态运动轨迹诊断
 
 ### 作用
 
@@ -351,31 +412,33 @@ idle       75  4.22 11.08  26.8   1.4 循环型（末尾回归起点）
 
 ---
 
-## 6. 输出目录
+## 8. 输出目录
 
 | 目录 | 用途 | 是否入 git |
 |------|------|-----------|
 | `assets/character/` | 入库素材 | ✅ 入 |
 | `bak/` | 修复前的原件备份 | ❌ 不入（.gitignore） |
+| `.temp/output/openmm-reconvert/` | openCodeMM 方式转码浅底目检条 | ❌ 不入 |
 | `.temp/output/variant-convert/` | 转码目检条、水印/溢色检查图 | ❌ 不入（.temp/ 整体忽略） |
 | `.temp/output/variant-probe/` | 视频摸底预览条 | ❌ 不入 |
 | `.temp/output/seam-probe/` | 循环缝诊断图 | ❌ 不入 |
 
 ---
 
-## 7. 关联文档
+## 9. 关联文档
 
 | 文档 | 位置 | 内容 |
 |------|------|------|
 | 循环缺陷修复决策 | `docs/adr/0012-loop-defect-asset-repair.md` | 为什么烘焙倒放、为什么降采样 360×640 |
 | 变体轮换决策 | `docs/adr/0013-variant-playlist-splicing.md` | 中性帧约定、打断语义、开关 |
+| openCodeMM 方式转码决策 | `docs/adr/0021-openmm-chromakey-reconvert.md` | 偏红四案总结、为什么弃自研 despill 管线 |
 | 设计全过程 | `docs/memorial/008-anim-loop-mode-and-variants/context.md` | grill 追问记录 + 实施记录 |
 | 新变体视频需求 | `docs/variant-video-requirements.md` | 交付规格、放置位置、命名对照 |
 | 素材契约（zip 格式） | `docs/adr/0003-zip-asset-bundle-contract.md` | 扩展名白名单、目录结构 |
 
 ---
 
-## 8. 复现性
+## 10. 复现性
 
 每个脚本都是**纯函数式**的：输入是 `REPAIRS`/`CONVERSIONS` + 源文件，输出
 确定性相同。随机只在 `variant-rotation.ts` 运行期用（随机抽取变体），不在
@@ -392,6 +455,19 @@ python tools/variant_video_convert.py
 
 # 诊断现有 10 个经典态是真循环还是单向
 python tools/diag_classic_motion.py
+```
+
+2026-08-24（偏红第四案，openCodeMM 方式重转）：
+```bash
+# 浅底并排目检定位洗白缺陷
+python .temp/scripts/light_bg_compare.py
+
+# 重转 5 素材（先 dry-run 看指标，再正式落盘）
+python tools/openmm_chroma_convert.py --dry-run
+python tools/openmm_chroma_convert.py
+
+# 白点复测（新素材应落回经典色盘 −11~−16）
+python .temp/scripts/diag_red_cast_round4.py
 ```
 
 未来处理新素材时，按 §2 工作流跑即可，无需重调阈值——除非去溢色算法升级

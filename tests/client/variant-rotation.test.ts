@@ -289,7 +289,6 @@ describe("runtime 变体轮换集成", () => {
     const sessions = createMockSessions(makeListState([], undefined));
     const runtime = createOverlaySessionRuntime(sessions, {
       tickIntervalMs: 100,
-      welcomeOnStart: false,
     });
     expect(runtime.getSnapshot().currentState).toBe("idle");
     expect(currentUrl(runtime.getSnapshot())).toBe(loopAssetUrl("idle"));
@@ -301,7 +300,6 @@ describe("runtime 变体轮换集成", () => {
     const sessions = createMockSessions(makeListState([], undefined));
     const runtime = createOverlaySessionRuntime(sessions, {
       tickIntervalMs: 100,
-      welcomeOnStart: false,
       variantRotationEnabled: () => true,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9, 0.55, 0.2]),
     });
@@ -329,7 +327,6 @@ describe("runtime 变体轮换集成", () => {
     const sessions = createMockSessions(makeListState([A], A));
     const runtime = createOverlaySessionRuntime(sessions, {
       tickIntervalMs: 100,
-      welcomeOnStart: false,
       variantRotationEnabled: () => true,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9]),
     });
@@ -366,7 +363,6 @@ describe("runtime 变体轮换集成", () => {
     const sessions = createMockSessions(makeListState([A], A));
     const runtime = createOverlaySessionRuntime(sessions, {
       tickIntervalMs: 100,
-      welcomeOnStart: false,
       variantRotationEnabled: () => true,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9]),
     });
@@ -388,7 +384,6 @@ describe("runtime 变体轮换集成", () => {
     const sessions = createMockSessions(makeListState([], undefined));
     const runtime = createOverlaySessionRuntime(sessions, {
       tickIntervalMs: 100,
-      welcomeOnStart: false,
       variantRotationEnabled: () => enabled,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9]),
     });

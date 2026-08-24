@@ -265,7 +265,6 @@ function hasTransition(snapshot: RuntimeSnapshot): boolean {
 function plainRuntime(sessions: ISessions): OverlaySessionRuntime {
   return createOverlaySessionRuntime(sessions, {
     tickIntervalMs: 1e9,
-    welcomeOnStart: false,
     random: () => 0.5,
   });
 }
@@ -284,7 +283,6 @@ function timedRuntime(
   const rt = createOverlaySessionRuntime(sessions, {
     now: () => now,
     tickIntervalMs: 1e9,
-    welcomeOnStart: false,
     random,
   });
   return {
@@ -1007,32 +1005,6 @@ describe("overlay-session-runtime: working 轮换（thinking↔reading）", () =
       expect(t.rt.getSnapshot().currentState).toBe("working");
     }
     t.rt.dispose();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// welcome 入场表演（PRD 决策 7）
-// ---------------------------------------------------------------------------
-
-describe("overlay-session-runtime: welcome 入场表演", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("浮层首次入场播 welcome，驻留 3s 后回 idle", () => {
-    vi.useFakeTimers();
-    const sessions = createMockSessions(makeListState([], undefined));
-    const rt = createOverlaySessionRuntime(sessions, {
-      tickIntervalMs: 1e9,
-      random: () => 0.5,
-    }); // welcomeOnStart 默认 true
-    expect(rt.getSnapshot().currentState).toBe("welcome");
-    // 入场（idle→welcome 3484）+ 驻留 3s → 退场（welcome→idle 3484）
-    vi.advanceTimersByTime(EDGE.idleThinking + PERFORMANCE_HOLD_MS + 100);
-    expect(rt.getSnapshot().currentState).toBe("welcome"); // 退场段
-    vi.advanceTimersByTime(EDGE.doneIdle + 100);
-    expect(rt.getSnapshot().currentState).toBe("idle");
-    rt.dispose();
   });
 });
 

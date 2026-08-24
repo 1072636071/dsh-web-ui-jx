@@ -58,12 +58,12 @@ function finalLoopOf(
 }
 
 // ---------------------------------------------------------------------------
-// 22 过渡边确认（ADR-0016 D8「20 边」收敛清单）
+// 20 过渡边确认（ADR-0016 D8「20 边」收敛清单；ADR-0023 移除 welcome 两边）
 // ---------------------------------------------------------------------------
 
-describe("overlay-state-machine: 22 过渡边（ADR-0016）", () => {
-  it("TRANSITION_EDGES 恰好 22 条（有向段）", () => {
-    expect(TRANSITION_EDGES).toHaveLength(22);
+describe("overlay-state-machine: 20 过渡边（ADR-0016）", () => {
+  it("TRANSITION_EDGES 恰好 20 条（有向段）", () => {
+    expect(TRANSITION_EDGES).toHaveLength(20);
   });
 
   it("每条边对应素材 URL 命名模式 transition-{from}-{to}.webp", () => {
@@ -76,17 +76,16 @@ describe("overlay-state-machine: 22 过渡边（ADR-0016）", () => {
 
   it("无重复边", () => {
     const keys = new Set(TRANSITION_EDGES.map(([f, t]) => `${f}|${t}`));
-    expect(keys.size).toBe(22);
+    expect(keys.size).toBe(20);
   });
 
-  it("idle 与 9 端点双向互通（thinking/reading/permission/error/done/welcome/surprised/happy/angry，18 边）", () => {
+  it("idle 与 8 端点双向互通（thinking/reading/permission/error/done/surprised/happy/angry，16 边）", () => {
     const endpoints = [
       "thinking",
       "reading",
       "permission",
       "error",
       "done",
-      "welcome",
       "surprised",
       "happy",
       "angry",

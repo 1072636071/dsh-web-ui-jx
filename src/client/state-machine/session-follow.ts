@@ -22,7 +22,7 @@
 import type { ConversationSnapshot } from "@deepseek-ai/dsh-client-runtime/client";
 import type { OverlayState } from "./overlay-state-machine.ts";
 
-/** 差分可触发的一次性表演（done/nod-smile/frown-wave；welcome 由浮层入场自触发）. */
+/** 差分可触发的一次性表演（done/nod-smile/frown-wave；welcome 已随 ADR-0023 移除）. */
 export type DiffPerformance = "done" | "nod-smile" | "frown-wave";
 
 /** 差分推导结果：循环态切换 / 一次性表演触发 / 无变化. */

@@ -136,7 +136,8 @@ type DisplayState = OverlayState | PerformanceKind;
 
 /**
  * 各循环态的演示台词（状态切换时触发）。
- * ADR-0016 四态收敛 + 表演态（done/welcome/nod-smile/frown-wave/happy/angry）；
+ * ADR-0016 四态收敛 + 表演态（done/nod-smile/frown-wave/happy/angry）；
+ * welcome 入场表演已随 ADR-0023 移除。
  * thinking/reading 为 working 显示层轮换素材，不配独立台词（标签恒为工作中）。
  * 匹配设计 demo 的唐风角色语气。idle 不配台词（切回 idle 不弹气泡）。
  */
@@ -145,7 +146,6 @@ const STATE_SPEECH: Partial<Record<DisplayState, string>> = {
   error: "此事有蹊跷，容我再查。",
   permission: "此事需大人首肯。",
   done: "此事已毕，大人过目。",
-  welcome: "大人来了，姜晓候久。",
   "nod-smile": "大人英明，姜晓这便去办。",
   "frown-wave": "既如此，姜晓告退。",
   happy: "大人笑了，姜晓也欢喜。",
@@ -181,7 +181,6 @@ const STATE_LABEL: Partial<Record<DisplayState, string>> = {
   error: "此事有蹊跷",
   permission: "需大人首肯",
   done: "此事已毕",
-  welcome: "大人来了",
   "nod-smile": "颔首",
   "frown-wave": "皱眉",
   surprised: "何人",

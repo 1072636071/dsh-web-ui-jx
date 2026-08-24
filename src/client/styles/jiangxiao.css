@@ -1,4 +1,4 @@
-/**
+﻿/**
  * L2 skin remap 层 — 姜晓唐风皮肤令牌。
  *
  * 挂 body[data-dsh-jiangxiao] 选择器。暗色为默认（墨金卷轴），
@@ -18,10 +18,13 @@
  * ============================================================ */
 body[data-dsh-jiangxiao] {
   /* --- Surface 色阶 --- */
-  --jx-surface-0: #0b090d;
-  --jx-surface-1: #121016;
-  --jx-surface-2: #1a1620;
-  --jx-surface-3: #2d242f;
+  --jx-surface-0: rgb(11 9 13 / var(--jx-panel-alpha, 1));
+  --jx-surface-1: rgb(18 16 22 / var(--jx-panel-alpha, 1));
+  --jx-surface-2: rgb(26 22 32 / var(--jx-panel-alpha, 1));
+  --jx-surface-3: rgb(45 36 47 / var(--jx-panel-alpha, 1));
+
+  /* 实底基色（欢迎背景壁纸层 base 专用，不吃面板 alpha，ADR-0024 D2） */
+  --jx-surface-0-solid: #0b090d;
 
   /* --- Text --- */
   --jx-text-strong: #f2ead8;
@@ -72,7 +75,7 @@ body[data-dsh-jiangxiao] {
   --jx-ink-glow: rgba(184, 134, 11, 0.06);
 
   /* --- 代码语法高亮 --- */
-  --jx-code-bg: #0b090d;
+  --jx-code-bg: var(--jx-surface-0);
   --jx-code-border: rgba(184, 134, 11, 0.26);
   --jx-kw: #d6b34a;
   --jx-str: #86b08a;
@@ -165,6 +168,11 @@ body[data-dsh-jiangxiao] {
   --dsw-alias-focus-ring: var(--jx-gold-deep);
   /* 分隔线 → border-deco */
   --dsw-alias-divider: var(--jx-border-deco);
+  /* 背景层 → surface（ADR-0024：联动半透明，使欢迎背景壁纸层可见） */
+  --dsw-alias-bg-base: var(--jx-surface-0);
+  --dsw-alias-bg-layer-1: var(--jx-surface-1);
+  --dsw-alias-bg-layer-2: var(--jx-surface-2);
+  --dsw-alias-bg-layer-3: var(--jx-surface-3);
 
   /* ============================================================
    * remap: --dsw-specific-* → --jx-*
@@ -213,10 +221,13 @@ body[data-dsh-jiangxiao] ::-webkit-scrollbar-thumb {
  * ============================================================ */
 body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) {
   /* --- Surface 色阶 --- */
-  --jx-surface-0: #faf5ee;
-  --jx-surface-1: #f5eddf;
-  --jx-surface-2: #efe3d0;
-  --jx-surface-3: #e8dcc8;
+  --jx-surface-0: rgb(250 245 238 / var(--jx-panel-alpha, 1));
+  --jx-surface-1: rgb(245 237 223 / var(--jx-panel-alpha, 1));
+  --jx-surface-2: rgb(239 227 208 / var(--jx-panel-alpha, 1));
+  --jx-surface-3: rgb(232 220 200 / var(--jx-panel-alpha, 1));
+
+  /* 实底基色（欢迎背景壁纸层 base 专用，不吃面板 alpha，ADR-0024 D2） */
+  --jx-surface-0-solid: #faf5ee;
 
   /* --- Text --- */
   --jx-text-strong: #2a241a;
@@ -264,7 +275,7 @@ body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) {
   --jx-ink-glow: rgba(178, 74, 92, 0.05);
 
   /* --- 代码语法高亮 --- */
-  --jx-code-bg: #f5eddf;
+  --jx-code-bg: var(--jx-surface-1);
   --jx-code-border: rgba(138, 101, 8, 0.22);
   --jx-kw: #8a6508;
   --jx-str: #3d7a3d;
@@ -289,4 +300,48 @@ body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) {
 
   /* remap 在暗块已声明（引用 --jx-*），浅色覆盖 --jx-* 后 remap 自动切换。
    * 故此处无需重复 remap 声明。 */
+}
+
+/* ============================================================
+ * 欢迎背景壁纸层（ADR-0024 D1/D2）
+ *
+ * body 直挂 fixed 全视口层，z-index:0 垫于全部宿主内容之下；
+ * 三明治结构：透明兜底 → 壁纸图（透明度 = 壁纸滑杆）→ 压纱
+ * （固定调参：暗色暗纱 / 浅色白纱，保证文字对比度下限）。
+ * 面板半透明由 --jx-panel-alpha 驱动（welcome-backdrop.ts 写 body），
+ * 关闭背景时属性移除、surface 回纯色，本层同时被卸载。
+ * ============================================================ */
+[data-jx-backdrop] {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+[data-jx-backdrop-base] {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  /* 透明兜底：壁纸已 cover 全屏，实底色会污染浅色壁纸色调 */
+}
+[data-jx-backdrop-img] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  /* 运行时由 welcome-backdrop.ts 按壁纸滑杆覆写（0–1） */
+  opacity: 0.85;
+  user-select: none;
+}
+[data-jx-backdrop-veil] {
+  position: absolute;
+  inset: 0;
+  /* 暗色（墨金卷轴）：暗纱压暗保文字对比 */
+  background: rgb(11 9 13 / 0.25);
+}
+body:not([data-ds-dark-theme]) [data-jx-backdrop-veil] {
+  /* 浅色（宣纸梅花）：白纱提亮保文字对比 */
+  background: rgb(250 245 238 / 0.3);
 }

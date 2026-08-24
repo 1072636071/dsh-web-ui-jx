@@ -6,12 +6,14 @@
  * 见 overlay-session-runtime 的 working 轮换层）。
  *
  * 一次性表演（边沿触发、播完自动回落、不占循环态、不作为切换意图目标）：
- * done（收工）/ welcome（入场）/ nod-smile（批准）/ frown-wave（拒绝）/
+ * done（收工）/ nod-smile（批准）/ frown-wave（拒绝）/
  * surprised（poke 惊吓）/ happy / angry（摸鱼彩蛋）。
+ * 入场无表演：welcome 已经 ADR-0023 彻底移除，浮层首次入场直接落待机。
  *
- * 过渡边收敛（PRD 实现决策 3「20 边」收敛清单）：idle 枢纽 ↔ 9 端点
- * （thinking/reading/permission/error/done/welcome/surprised/happy/angry，
- * 9 个无向对 = 18 有向段）+ 权限反馈链 4 有向段（permission→nod-smile、
+ * 过渡边收敛（PRD 实现决策 3「20 边」清单，ADR-0023 移除 welcome 后）：
+ * idle 枢纽 ↔ 8 端点
+ * （thinking/reading/permission/error/done/surprised/happy/angry，
+ * 8 个无向对 = 16 有向段）+ 权限反馈链 4 有向段（permission→nod-smile、
  * nod-smile→idle、permission→frown-wave、frown-wave→idle），共 22 有向
  * 过渡段，与 assets/character/transition-*.webp 现存清单一一对应。
  *
@@ -49,7 +51,6 @@ export const OVERLAY_STATES: readonly OverlayState[] = [
 /** 一次性表演类型（边沿触发、播完回落，不占循环态）. */
 export type PerformanceKind =
   | "done"
-  | "welcome"
   | "nod-smile"
   | "frown-wave"
   | "surprised"
@@ -69,10 +70,10 @@ export type TransitionEndpoint = OverlayState | PerformanceKind | WorkingLoopAss
 /**
  * 过渡边：from-to 对，对应 assets/character/transition-{from}-{to}.webp。
  *
- * PRD「20 边」收敛清单的有向展开（22 有向段）：
+ * PRD「20 边」收敛清单的有向展开，ADR-0023 移除 welcome 两段后共 20 有向段：
  *   - idle ↔ thinking / reading（工作轮换中转，4）
  *   - idle ↔ permission / error（紧急态出入，4）
- *   - idle ↔ done / welcome（表演出入，4）
+ *   - idle ↔ done（表演出入，2）
  *   - permission→nod-smile、nod-smile→idle（批准链，2）
  *   - permission→frown-wave、frown-wave→idle（拒绝链，2）
  *   - idle ↔ surprised / happy / angry（poke 与彩蛋，6）
@@ -90,8 +91,6 @@ export const TRANSITION_EDGES: ReadonlyArray<
   ["error", "idle"],
   ["idle", "done"],
   ["done", "idle"],
-  ["idle", "welcome"],
-  ["welcome", "idle"],
   ["permission", "nod-smile"],
   ["nod-smile", "idle"],
   ["permission", "frown-wave"],
@@ -158,7 +157,7 @@ export interface TransitionPlaybackItem {
 
 /** 循环态播放项（持续循环直到下次切换）.
  *  working 态的 url 为显示层轮换素材（thinking/reading），state 仍为 working；
- *  表演态循环（done/welcome/nod-smile/frown-wave/surprised/happy/angry）由
+ *  表演态循环（done/nod-smile/frown-wave/surprised/happy/angry）由
  *  runtime 显示层构造，state 为对应表演类型。 */
 export interface LoopPlaybackItem {
   readonly kind: "loop";
@@ -347,8 +346,8 @@ export function createOverlayStateMachine(
  * 宿主事件适配器：把助手行为事件转成状态机切换意图。
  *
  * 方法收敛为五目标（idle/working/permission/error/done）：replying/reading/
- * thinking/listening/welcome 等旧方法移除（welcome 改由浮层入场自触发；
- * done 经性能层表演调度，适配器仅保留目标语义入口）。
+ * thinking/listening/welcome 等旧方法移除（welcome 入场表演已随 ADR-0023
+ * 整体移除；done 经性能层表演调度，适配器仅保留目标语义入口）。
  */
 export interface HostEventAdapter {
   /** 助手空闲 → switch to idle. */

@@ -4,15 +4,16 @@
  * seam：parseWebpDurationMs（输入字节输出时长，纯函数）+ loadWebpDurationMs
  * （URL → 时长，带缓存与失败回退）。不依赖 DOM、不依赖 React（vitest node 环境）。
  *
- * 覆盖（素材重组后 37 素材，ADR-0016）：
+ * 覆盖（素材重组后 34 素材；ADR-0023 移除 welcome 三件套后）：
  *   - 合成字节：帧时长累加、单帧、空帧（非动画）、非法容器、截断 chunk。
  *   - 真实素材（assets/character/，2026-08-23 重组后）：
- *     循环素材 15 个 = 9 经典态 × 9916ms（idle/thinking/reading/permission/
- *     error/done/welcome/nod-smile/frown-wave，148 帧 × 67ms pingpong 烘焙）
+ *     循环素材 14 个 = 8 经典态 × 9916ms（idle/thinking/reading/permission/
+ *     error/done/nod-smile/frown-wave，148 帧 × 67ms pingpong 烘焙）
  *     + 3 表情循环（happy 7524 / angry 6204 / surprised 5214，33ms 帧）
- *     + 3 idle 变体 × 5025ms（75 帧 × 67ms，loops=1）；
- *     过渡段 22 个 = 6 × 766ms（表情边 33ms × 23 帧）
- *     + 10 × 3484ms（标准经典边 67×44 + 536 定格）
+ *     + 3 idle 变体 × 4958ms（74 帧 × 67ms，loops=1；2026-08-24 openCodeMM
+ *       方式重转后 5.06s 源 @14.925fps 抽出 74 帧）；
+ *     过渡段 20 个 = 6 × 766ms（表情边 33ms × 23 帧）
+ *     + 8 × 3484ms（标准经典边 67×44 + 536 定格）
  *     + 6 × 5494ms（长经典边 67×74 + 536 定格）。
  *   - 加载缓存：同 URL 只 fetch 一次；解析失败/网络失败回退 null 且不重复请求。
  */
@@ -106,10 +107,10 @@ describe("parseWebpDurationMs: 合成字节", () => {
 });
 
 // ---------------------------------------------------------------------------
-// parseWebpDurationMs：真实素材回归（素材重组后 37 个，2026-08-23 实测）
+// parseWebpDurationMs：真实素材回归（welcome 移除后 34 个，实测为准）
 // ---------------------------------------------------------------------------
 
-describe("parseWebpDurationMs: 现有 37 素材回归（ADR-0016 素材重组）", () => {
+describe("parseWebpDurationMs: 现有 34 素材回归（ADR-0016 素材重组 + ADR-0023）", () => {
   const assetsDir = resolve("assets/character");
   const files = readdirSync(assetsDir)
     .filter((f) => f.toLowerCase().endsWith(".webp"))
@@ -117,13 +118,13 @@ describe("parseWebpDurationMs: 现有 37 素材回归（ADR-0016 素材重组）
   const transitions = files.filter((f) => f.startsWith("transition-"));
   const loops = files.filter((f) => !f.startsWith("transition-"));
 
-  it("素材总数 = 37（15 循环素材 + 22 过渡段）", () => {
-    expect(files).toHaveLength(37);
-    expect(loops).toHaveLength(15);
-    expect(transitions).toHaveLength(22);
+  it("素材总数 = 34（14 循环素材 + 20 过渡段）", () => {
+    expect(files).toHaveLength(34);
+    expect(loops).toHaveLength(14);
+    expect(transitions).toHaveLength(20);
   });
 
-  it("循环素材：9 经典态 pingpong 烘焙 9916ms；3 表情各异；3 idle 变体 5025ms", () => {
+  it("循环素材：8 经典态 pingpong 烘焙 9916ms；3 表情各异；3 idle 变体 4958ms", () => {
     const classicPingpong: Record<string, number> = {
       // 148 帧 × 67ms（--pingpong-classic 烘焙，端点不重复）
       idle: 9916,
@@ -132,7 +133,6 @@ describe("parseWebpDurationMs: 现有 37 素材回归（ADR-0016 素材重组）
       permission: 9916,
       error: 9916,
       done: 9916,
-      welcome: 9916,
       "nod-smile": 9916, // 新转码循环体（工单 01）
       "frown-wave": 9916, // 新转码循环体（工单 01）
     };
@@ -158,18 +158,18 @@ describe("parseWebpDurationMs: 现有 37 素材回归（ADR-0016 素材重组）
         `循环素材 ${f}`,
       ).toBe(ms);
     }
-    // idle 变体：75 帧 × 67ms，loops=1（播完定格中性姿）
+    // idle 变体：74 帧 × 67ms，loops=1（播完定格中性姿；openCodeMM 方式重转）
     for (const name of ["idle-v2", "idle-v3", "idle-v4"]) {
       const f = `${name}.webp`;
       const bytes = readFileSync(join(assetsDir, f));
       expect(
         parseWebpDurationMs(new Uint8Array(bytes)),
         `变体 ${f}`,
-      ).toBe(5025);
+      ).toBe(4958);
     }
   });
 
-  it("过渡段 22 个：三档（6 × 766ms + 10 × 3484ms + 6 × 5494ms）", () => {
+  it("过渡段 20 个：三档（6 × 766ms + 8 × 3484ms + 6 × 5494ms）", () => {
     const counts: Record<number, number> = {};
     for (const f of transitions) {
       const bytes = readFileSync(join(assetsDir, f));
@@ -177,7 +177,7 @@ describe("parseWebpDurationMs: 现有 37 素材回归（ADR-0016 素材重组）
       expect(dur, `过渡段 ${f}`).toBeGreaterThan(0);
       if (dur !== null) counts[dur] = (counts[dur] ?? 0) + 1;
     }
-    expect(counts).toEqual({ 766: 6, 3484: 10, 5494: 6 });
+    expect(counts).toEqual({ 766: 6, 3484: 8, 5494: 6 });
   });
 
   it("抽样过渡段：idle-thinking 3484ms 型 / reading-idle 5494ms 型 / idle-surprised 766ms 型", () => {
