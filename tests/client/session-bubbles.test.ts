@@ -12,8 +12,31 @@
  *   - fork 截断：fork 会话不成组、不计数
  *   - 孤儿回退：父行缺失 / 父链成环 → 停留节点为根，subagent 孤儿自成顶层
  *   - current 传播：后代 → containsCurrent（根高亮组合依据）；根本身 / 无 / 不相关 → 不误传
- *   - 上限只管顶层：展开组不占名额；溢出折叠边界；ADR-0020 组级 pending 豁免（聚合成员）
+ *   - 上限只管顶层：展开组不占名额；溢出折叠边界；ADR-0020 pending-interaction-bubble-effect 组级 pending 豁免（聚合成员）
  *   - 排序：顶层按根首次出现位次；组内按原序；空列表 → 空
+ *
+ * 保留上下文（工单 01，ADR-0022）：buildBubbleGroups 向后兼容扩展第 4 参
+ * BubbleKeepContext（开关态 + kept/dismissed/archived 参数位）。断言组：
+ *   - 扩展回归护栏：不传参 / 显式 undefined / keepEnabled=false ⇒ 与平铺基准
+ *     （legacyFlatSelect）逐条目全等——总开关退化路径即回归护栏；
+ *   - kept 记账保留：completed 位被 SDK 清除后仍可见（idle 形态 + id∈kept）；
+ *   - dismissed 隐藏 / archived 排除：集合过滤发生在 seam 内部范围过滤处，
+ *     dismissed 优先于 kept、archived 优先于一切；
+ *   - 活动/紧急豁免：running 或 pendingInteraction 条目不被记账隐藏
+ *     （ADR-0020 pending-interaction-bubble-effect），kept 对其冗余无害，豁免不放宽入选资格；
+ *   - 惰性忽略：记账集合中不存在于 items 的 id 被忽略（写入时裁剪的双保险）；
+ *   - 上限折叠与 pending 豁免在保留输入下语义不变。
+ *
+ * 拖拽判定矩阵（工单 02，ADR-0022 D2/D3/D4/D5）：resolveDragAction 逐格
+ * 断言——click/dismiss/archive/forbidden 四态；forbidden 全排列（running×
+ * 任意 zone、pending 三类×任意 zone、当前泡×归档）；阈值边界 7/8px；未命中
+ * 弹回。isBubbleDraggable 可拖范围断言。组件手势接线不测（仓内无 React/DOM
+ * 测试先例，构建验收兜底）。
+ *
+ * 双开关组合与归档排除退化路径（工单 03，ADR-0022 D3/D6/D8）：开关①关 ×
+ * 全脏集 = 现状全等；archived 缺省/空集 = 无排除；archived > dismissed >
+ * kept 优先级网格 + running/pending 豁免压过归档集；防复活语义（已归档 +
+ * kept 记账不复活，②不进投影）。
  *
  * 工单 02 收缩注记：原平铺导出 selectBubbleEntries 已从生产模块移除（被
  * 分组渲染取代），其直测块随之删除——过滤/顺序保持/折叠边界/isCurrent/
@@ -25,8 +48,15 @@
 import { describe, expect, it } from "vitest";
 import {
   buildBubbleGroups,
+  DRAG_THRESHOLD_PX,
+  isBubbleDraggable,
+  isBubbleRowDraggable,
+  resolveDragAction,
   type BubbleEntry,
   type BubbleGroup,
+  type BubbleKeepContext,
+  type DragEntryFlags,
+  type DropZoneKind,
   type SessionListEntry,
 } from "../../src/client/state-machine/session-bubbles.ts";
 
@@ -553,7 +583,7 @@ describe("buildBubbleGroups: current 传播", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 归组 7/8：上限只管顶层（D3）+ ADR-0020 组级豁免
+// 归组 7/8：上限只管顶层（D3）+ ADR-0020 pending-interaction-bubble-effect 组级豁免
 // ---------------------------------------------------------------------------
 
 describe("buildBubbleGroups: 上限只管顶层", () => {
@@ -620,7 +650,7 @@ describe("buildBubbleGroups: 上限只管顶层", () => {
     expect(r.moreCount).toBe(3);
   });
 
-  it("ADR-0020 组级豁免：根等待交互的溢出组永驻可见、不计 moreCount", () => {
+  it("ADR-0020 pending-interaction-bubble-effect 组级豁免：根等待交互的溢出组永驻可见、不计 moreCount", () => {
     const items = [
       gentry("a", { running: true }),
       gentry("b", { running: true }),
@@ -637,7 +667,7 @@ describe("buildBubbleGroups: 上限只管顶层", () => {
     expect(r.groups.map((g) => g.pending)).toEqual([false, false, true]);
   });
 
-  it("ADR-0020 组级豁免聚合成员：成员等待交互的溢出组同样豁免（队长裁定 #5）", () => {
+  it("ADR-0020 pending-interaction-bubble-effect 组级豁免聚合成员：成员等待交互的溢出组同样豁免（队长裁定 #5）", () => {
     const items = [
       gentry("a", { running: true }),
       gentry("big", { running: true }), // 溢出位置的大组，根非 pending
@@ -655,7 +685,7 @@ describe("buildBubbleGroups: 上限只管顶层", () => {
     expect(r.moreCount).toBe(0);
   });
 
-  it("ADR-0020 组级豁免：截断线内的 pending 组原位不动、不重复追加", () => {
+  it("ADR-0020 pending-interaction-bubble-effect 组级豁免：截断线内的 pending 组原位不动、不重复追加", () => {
     const items = [
       gentry("p", { running: true, pendingInteraction: "plan-review" }),
       gentry("b", { running: true }),
@@ -745,5 +775,706 @@ describe("buildBubbleGroups: 排序", () => {
     const r = buildBubbleGroups([], "whatever", 5);
     expect(r.groups).toEqual([]);
     expect(r.moreCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 保留上下文（工单 01，ADR-0022）：辅助构造
+// ---------------------------------------------------------------------------
+
+/** 记账集合速记. */
+function idSet(...ids: string[]): ReadonlySet<string> {
+  return new Set(ids);
+}
+
+// ---------------------------------------------------------------------------
+// 保留 1/6：扩展回归护栏——不传参 / 总开关关 = 现状逐条目全等（ADR-0022 D1）
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: 保留上下文扩展回归护栏", () => {
+  /** 混合状态共享 fixture：running/idle/completed/running+pending/current 命中。 */
+  const mixed = [
+    entry("a", { running: true }),
+    entry("b"), // idle 不入选
+    entry("c", { completed: true }),
+    entry("d", {
+      running: true,
+      completed: true,
+      pendingInteraction: "approval",
+    }),
+    entry("e", { running: true }),
+  ];
+
+  it("扩展后不传第 4 参：输出仍与改造前平铺基准逐条目等价", () => {
+    const flat = legacyFlatSelect(mixed, "d", 3);
+    const grouped = buildBubbleGroups(mixed, "d", 3);
+    expect(grouped.moreCount).toBe(flat.moreCount);
+    expect(grouped.groups.map((g) => g.rootId)).toEqual(
+      flat.visible.map((e) => e.sessionId),
+    );
+    grouped.groups.forEach((g, i) => {
+      const e = flat.visible[i]!;
+      expect(g.members).toEqual([]);
+      expect(g.badge.total).toBe(0);
+      expect(g.badge.running).toBe(0);
+      expect(g.containsCurrent).toBe(false);
+      expect(g.pending).toBe(e.pendingInteraction !== undefined);
+      expect(g.root.sessionId).toBe(e.sessionId);
+      expect(g.root.title).toBe(e.title);
+      expect(g.root.running).toBe(e.running);
+      expect(g.root.completed).toBe(e.completed);
+      expect(g.root.pendingInteraction).toBe(e.pendingInteraction);
+      expect(g.root.isCurrent).toBe(e.isCurrent);
+    });
+  });
+
+  it("显式传 undefined 第 4 参与不传参输出全等", () => {
+    expect(buildBubbleGroups(mixed, "d", 3, undefined)).toEqual(
+      buildBubbleGroups(mixed, "d", 3),
+    );
+  });
+
+  it("context.keepEnabled=false：携带记账集合仍与不传参输出全等（总开关退化路径）", () => {
+    const off: BubbleKeepContext = {
+      keepEnabled: false,
+      kept: idSet("b"),
+      dismissed: idSet("c"),
+      archived: idSet("a"),
+    };
+    expect(buildBubbleGroups(mixed, "d", 3, off)).toEqual(
+      buildBubbleGroups(mixed, "d", 3),
+    );
+    // 平铺基准三方可比：退化输出同样逐条目等价于改造前行为。
+    const flat = legacyFlatSelect(mixed, "d", 3);
+    const degraded = buildBubbleGroups(mixed, "d", 3, off);
+    expect(degraded.moreCount).toBe(flat.moreCount);
+    expect(degraded.groups.map((g) => g.rootId)).toEqual(
+      flat.visible.map((e) => e.sessionId),
+    );
+  });
+
+  it("keepEnabled=true 且 kept/dismissed/archived 缺省：入选范围与现状一致", () => {
+    const on: BubbleKeepContext = { keepEnabled: true };
+    const flat = legacyFlatSelect(mixed, "d", 3);
+    const r = buildBubbleGroups(mixed, "d", 3, on);
+    expect(r.moreCount).toBe(flat.moreCount);
+    expect(r.groups.map((g) => g.rootId)).toEqual(
+      flat.visible.map((e) => e.sessionId),
+    );
+    expect(r.groups.every((g) => g.members.length === 0)).toBe(true);
+  });
+
+  it("归组输入（谱系字段）下总开关关：与不传参输出全等", () => {
+    const items = [
+      gentry("main", { running: true }),
+      sub("s1", "main", "completed"),
+      gentry("solo", { completed: true }),
+    ];
+    const off: BubbleKeepContext = {
+      keepEnabled: false,
+      kept: idSet("s1"),
+      dismissed: idSet("solo"),
+      archived: idSet("main"),
+    };
+    expect(buildBubbleGroups(items, undefined, 5, off)).toEqual(
+      buildBubbleGroups(items, undefined, 5),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 保留 2/6：kept 记账保留（ADR-0022 D1：可见性 = running || completed || kept）
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: kept 记账保留", () => {
+  it("completed 位被 SDK 清除后仍可见：idle 形态但 id∈kept ⇒ 条目照常投影", () => {
+    const items = [entry("seen1")]; // 已查看后 completed 清除 → idle 形态
+    // 对照：无 kept 时该条目不可见。
+    expect(
+      buildBubbleGroups(items, undefined, 5, { keepEnabled: true }).groups,
+    ).toEqual([]);
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      kept: idSet("seen1"),
+    });
+    expect(r.groups.map((g) => g.rootId)).toEqual(["seen1"]);
+    expect(r.moreCount).toBe(0);
+    // 投影透明性：completed 位保持自身语义（false），可见性由记账承担。
+    expect(r.groups[0]!.root.completed).toBe(false);
+  });
+
+  it("kept 后代计入成员与徽标：subagent idle 但 kept ⇒ 入选成员", () => {
+    const items = [
+      gentry("main", { running: true }),
+      sub("s1", "main", "idle"),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      kept: idSet("s1"),
+    });
+    expect(groupShape(r.groups)).toEqual([["main", ["s1"]]]);
+    expect(r.groups[0]!.badge.total).toBe(1);
+    expect(r.groups[0]!.badge.running).toBe(0);
+  });
+
+  it("kept 根使空闲组入选：根与后代均 idle、根∈kept ⇒ 组出现、徽标不含后代", () => {
+    const items = [gentry("m2"), sub("s9", "m2", "idle")];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      kept: idSet("m2"),
+    });
+    expect(groupShape(r.groups)).toEqual([["m2", []]]);
+    expect(r.groups[0]!.badge.total).toBe(0);
+  });
+
+  it("kept 不改变条目字段投影：title/isCurrent/pendingInteraction 原样透传", () => {
+    const items = [
+      entry("k1", { title: "已看过" }),
+      entry("k2", { pendingInteraction: "question" }),
+    ];
+    const r = buildBubbleGroups(items, "k1", 5, {
+      keepEnabled: true,
+      kept: idSet("k1", "k2"),
+    });
+    const k1 = r.groups.find((g) => g.rootId === "k1")!;
+    expect(k1.root.title).toBe("已看过");
+    expect(k1.root.isCurrent).toBe(true);
+    const k2 = r.groups.find((g) => g.rootId === "k2")!;
+    expect(k2.pending).toBe(true);
+    expect(k2.root.isCurrent).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 保留 3/6：dismissed 隐藏（收起区语义位；02 工单填充手势）
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: dismissed 隐藏", () => {
+  it("completed 条目被 dismissed ⇒ 从列中隐藏", () => {
+    const items = [
+      entry("a", { running: true }),
+      entry("b", { completed: true }),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      dismissed: idSet("b"),
+    });
+    expect(r.groups.map((g) => g.rootId)).toEqual(["a"]);
+  });
+
+  it("dismissed 优先于 kept：同 id 两处记账 ⇒ 隐藏", () => {
+    const items = [entry("x")]; // idle 形态（已查看且被保留记账）
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      kept: idSet("x"),
+      dismissed: idSet("x"),
+    });
+    expect(r.groups).toEqual([]);
+  });
+
+  it("dismissed 的 subagent 成员被移除：组因根本身通过而保留，徽标归零", () => {
+    const items = [
+      gentry("main", { running: true }),
+      sub("s1", "main", "completed"),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      dismissed: idSet("s1"),
+    });
+    expect(groupShape(r.groups)).toEqual([["main", []]]);
+    expect(r.groups[0]!.badge.total).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 保留 4/6：archived 排除（本片只定形位——02/03 填充真归档，直接构造断言排除语义）
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: archived 排除", () => {
+  it("archived 排除 completed 条目（即使 completed 位仍在）", () => {
+    const items = [
+      entry("a", { running: true }),
+      entry("b", { completed: true }),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      archived: idSet("b"),
+    });
+    expect(r.groups.map((g) => g.rootId)).toEqual(["a"]);
+  });
+
+  it("archived 优先于 kept：同 id ⇒ 排除（归档是真正的终点，PRD 用户故事 14）", () => {
+    const items = [entry("y", { completed: true })];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      kept: idSet("y"),
+      archived: idSet("y"),
+    });
+    expect(r.groups).toEqual([]);
+  });
+
+  it("archived 排除 subagent 成员：组因根通过而保留、徽标归零", () => {
+    const items = [
+      gentry("main", { running: true }),
+      sub("s1", "main", "completed"),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      archived: idSet("s1"),
+    });
+    expect(groupShape(r.groups)).toEqual([["main", []]]);
+    expect(r.groups[0]!.badge.total).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 保留 5/6：活动/紧急豁免（ADR-0020 pending-interaction-bubble-effect）——running/pending 条目不被记账隐藏
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: 活动与紧急豁免", () => {
+  it("running 条目不被 dismissed/archived 隐藏", () => {
+    const items = [entry("r", { running: true })];
+    const ctx: BubbleKeepContext = {
+      keepEnabled: true,
+      dismissed: idSet("r"),
+      archived: idSet("r"),
+    };
+    expect(
+      buildBubbleGroups(items, undefined, 5, ctx).groups.map((g) => g.rootId),
+    ).toEqual(["r"]);
+  });
+
+  it("等待交互条目不被 dismissed/archived 隐藏（running=false 场景）", () => {
+    const items = [
+      entry("p", { completed: true, pendingInteraction: "approval" }),
+    ];
+    const ctx: BubbleKeepContext = {
+      keepEnabled: true,
+      dismissed: idSet("p"),
+      archived: idSet("p"),
+    };
+    const r = buildBubbleGroups(items, undefined, 5, ctx);
+    expect(r.groups.map((g) => g.rootId)).toEqual(["p"]);
+    expect(r.groups[0]!.pending).toBe(true);
+  });
+
+  it("kept 对 running/pending 条目冗余无害：仍在列且组级 pending 聚合不变", () => {
+    const items = [
+      entry("r", { running: true }),
+      entry("p", { running: true, pendingInteraction: "question" }),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      kept: idSet("r", "p"),
+    });
+    expect(r.groups.map((g) => g.rootId)).toEqual(["r", "p"]);
+    expect(r.groups.map((g) => g.pending)).toEqual([false, true]);
+  });
+
+  it("豁免只防隐藏、不放宽入选：pending 但非 running/completed/kept 的条目仍不入选", () => {
+    const items = [entry("q", { pendingInteraction: "plan-review" })]; // idle + pending
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      dismissed: idSet("q"),
+      archived: idSet("q"),
+    });
+    // 无记账时它本就不在范围过滤内（现状语义），记账亦不改变入选资格。
+    expect(r.groups).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 保留 6/6：惰性忽略 + 上限折叠/豁免在保留输入下语义不变
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: 记账集合惰性忽略与折叠语义", () => {
+  it("kept/dismissed/archived 中不存在于 items 的 id 被忽略：无输出、不崩溃", () => {
+    const items = [entry("a", { running: true })];
+    const ctx: BubbleKeepContext = {
+      keepEnabled: true,
+      kept: idSet("ghost1", "a"),
+      dismissed: idSet("ghost2"),
+      archived: idSet("ghost3"),
+    };
+    const r = buildBubbleGroups(items, undefined, 5, ctx);
+    expect(r.groups.map((g) => g.rootId)).toEqual(["a"]);
+    expect(r.moreCount).toBe(0);
+  });
+
+  it("全部记账 id 均不在宿主列表 ⇒ 输出与空集合等价", () => {
+    const items = [entry("a")]; // idle 未记账
+    const ghosted: BubbleKeepContext = {
+      keepEnabled: true,
+      kept: idSet("gone"),
+      dismissed: idSet("gone2"),
+      archived: idSet("gone3"),
+    };
+    expect(buildBubbleGroups(items, undefined, 5, ghosted)).toEqual(
+      buildBubbleGroups(items, undefined, 5, { keepEnabled: true }),
+    );
+  });
+
+  it("kept 单例计入顶层名额并受 maxVisible 折叠（列不无限增长）", () => {
+    const items = Array.from({ length: 6 }, (_, i) => entry(`k${i}`)); // 全 idle
+    const ctx: BubbleKeepContext = {
+      keepEnabled: true,
+      kept: idSet(...items.map((i) => i.sessionId)),
+    };
+    const r = buildBubbleGroups(items, undefined, 5, ctx);
+    expect(r.groups).toHaveLength(5);
+    expect(r.moreCount).toBe(1);
+  });
+
+  it("溢出的 kept 组若等待交互则豁免追加、不计 moreCount（dismissed 也压不住）", () => {
+    const items = [
+      entry("a", { running: true }),
+      entry("b", { running: true }),
+      entry("c", { running: true }),
+      entry("kp", { pendingInteraction: "plan-review" }), // idle 形态 + kept + dismissed
+    ];
+    const ctx: BubbleKeepContext = {
+      keepEnabled: true,
+      kept: idSet("kp"),
+      dismissed: idSet("kp"),
+    };
+    const r = buildBubbleGroups(items, undefined, 3, ctx);
+    expect(r.groups.map((g) => g.rootId)).toEqual(["a", "b", "c", "kp"]);
+    expect(r.groups[3]!.pending).toBe(true);
+    expect(r.moreCount).toBe(0);
+  });
+
+  it("dismissed 使顶层组数下降 ⇒ moreCount 相应变化", () => {
+    const all = Array.from({ length: 7 }, (_, i) =>
+      entry(`g${i}`, { completed: true }),
+    );
+    const off = buildBubbleGroups(all, undefined, 5, { keepEnabled: true });
+    expect(off.moreCount).toBe(2);
+    const on = buildBubbleGroups(all, undefined, 5, {
+      keepEnabled: true,
+      dismissed: idSet("g5", "g6"),
+    });
+    expect(on.groups).toHaveLength(5);
+    expect(on.moreCount).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 拖拽判定矩阵（工单 02，ADR-0022 D2/D3/D4/D5——一次写全，03 直接消费）
+//
+// 判定顺序（钉死）：movedPx < DRAG_THRESHOLD_PX ⇒ click；running ⇒ forbidden；
+// pendingInteraction ⇒ forbidden；isCurrent×archive ⇒ forbidden；
+// dismiss 区 ⇒ dismiss；archive 区 ⇒ archive；未命中 ⇒ forbidden（弹回）。
+// ---------------------------------------------------------------------------
+
+describe("resolveDragAction: 判定矩阵逐格断言", () => {
+  const ALL_ZONES = [undefined, "dismiss", "archive"] as readonly (
+    | DropZoneKind
+    | undefined
+  )[];
+
+  /** 阈值以下采样：0（原地松手）/5（微动）/7（阈值前最后一格）。 */
+  const SUB_THRESHOLD = [0, 5, 7] as const;
+
+  /** 覆盖四类典型 flags 的点击场景矩阵。 */
+  const CLICK_FLAG_CASES: readonly DragEntryFlags[] = [
+    { running: false, isCurrent: false },
+    { running: false, isCurrent: true },
+    { running: true, isCurrent: false },
+    { running: false, pendingInteraction: "approval", isCurrent: true },
+  ];
+
+  it("阈值以下恒为 click：movedPx∈{0,5,7} × 任意 zone × 任意 flags ⇒ 'click'", () => {
+    let cells = 0;
+    for (const moved of SUB_THRESHOLD) {
+      for (const zone of ALL_ZONES) {
+        for (const flags of CLICK_FLAG_CASES) {
+          expect(
+            resolveDragAction({ movedPx: moved, zone, flags }),
+            `moved=${moved} zone=${zone} flags=${JSON.stringify(flags)}`,
+          ).toBe("click");
+          cells++;
+        }
+      }
+    }
+    expect(cells).toBe(36); // 3 × 3 × 4 全格
+  });
+
+  it(`阈值边界：${DRAG_THRESHOLD_PX - 1}px = click、${DRAG_THRESHOLD_PX}px 起按拖拽判定`, () => {
+    const base: DragEntryFlags = { running: false, isCurrent: false };
+    expect(
+      resolveDragAction({ movedPx: DRAG_THRESHOLD_PX - 1, zone: "dismiss", flags: base }),
+    ).toBe("click");
+    expect(
+      resolveDragAction({ movedPx: DRAG_THRESHOLD_PX, zone: "dismiss", flags: base }),
+    ).toBe("dismiss");
+    expect(
+      resolveDragAction({ movedPx: DRAG_THRESHOLD_PX, zone: undefined, flags: base }),
+    ).toBe("forbidden");
+    expect(
+      resolveDragAction({ movedPx: 99.5, zone: undefined, flags: base }),
+    ).toBe("forbidden");
+  });
+
+  it("forbidden 全排列①：running × 任意 zone（含当前/非当前）⇒ 'forbidden'", () => {
+    for (const zone of ALL_ZONES) {
+      expect(
+        resolveDragAction({ movedPx: 20, zone, flags: { running: true, isCurrent: false } }),
+      ).toBe("forbidden");
+      expect(
+        resolveDragAction({ movedPx: 20, zone, flags: { running: true, isCurrent: true } }),
+      ).toBe("forbidden");
+    }
+  });
+
+  it("forbidden 全排列②：等待交互 × 任意 zone（三种 pending 全覆盖）⇒ 'forbidden'", () => {
+    for (const kind of ["approval", "plan-review", "question"] as const) {
+      for (const zone of ALL_ZONES) {
+        expect(
+          resolveDragAction({
+            movedPx: 20,
+            zone,
+            flags: { running: false, pendingInteraction: kind, isCurrent: false },
+          }),
+          `pending=${kind} zone=${zone}`,
+        ).toBe("forbidden");
+      }
+    }
+  });
+
+  it("forbidden 全排列③：当前会话 × 归档区 ⇒ 'forbidden'（为 03 预置）", () => {
+    expect(
+      resolveDragAction({
+        movedPx: 20,
+        zone: "archive",
+        flags: { running: false, isCurrent: true },
+      }),
+    ).toBe("forbidden");
+  });
+
+  it("当前会话 × 收起区 = 允许 dismiss（纯本地操作无副作用，ADR-0022 D5）", () => {
+    expect(
+      resolveDragAction({
+        movedPx: 20,
+        zone: "dismiss",
+        flags: { running: false, isCurrent: true },
+      }),
+    ).toBe("dismiss");
+  });
+
+  it("普通已完成类：dismiss ⇒ 'dismiss'、archive ⇒ 'archive'、未命中 ⇒ 'forbidden'（弹回无记账）", () => {
+    const base: DragEntryFlags = { running: false, isCurrent: false };
+    expect(resolveDragAction({ movedPx: 20, zone: "dismiss", flags: base })).toBe("dismiss");
+    expect(resolveDragAction({ movedPx: 20, zone: "archive", flags: base })).toBe("archive");
+    expect(resolveDragAction({ movedPx: 20, zone: undefined, flags: base })).toBe("forbidden");
+  });
+
+  it("DRAG_THRESHOLD_PX 常量钉死为 8（契约值，组件与纯函数共享）", () => {
+    expect(DRAG_THRESHOLD_PX).toBe(8);
+  });
+});
+
+describe("isBubbleDraggable: 可拖范围（仅 completed 类）", () => {
+  it("running / 等待交互不可拖；普通已完成类可拖；current 不影响可拖性", () => {
+    expect(isBubbleDraggable({ running: true, isCurrent: false })).toBe(false);
+    expect(isBubbleDraggable({ running: true, isCurrent: true })).toBe(false);
+    expect(
+      isBubbleDraggable({ running: false, pendingInteraction: "approval", isCurrent: false }),
+    ).toBe(false);
+    expect(
+      isBubbleDraggable({ running: false, pendingInteraction: "plan-review", isCurrent: true }),
+    ).toBe(false);
+    expect(isBubbleDraggable({ running: false, isCurrent: false })).toBe(true);
+    // 当前会话泡可拖（收起区允许；归档区由矩阵在落点判定拒绝）
+    expect(isBubbleDraggable({ running: false, isCurrent: true })).toBe(true);
+  });
+
+  it("running + pending 组合仍不可拖（任一禁止信号即禁）", () => {
+    expect(
+      isBubbleDraggable({ running: true, pendingInteraction: "question", isCurrent: false }),
+    ).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 双开关组合与归档排除退化路径（工单03，ADR-0022 D3/D6/D8）
+//
+// 开关②「拖拽归档会话」不进投影上下文（C1 契约：其职责是渲染层归档区显隐）；
+// 归档排除只由 SDK archivedSessionIds 快照集合驱动——已归档会话无论②开或关
+// 都不得复活（PRD 用户故事 14 防复活语义）。本组为文档级护栏：排除/豁免/
+// 优先级语义在工单01 已按契约预建并逐格覆盖，此处以开关组合视角收拢成网格。
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: 双开关组合与归档排除退化路径", () => {
+  it("开关①关 × 全脏记账集（kept/dismissed/archived 含幽灵 id）⇒ 与现状逐条目全等", () => {
+    const items = [
+      entry("a", { running: true }),
+      entry("b", { completed: true }),
+      entry("c"), // idle 形态（已查看）
+      gentry("main", { running: true }),
+      sub("s1", "main", "completed"),
+    ];
+    const dirty: BubbleKeepContext = {
+      keepEnabled: false,
+      kept: idSet("c", "s1"),
+      dismissed: idSet("b"),
+      archived: idSet("a", "main", "ghost"),
+    };
+    expect(buildBubbleGroups(items, undefined, 5, dirty)).toEqual(
+      buildBubbleGroups(items, undefined, 5),
+    );
+  });
+
+  it("开关①开 × archived 缺省 ⇒ 与仅开关①全等（SDK 快照未就绪 = 无排除）", () => {
+    const items = [
+      entry("x", { running: true }),
+      entry("y", { completed: true }),
+    ];
+    const bare = buildBubbleGroups(items, undefined, 5, { keepEnabled: true });
+    const withEmptySets = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      kept: idSet(),
+      dismissed: idSet(),
+      archived: idSet(),
+    });
+    expect(withEmptySets).toEqual(bare);
+  });
+
+  it("①开②关 = 仅收起区语义（issue03 验收6）：②不在 BubbleKeepContext 中——归档区显隐属渲染层，投影对②不可知且输出不受影响", () => {
+    // 显式命名格：开关②「拖拽归档会话」的唯一职责是渲染层归档区挂载与否
+    // （SessionBubbleList 的 keepEnabled && archiveDragEnabled 门控）；投影
+    // 层不存在「②关」退化路径——BubbleKeepContext 结构上没有②字段（编译期
+    // 隔离），本格断言同一上下文形状的投影输出完全由①+三集合决定，防未来
+    // 误把②引入投影签名造成分叉。
+    const items = [
+      entry("done", { completed: true }),
+      entry("keptIdle"), // idle + kept ⇒ 可见
+    ];
+    const ctx: BubbleKeepContext = {
+      keepEnabled: true,
+      kept: idSet("keptIdle"),
+      dismissed: idSet(),
+      archived: idSet(),
+    };
+    // 业务上②开或②关，传入投影的都是同一个 context 形状 ⇒ 输出恒等。
+    expect(buildBubbleGroups(items, undefined, 5, ctx).groups.map((g) => g.rootId)).toEqual([
+      "done",
+      "keptIdle",
+    ]);
+  });
+
+  it("优先级网格：archived > dismissed > kept > 基线；running/pending 豁免压过归档集", () => {
+    const items = [
+      entry("onlyKept"), // idle + kept ⇒ kept 救回可见
+      entry("keptDismissed"), // kept + dismissed ⇒ dismissed 胜，隐藏
+      entry("keptArchived", { completed: true }), // kept + archived ⇒ 归档胜，隐藏
+      entry("dismissedArchived", { completed: true }), // 双隐藏集叠加 ⇒ 隐藏
+      entry("clean", { completed: true }), // 未记账 completed ⇒ 基线可见
+      entry("runningArchived", { running: true }), // running 豁免 ⇒ 不被归档集隐藏
+      entry("pendingArchived", {
+        completed: true,
+        pendingInteraction: "approval",
+      }), // 紧急豁免 ⇒ 不被归档集隐藏
+    ];
+    const ctx: BubbleKeepContext = {
+      keepEnabled: true,
+      kept: idSet("onlyKept", "keptDismissed", "keptArchived"),
+      dismissed: idSet("keptDismissed", "dismissedArchived"),
+      archived: idSet(
+        "keptArchived",
+        "dismissedArchived",
+        "runningArchived",
+        "pendingArchived",
+      ),
+    };
+    const r = buildBubbleGroups(items, undefined, 10, ctx);
+    expect(r.groups.map((g) => g.rootId)).toEqual([
+      "onlyKept",
+      "clean",
+      "runningArchived",
+      "pendingArchived",
+    ]);
+  });
+
+  it("防复活（PRD 用户故事 14）：已归档会话即使仍被 kept 记账也不复活——②关闭亦同（②不进投影）", () => {
+    // 场景：用户保留某会话后经归档区真归档；随后把开关②关闭。投影上下文
+    // 不含②位——排除只由 SDK 归档快照驱动，输出与②无关。
+    const items = [entry("z", { completed: true })];
+    const ctx: BubbleKeepContext = {
+      keepEnabled: true,
+      kept: idSet("z"),
+      archived: idSet("z"),
+    };
+    expect(buildBubbleGroups(items, undefined, 5, ctx).groups).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 组内运行中即不可移除（队长追加需求 #2，用户规则：「如果有子代理还在运行，
+// 就不是可以移除的气泡」）。行级判定 = 自身 flags（isBubbleDraggable 原语）
+// && 归组内无运行中成员——归组模型已把嵌套后代折叠进同一组，badge.running
+// 即组内运行中成员计数。isBubbleDraggable 本身保持原样：resolveDragAction
+// 的逐条目判定原语不动，矩阵语义零变化。
+// ---------------------------------------------------------------------------
+
+describe("isBubbleRowDraggable: 组内运行中即不可移除", () => {
+  const doneFlags: DragEntryFlags = {
+    running: false,
+    pendingInteraction: undefined,
+    isCurrent: false,
+  };
+
+  it("completed 根泡 × badge.running=2 ⇒ false（组内有运行中子代理整组不可收纳）", () => {
+    expect(isBubbleRowDraggable(doneFlags, 2)).toBe(false);
+  });
+
+  it("completed 根泡独组（running=0）⇒ true", () => {
+    expect(isBubbleRowDraggable(doneFlags, 0)).toBe(true);
+  });
+
+  it("completed 子泡：同组兄弟运行中 ⇒ false；全组安静 ⇒ true（行判定与成员位次无关）", () => {
+    // 子泡与根泡消费同一个 group.badge.running——行级语义对组内任意成员一致。
+    expect(isBubbleRowDraggable(doneFlags, 1)).toBe(false);
+    expect(isBubbleRowDraggable(doneFlags, 0)).toBe(true);
+    // 当前会话子泡同理：自身可拖（收起区允许），但组内活跃时同样不可移除。
+    expect(
+      isBubbleRowDraggable(
+        { running: false, pendingInteraction: undefined, isCurrent: true },
+        3,
+      ),
+    ).toBe(false);
+    expect(
+      isBubbleRowDraggable(
+        { running: false, pendingInteraction: undefined, isCurrent: true },
+        0,
+      ),
+    ).toBe(true);
+  });
+
+  it("running 自身 / pending 自身无论组态恒 false（自身 flags 判定仍是前置原语）", () => {
+    const runningFlags: DragEntryFlags = {
+      running: true,
+      pendingInteraction: undefined,
+      isCurrent: false,
+    };
+    const pendingFlags: DragEntryFlags = {
+      running: false,
+      pendingInteraction: "approval",
+      isCurrent: false,
+    };
+    expect(isBubbleRowDraggable(runningFlags, 0)).toBe(false);
+    expect(isBubbleRowDraggable(runningFlags, 2)).toBe(false);
+    expect(isBubbleRowDraggable(pendingFlags, 0)).toBe(false);
+    expect(isBubbleRowDraggable(pendingFlags, 1)).toBe(false);
+  });
+
+  it("边界钉死：running 阈值为 <= 0（1 个运行中成员即整组锁死）", () => {
+    expect(isBubbleRowDraggable(doneFlags, 1)).toBe(false);
+    expect(isBubbleRowDraggable(doneFlags, 0)).toBe(true);
+  });
+
+  it("kept-only 条目同规则（记账不影响可移除判定）", () => {
+    // kept 记账只影响可见性，不改变行级可移除性——函数签名不含记账输入。
+    expect(isBubbleRowDraggable(doneFlags, 0)).toBe(true);
+    expect(isBubbleRowDraggable(doneFlags, 1)).toBe(false);
   });
 });

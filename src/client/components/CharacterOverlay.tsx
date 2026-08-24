@@ -90,7 +90,10 @@ import { SpeechBubble, DEFAULT_BUBBLE_DURATION_MS } from "./SpeechBubble.tsx";
 import { createOverlayImgGuard } from "./overlay-img-guard.ts";
 import { loadWebpDurationMs } from "../webp-duration.ts";
 import { SessionBubbleList } from "./SessionBubbleList.tsx";
-import type { ISessions } from "@deepseek-ai/dsh-client-runtime/client";
+import type {
+  ISessions,
+  IWorkspaces,
+} from "@deepseek-ai/dsh-client-runtime/client";
 
 /** 拖动中提视缩放（ADR-0006 决策 5：scale 1.02）. */
 const DRAG_SCALE = 1.02;
@@ -208,6 +211,11 @@ export interface CharacterOverlayProps {
   speech?: SpeechTrigger | undefined;
   /** 会话数据源（ADR-0007：传入 ctx.sessions 供会话气泡列订阅）. */
   sessions?: ISessions | undefined;
+  /**
+   * 工作区数据源（ADR-0022 D3/D8，工单03：传入 ctx.workspaces——气泡列
+   * 读 archivedSessionIds 归档排除集 + 调 archiveSession 真归档）.
+   */
+  workspaces?: IWorkspaces | undefined;
   /** 会话级状态机 runtime（ADR-0008：焦点会话 playback 驱动浮层）. */
   runtime?: OverlaySessionRuntime | undefined;
 }
@@ -226,6 +234,7 @@ export function CharacterOverlay({
   className,
   speech,
   sessions,
+  workspaces,
   runtime,
 }: CharacterOverlayProps) {
   // ADR-0008：订阅会话级 runtime 快照（焦点会话 playback）。
@@ -594,7 +603,7 @@ export function CharacterOverlay({
         alt=""
         draggable={false}
       />
-      <SessionBubbleList sessions={sessions} />
+      <SessionBubbleList sessions={sessions} workspaces={workspaces} />
       {stateLabel && (
         <div className={styles.stateLabel}>{stateLabel}</div>
       )}

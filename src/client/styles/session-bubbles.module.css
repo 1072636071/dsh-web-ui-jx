@@ -15,7 +15,7 @@
  *   - 动效：出现 150ms 淡入（opacity + translateY 4px）/ 消失 100ms 淡出；
  *     prefers-reduced-motion 全关。
  *
- * ADR-0020 等待用户交互特效：
+ * ADR-0020 pending-interaction-bubble-effect 等待用户交互特效：
  *   - 信号源：SDK SessionSummary.pendingInteraction（approval/plan-review/
  *     question，侧边栏琥珀点同源），气泡挂 .pending + 点位换 .dotPending。
  *   - 朱砂印语义：需要用户「用印首肯」——描边转 --jx-seal，入场播放一次
@@ -47,6 +47,21 @@
  *     文字弱化一档（--dsw-alias-label-tertiary）；::before 左侧 1px 竖连接线
  *     取 --dsw-alias-border-l1 素线轨（取色与位置理由见类注释）；组内顺序 =
  *     宿主列表原序；状态样式（金描边/朱砂描边/涟漪点）按成员自身标志挂载。
+ *
+ * ADR-0022 保留模式拖拽（工单02/03：收起区 + 归档区 + 禁止态）：
+ *   - .draggable：可移除指示线——保留模式下可拖拽收纳条目左缘内侧 3px
+ *     石绿竖线（inset box-shadow，与 border 描边通道分属性共存，队长追加
+ *     需求；颜色与 .dotCompleted 同源语义轨）。
+ *   - .dragForbidden：running/pending 气泡禁止态——cursor:not-allowed +
+ *     虚线素线描边弱化（:not(.pending) 收窄，朱砂紧急描边绝不被覆盖，
+ *     hover 不给金提视）。
+ *   - .dismissZone：收起区近放——锚定 .bubbleList 盒正下方 8px、右缘对齐；
+ *     虚线素线 + surface-1 墨阶下沉 + dimmed 文字；pointer-events:auto
+ *     显式放开（落点解析靠 elementFromPoint 命中）；静态无动画。
+ *   - .archiveZone：归档区远放（角色脚边）——Fragment 第二根锚定浮层盒
+ *     （.overlay fixed 包含块）正下方居中、让位状态文案；朱砂实线描边 +
+ *     朱砂文字警示语言 + title hover 提示不可恢复；与收起区横向相隔整个
+ *     盒宽（远近分置防误触，D3）；静态无动画。
  *
  * 只消费语义别名 + --jx-* 专属轨，无颜色字面量、无主题选择器。
  * 深浅双主题由 L2 remap 自动处理。
@@ -234,7 +249,7 @@
 }
 
 /* ============================================================
- * ADR-0020：等待用户交互（approval/plan-review/question）
+ * ADR-0020 pending-interaction-bubble-effect：等待用户交互（approval/plan-review/question）
  * 朱砂印信号——描边转朱砂、点位换涟漪扩散环。
  * 声明顺序在 .current/.bubble:hover 之后：紧急态描边不被覆盖。
  * ============================================================ */
@@ -282,6 +297,132 @@
 .more:focus-visible {
   outline: 2px solid var(--jx-gold);
   outline-offset: 2px;
+}
+
+/* ============================================================
+ * ADR-0022 工单02：保留模式拖拽——视觉禁止态 + 收起区（近放投放区）
+ * ============================================================ */
+
+/* 禁止态（ADR-0022 D4）：running / 等待交互气泡在保留模式下不可拖走。
+ *
+ * cursor:not-allowed 表达「拿不走」；描边弱化为虚线素线——虚线示意
+ * 「此物不可被取走」的结构语义，不引入新颜色轨。
+ *
+ * 声明纪律：border 变化用 :not(.pending) 收窄——朱砂紧急描边（.pending，
+ * 声明在前）绝不被禁止态覆盖（ADR-0020 pending-interaction-bubble-effect 紧急信号优先）；pending 气泡仍得
+ * 到 not-allowed 光标，但不改其描边。hover 不给金描边提视：非可拖对象
+ * 不暗示可抓取。 */
+.bubble.dragForbidden {
+  cursor: not-allowed;
+}
+
+.bubble.dragForbidden:not(.pending) {
+  border-style: dashed;
+}
+
+.bubble.dragForbidden:not(.pending):hover {
+  border-color: var(--dsw-alias-border-l1);
+}
+
+/* 可移除指示线（队长追加需求）：保留模式下可拖拽收纳的条目——气泡左缘
+ * 内侧一条全高绿竖线（宽 3px），一眼可辨「这条能拖去收起区/归档区收纳」。
+ *
+ * 颜色取 --dsw-alias-state-success-primary：石绿，与已完成状态点
+ * （.dotCompleted）同源——「已完成 ⇒ 可收纳」的语义在点与线上同轨统一；
+ * 无颜色字面量，深浅双主题随 L2 remap 自动切换。
+ *
+ * 实现选型：inset box-shadow 而非 border 或伪元素——本文件 .bubble/.current/
+ * .pending/.dragForbidden 的状态描边全部走 border/border-color 通道，
+ * box-shadow 属性无人占用，inset 阴影与描边分属性分层共存（金描边/朱砂
+ * 描边零覆盖风险）；不占布局、不受 .bubble overflow:hidden 影响；亦不与
+ * 子气泡 ::before 左连接线（盒外 left:-4px）冲突——线居盒内、连接线悬盒外。
+ *
+ * 叠加自查（四态）：.draggable 与 .pending/.dragForbidden 在逻辑层互斥
+ * （行挂载由 isBubbleRowDraggable 统一驱动：自身 completed 类 && 组内无
+ * 运行中成员——见 session-bubbles.ts），
+ * 故绿线实际只与素线描边或金描边叠加——石绿指示线居内、状态描边居外，
+ * 各组合下绿线不丢失、不遮蔽状态描边。keepEnabled 关闭时组件不挂此类
+ * （完全回到现状视觉）。静态呈现无动画，reduced-motion 无需分支。 */
+.draggable {
+  box-shadow: inset 3px 0 0 0 var(--dsw-alias-state-success-primary);
+}
+
+/* 收起区（近放，ADR-0022 D3 / PRD 用户故事 2）：拖入 = 本地 dismissed 记账
+ * （暂时隐藏提醒，可逆）。
+ *
+ * 定位几何：父容器 .bubbleList 是 position:absolute 的包含块——本元素
+ * top: calc(100% + 8px) 锚定整列盒正下方留 8px 间隙；right:0 与列右缘对齐
+ * （列 align-items:flex-end 的右缘锚定语言一致）。min-width 与等宽气泡
+ * （132px）对齐，投放目标足够大。
+ *
+ * pointer-events:auto 必须显式声明：.bubbleList 自身 pointer-events:none
+ * 会被子级继承，而落点解析靠 document.elementFromPoint 命中本元素——不放开
+ * 则投放永不命中。
+ *
+ * 视觉取色全部走既有语义轨：虚线素线描边 + surface-1 墨阶下沉背景 +
+ * dimmed 元数据文字（与「+N」同轨的次要信息语言）；静态呈现无动画，
+ * prefers-reduced-motion 天然无需降级分支。 */
+.dismissZone {
+  /* 脱离 column-reverse 流，锚定整列下方 */
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 132px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px dashed var(--dsw-alias-border-l1);
+  border-radius: 4px;
+  font-family: var(--dsw-font-family);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--dsw-alias-label-dimmed);
+  background: var(--jx-surface-1);
+  white-space: nowrap;
+  /* 落点命中前提：elementFromPoint 必须能打中本元素（见上注） */
+  pointer-events: auto;
+}
+
+/* 归档区（远放·角色脚边，ADR-0022 D3 / PRD 用户故事 3/5/8/9）：拖入 = 调
+ * SDK archiveSession 真归档——侧边栏同步隐藏、日志保留、不可逆。
+ *
+ * 定位几何：本元素渲染为 SessionBubbleList 返回 Fragment 的第二根（.bubbleList
+ * 的兄弟节点），绝对定位包含块上溯到 position:fixed 的浮层盒（.overlay）——
+ * top: calc(100% + 32px) 锚定盒正下方（让位 bottom:-28px 的状态文案标签），
+ * left:50% 居中于角色脚边。与收起区横向相隔整个浮层盒宽：远近分置本身即
+ * 防误触栏（D3「危险重操作必须特意够过去」）。
+ *
+ * 警示视觉（D3）：朱砂实线描边 + 朱砂文字（--jx-seal 双主题令牌，与等待交互
+ * 描边同源的警示语义色），区别于收起区的虚线素线弱化语言；title 属性提供
+ * hover 提示「归档后从列表隐藏，不可恢复」（PRD 用户故事 9）。
+ *
+ * pointer-events:auto 同收起区理由：elementFromPoint 落点命中前提。
+ * 静态呈现无动画，prefers-reduced-motion 天然无需降级分支。 */
+.archiveZone {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 32px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 132px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--jx-seal);
+  border-radius: 4px;
+  font-family: var(--dsw-font-family);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--jx-seal);
+  background: var(--jx-surface-1);
+  white-space: nowrap;
+  /* 落点命中前提：elementFromPoint 必须能打中本元素（见上注） */
+  pointer-events: auto;
 }
 
 /* ============================================================
@@ -348,7 +489,7 @@
 
 /* ============================================================
  * prefers-reduced-motion：全关
- * 等待交互气泡保留静态朱砂点/描边（无动效时状态仍可区分，ADR-0020）
+ * 等待交互气泡保留静态朱砂点/描边（无动效时状态仍可区分，ADR-0020 pending-interaction-bubble-effect）
  * ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   /* 工单03 注：.bubbleChild 与其连接线伪元素均为纯静态装饰（无 animation/
@@ -364,7 +505,7 @@
     animation: none;
   }
   .badgeRunningDot {
-    /* 徽标呼吸迷你点同样全关：保留静态金点（状态仍可区分，ADR-0020 惯例） */
+    /* 徽标呼吸迷你点同样全关：保留静态金点（状态仍可区分，ADR-0020 pending-interaction-bubble-effect 惯例） */
     animation: none;
   }
   .bubble.pending {

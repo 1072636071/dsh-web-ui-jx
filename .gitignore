@@ -1,6 +1,9 @@
 # 临时文件（AGENTS.md 约定：.temp/ 下按 scripts/output/logs 分类，不进 git）
 .temp/
 
+# AgentTeams 运行时目录（团队状态与收件箱，属临时协作产物，不进 git——审查 N12）
+.agent-teams/
+
 # Node
 node_modules/
 

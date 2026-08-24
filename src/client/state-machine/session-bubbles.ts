@@ -5,15 +5,20 @@
  *
  * 提供：
  *   - buildBubbleGroups（ADR-0018）：唯一气泡投影入口——范围过滤（running ||
- *     completed）+ 归组模型：subagent 后代沿 parentId 折叠进根祖先（第一个
- *     非 subagent 来源的祖先），一条工作流恒占一个顶层归组气泡；每组携带
- *     rootId / 根条目 / 成员序列 / 徽标 badge{total, running} /
- *     containsCurrent / pending 聚合标志；上限只管顶层，pending 组豁免折叠、
- *     永驻可见（ADR-0020 组级聚合）；无谱系字段输入退化为旧行为（每会话
- *     一泡，向后兼容护栏）。
+ *     completed，保留模式下扩展为 running || completed || kept 并减去
+ *     dismissed/archived，ADR-0022 D1）+ 归组模型：subagent 后代沿 parentId
+ *     折叠进根祖先（第一个非 subagent 来源的祖先），一条工作流恒占一个顶层
+ *     归组气泡；每组携带 rootId / 根条目 / 成员序列 / 徽标 badge{total,
+ *     running} / containsCurrent / pending 聚合标志；上限只管顶层，pending
+ *     组豁免折叠、永驻可见（ADR-0020 pending-interaction-bubble-effect 组级聚合）；无谱系字段输入退化为旧行为
+ *     （每会话一泡，向后兼容护栏）。
  *     （历史注：工单 02 收缩步已移除被分组渲染取代的平铺导出
  *     selectBubbleEntries——其行为语义由 buildBubbleGroups 平铺退化路径承载，
  *     回归护栏以测试域行为基准比对的形式保留在 session-bubbles.test.ts。）
+ *   - resolveDragAction / isBubbleDraggable / DRAG_THRESHOLD_PX（工单 02，
+ *     ADR-0022 D2/D3/D4/D5）：拖拽判定矩阵纯函数一次写全——位移阈值区分
+ *     点击与拖拽（禁拖不禁点）；running/等待交互禁止拖动；当前会话 × 归档区
+ *     forbidden（03 直接消费）；有位移未命中 = forbidden（组件弹回不记账）。
  *
  * 纯逻辑模块：不操作 DOM、不依赖 React、不依赖 SDK 类型。DOM 薄壳在
  * SessionBubbleList 组件。对齐 state-machine / overlay-position 单例模式。
@@ -131,7 +136,7 @@ export interface BubbleGroup {
    * `root.isCurrent || containsCurrent` 挂金描边（D6 传播的组合式表达）。
    */
   readonly root: BubbleEntry;
-  /** 组内成员：通过范围过滤（running || completed）的后代，按宿主列表原序. */
+  /** 组内成员：通过范围过滤（保留模式下含 kept、减 dismissed/archived）的后代，按宿主列表原序. */
   readonly members: readonly BubbleEntry[];
   /** 徽标数据：后代总数与运行中数（D4）. */
   readonly badge: BubbleGroupBadge;
@@ -142,11 +147,43 @@ export interface BubbleGroup {
    */
   readonly containsCurrent: boolean;
   /**
-   * 组级等待交互聚合标志（ADR-0020 分组模型组合语义，队长裁定）：根本身
+   * 组级等待交互聚合标志（ADR-0020 pending-interaction-bubble-effect 分组模型组合语义，队长裁定）：根本身
    * 或任一入选成员 pendingInteraction !== undefined 时为真。pending 组
    * 豁免顶层折叠——落在截断线之外时追加到可见组尾部、不计入 moreCount。
    */
   readonly pending: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// 保留模式上下文（ADR-0022 D1，工单 01 定形——02/03 只填内容不改签名）
+// ---------------------------------------------------------------------------
+
+/**
+ * 保留模式投影上下文：buildBubbleGroups 的可选第 4 参（ADR-0022 D1）。
+ *
+ * - keepEnabled：总开关「查看后保留气泡」。context 缺省或 keepEnabled ===
+ *   false ⇒ 输出与现状逐条目全等（忽略全部集合）——总开关退化路径即回归
+ *   护栏。
+ * - kept：本地记账的已查看会话集合（SDK 在会话打开时清除 completed 位，
+ *   客户端记账使其持续可见，直至显式移除）。
+ * - dismissed：收起区记账集合（暂时隐藏提醒，可逆；手势由工单 02 填充）。
+ * - archived：SDK 归档会话 id 集合（archivedSessionIds 快照；归档权威在
+ *   SDK，派生层只读排除防复活，工单 03 接线）。
+ *
+ * 三集合全部可选（缺省视同空集）；其中不存在于 items 的 id 一律惰性忽略
+ * （配置层写入时裁剪，此处过滤双保险）。集合过滤发生在本模块内部的范围
+ * 过滤处——其硬编码 running||completed 会把 kept 条目丢弃，外部前置过滤
+ * 无法实现该语义，这正是参数必须进入 seam 的原因。
+ */
+export interface BubbleKeepContext {
+  /** 总开关「查看后保留气泡」（false = 完全回到现状语义）. */
+  readonly keepEnabled: boolean;
+  /** 本地 kept 记账集合（单击保留）；缺省视同空集. */
+  readonly kept?: ReadonlySet<SessionId>;
+  /** 收起区 dismissed 记账集合（暂时隐藏）；缺省视同空集. */
+  readonly dismissed?: ReadonlySet<SessionId>;
+  /** SDK 归档会话 id 集合（排除防复活）；缺省视同空集. */
+  readonly archived?: ReadonlySet<SessionId>;
 }
 
 /** buildBubbleGroups 返回值. */
@@ -164,7 +201,14 @@ export interface BuildBubbleGroupsResult {
  * 判定细则：
  *
  * - **范围过滤**：与既有模型一致，`running || completed` 的会话才可能入选；
- *   idle 后代不显示、不计数（实现决策 1）。
+ *   idle 后代不显示、不计数（实现决策 1）。保留模式扩展（ADR-0022 D1）：
+ *   context 开启时入选 = `(running || completed || kept.has(id))` 且不被
+ *   dismissed/archived 隐藏——集合过滤发生在本函数内部的范围过滤处（外部
+ *   前置过滤会被硬编码语义丢弃 kept 条目）。豁免规则（ADR-0020 pending-interaction-bubble-effect
+ *   pending-interaction-bubble-effect）：
+ *   running === true 或 pendingInteraction !== undefined 的条目不被记账
+ *   隐藏（活动与紧急信号优先），kept 对其冗余无害；豁免只防隐藏、不放宽
+ *   入选资格。context 缺省或 keepEnabled === false 时逐字面退化为现状语义。
  * - **根祖先锚定**（D2）：subagent 条目沿 parentId 向上溯，停在第一个
  *   origin ≠ 'subagent' 的祖先——该祖先即根，全部后代折叠进它。
  * - **fork 截断**：fork 出的会话 origin 非 'subagent'，按普通会话自成
@@ -183,7 +227,7 @@ export interface BuildBubbleGroupsResult {
  *   挂金描边；current 为根本身 / 无 current / 不相关 ⇒ containsCurrent 恒假。
  * - **上限只管顶层**（D3）：maxVisible 只约束顶层组数；组内展开不受限。
  *   moreCount = max(0, 顶层组数 − maxVisible)。
- * - **折叠豁免**（ADR-0020 分组模型组合语义，队长裁定）：组级 pending =
+ * - **折叠豁免**（ADR-0020 pending-interaction-bubble-effect 分组模型组合语义，队长裁定）：组级 pending =
  *   根或任一入选成员 pendingInteraction !== undefined；pending 组豁免顶层
  *   折叠——落在截断线之外时按原相对顺序追加到 groups 尾部、不计入
  *   moreCount——等待交互的工作流入口永驻可见。maxVisible ≤ 0 时 groups
@@ -196,13 +240,45 @@ export interface BuildBubbleGroupsResult {
  * @param items - 会话列表条目（从 sessions.list 快照派生，含谱系字段）。
  * @param current - 当前会话 id（undefined 表示无当前会话）。
  * @param maxVisible - 可见顶层归组气泡上限。
+ * @param context - 保留模式上下文（可选，ADR-0022 D1；缺省 = 现状语义）。
  * @returns { groups, moreCount }。
  */
 export function buildBubbleGroups(
   items: readonly SessionListEntry[],
   current: SessionId | undefined,
   maxVisible: number,
+  context?: BubbleKeepContext,
 ): BuildBubbleGroupsResult {
+  // ---- 保留模式范围过滤（ADR-0022 D1，工单 01）---------------------------
+  // keepActive = 总开关开启；关闭时谓词逐字面退化为现状硬编码语义
+  //（running || completed），保证不传参输出与改造前逐条目全等（回归护栏）。
+  const keepActive = context !== undefined && context.keepEnabled;
+  const kept = context?.kept;
+  const dismissed = context?.dismissed;
+  const archived = context?.archived;
+
+  /**
+   * 范围过滤谓词：入选 = (running || completed || kept.has(id)) 且不被
+   * dismissed/archived 隐藏。豁免规则：running === true 或
+   * pendingInteraction !== undefined 的条目不被记账隐藏（ADR-0020 pending-interaction-bubble-effect
+   * pending-interaction-bubble-effect，活动与紧急信号优先）；豁免只防隐藏、不放宽入选资格。集合中不存在于
+   * items 的 id 天然惰性忽略（has 不命中）。
+   */
+  const passesRange = (e: SessionListEntry): boolean => {
+    if (!keepActive) return e.running || e.completed;
+    if (
+      !e.running &&
+      e.pendingInteraction === undefined &&
+      ((dismissed !== undefined && dismissed.has(e.sessionId)) ||
+        (archived !== undefined && archived.has(e.sessionId)))
+    ) {
+      return false; // 记账隐藏（running/pending 豁免优先于集合）
+    }
+    return (
+      e.running || e.completed || (kept !== undefined && kept.has(e.sessionId))
+    );
+  };
+
   // 输入镜像：沿 parentId 上溯时的行存在性查询（D7「父行不在 byId 中」）。
   const byId = new Map<SessionId, SessionListEntry>();
   for (const item of items) byId.set(item.sessionId, item);
@@ -285,10 +361,11 @@ export function buildBubbleGroups(
   // 组装配：入选判定 → current 标记 → 徽标计数 → 组级 pending 聚合。
   const groups: BubbleGroup[] = [];
   for (const sk of skeletons.values()) {
-    const rootPasses = sk.root.running || sk.root.completed;
-    const members = sk.members
-      .filter((m) => m.running || m.completed)
-      .map((m) => toGroupBubbleEntry(m, current));
+    // 范围过滤走统一谓词（保留模式下含 kept、减 dismissed/archived）。
+    const rootPasses = passesRange(sk.root);
+    const members = sk.members.filter(passesRange).map((m) =>
+      toGroupBubbleEntry(m, current),
+    );
     // 组入选条件（实现决策 1）：根本身或任一后代通过范围过滤。
     if (!rootPasses && members.length === 0) continue;
     const containsCurrent =
@@ -304,14 +381,14 @@ export function buildBubbleGroups(
         running: members.reduce((n, m) => (m.running ? n + 1 : n), 0),
       },
       containsCurrent,
-      // ADR-0020 组级聚合（队长裁定）：根或任一入选成员等待交互。
+      // ADR-0020 pending-interaction-bubble-effect 组级聚合（队长裁定）：根或任一入选成员等待交互。
       pending:
         sk.root.pendingInteraction !== undefined ||
         members.some((m) => m.pendingInteraction !== undefined),
     });
   }
 
-  // 上限只管顶层（D3）+ ADR-0020 组级折叠豁免（与既有平铺折叠豁免语义同构）。
+  // 上限只管顶层（D3）+ ADR-0020 pending-interaction-bubble-effect 组级折叠豁免（与既有平铺折叠豁免语义同构）。
   const cap = Math.max(0, Math.floor(maxVisible));
   const primary = groups.slice(0, cap);
   const overflow = groups.slice(cap);
@@ -320,6 +397,101 @@ export function buildBubbleGroups(
     groups: [...primary, ...promoted],
     moreCount: Math.max(0, overflow.length - promoted.length),
   };
+}
+
+// ---------------------------------------------------------------------------
+// 拖拽判定矩阵（ADR-0022 D2/D3/D4/D5，工单 02 一次写全——03 直接消费不改签名）
+// ---------------------------------------------------------------------------
+
+/** 投放区种类：收起区（近放、本地 dismissed、可逆）/ 归档区（远放、真归档、不可逆）。 */
+export type DropZoneKind = "dismiss" | "archive";
+
+/** 拖拽判定结论：click = 未超阈值放行原生点击；dismiss/archive = 投放动作；forbidden = 无动作（组件弹回）. */
+export type DragVerdict = "click" | "dismiss" | "archive" | "forbidden";
+
+/**
+ * 拖拽判定的条目标志（从 BubbleEntry 投影；纯逻辑层不依赖组件态）。
+ *
+ * pendingInteraction 缺省 = 无阻塞。isCurrent 为真时归档区拒绝
+ * （ADR-0022 D5），收起区仍允许。
+ */
+export interface DragEntryFlags {
+  readonly running: boolean;
+  readonly pendingInteraction?: PendingInteractionKind;
+  readonly isCurrent: boolean;
+}
+
+/** 点击与拖拽的位移阈值（px）：位移 < 阈值 = 点击（ADR-0022 D2「约 8px」钉死为 8）。 */
+export const DRAG_THRESHOLD_PX = 8;
+
+/**
+ * 判定一次拖拽手势的结论（ADR-0022 D2/D4/D5 判定矩阵，纯函数）。
+ *
+ * 判定顺序（钉死，逐条短路）：
+ *
+ * 1. `movedPx < DRAG_THRESHOLD_PX` ⇒ `"click"`——未超阈值的按下-松手恒为
+ *    点击语义，**先于一切禁止判定**（禁拖不禁点：running/pending 条目的
+ *    常规点击照旧走既有跳转路径）；
+ * 2. flags.running ⇒ `"forbidden"`（D4 可拖范围 = 仅 completed 类；
+ *    running 拖走后有 completed 复活问题）；
+ * 3. pendingInteraction 存在 ⇒ `"forbidden"`（审批误删风险，ADR-0020 pending-interaction-bubble-effect
+ *    紧急信号精神）；
+ * 4. isCurrent 且 zone === "archive" ⇒ `"forbidden"`（D5：规避归档当前
+ *    会话清空选择踢到 New Session 的副作用；03 的归档调用方直接消费此格）；
+ * 5. zone === "dismiss" ⇒ `"dismiss"`（当前会话亦允许——收起是纯本地操作）;
+ * 6. zone === "archive" ⇒ `"archive"`；
+ * 7. zone undefined（有位移未命中任何投放区）⇒ `"forbidden"`——语义 =
+ *    无动作，组件据此弹回原位不记账。
+ */
+export function resolveDragAction(input: {
+  readonly movedPx: number;
+  /** 落点解析出的投放区；undefined = 未落入任何投放区. */
+  readonly zone: DropZoneKind | undefined;
+  readonly flags: DragEntryFlags;
+}): DragVerdict {
+  if (input.movedPx < DRAG_THRESHOLD_PX) return "click";
+  const { flags, zone } = input;
+  if (flags.running) return "forbidden";
+  if (flags.pendingInteraction !== undefined) return "forbidden";
+  if (flags.isCurrent && zone === "archive") return "forbidden";
+  if (zone === "dismiss") return "dismiss";
+  if (zone === "archive") return "archive";
+  return "forbidden"; // 有位移未命中 → 无动作（弹回）
+}
+
+/**
+ * 条目是否可进入拖动态（ADR-0022 D4：可拖范围 = 仅 completed 类）。
+ *
+ * running 与等待交互条目一律 false——组件据此呈现视觉禁止态且不启动手势；
+ * isCurrent 不影响可拖性（能否入归档区由 resolveDragAction 在落点判定，
+ * 收起区对当前会话开放）。
+ */
+export function isBubbleDraggable(flags: DragEntryFlags): boolean {
+  return !flags.running && flags.pendingInteraction === undefined;
+}
+
+/**
+ * 气泡行是否可移除（队长追加需求 #2，用户规则：「如果有子代理还在运行，
+ * 就不是可以移除的气泡」）。
+ *
+ * 行级判定 = 自身 flags（isBubbleDraggable 原语）&& 归组内无运行中成员——
+ * 归组模型（ADR-0018）已把全部嵌套后代折叠进同一组，`group.badge.running`
+ * 即组内运行中成员计数：组内仍有进行中的工作流时整组不可移除（根气泡与
+ * 任意子气泡行同规则），防止用户收纳一条还活着的工作流。
+ *
+ * isBubbleDraggable 保持原样：resolveDragAction 的逐条目判定原语不动，
+ * 判定矩阵语义零变化；本函数只在组件层作为「行是否可移除」的统一判定源
+ * （绿线指示 / 手势臂态 / 键盘收起共用）。
+ *
+ * @param flags - 行自身三标志投影。
+ * @param groupRunningMembers - 所属归组的 badge.running（组内运行中成员数；
+ *   根气泡与子气泡传同一值，行级语义对组内位次无关）。
+ */
+export function isBubbleRowDraggable(
+  flags: DragEntryFlags,
+  groupRunningMembers: number,
+): boolean {
+  return isBubbleDraggable(flags) && groupRunningMembers <= 0;
 }
 
 /**

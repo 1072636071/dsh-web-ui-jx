@@ -29,7 +29,10 @@
  */
 
 import type { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
-import type { ISessions } from "@deepseek-ai/dsh-client-runtime/client";
+import type {
+  ISessions,
+  IWorkspaces,
+} from "@deepseek-ai/dsh-client-runtime/client";
 import { createElement, Fragment } from "react";
 import { createRoot } from "react-dom/client";
 import type { Root } from "react-dom/client";
@@ -43,12 +46,17 @@ import {
   subscribeVariantRotationEnabled,
 } from "./state-machine/overlay-settings.ts";
 import { initSkin } from "./skin.ts";
+import {
+  startWelcomeBackdrop,
+  sweepResidualBackdrops,
+} from "./welcome-backdrop.ts";
 import "./styles/base.css";
 import "./styles/jiangxiao.css";
 import "./styles/fx.css";
 
-/** Client services required（令牌基座 + 动画挂钩需 sessions）. */
-export const inject: string[] = ["sessions"];
+/** Client services required（令牌基座 + 动画挂钩需 sessions；ADR-0022 D3/D8
+ * 归档排除/真归档需 workspaces）. */
+export const inject: string[] = ["sessions", "workspaces"];
 
 /** 容器元素形状：暂存 React root 引用（ADR-0017 D2 跨闭包清扫用）. */
 interface RootHostElement extends HTMLElement {
@@ -139,22 +147,27 @@ function sweepResidualFxLayers(doc: Document): void {
  * RootApp 无需 managementVisible 状态。
  * ADR-0007：CharacterOverlay 接收 sessions prop 供会话气泡列订阅。
  * ADR-0008：CharacterOverlay 接收 runtime prop（会话级状态机焦点会话 playback）。
+ * ADR-0022 D3/D8：CharacterOverlay 接收 workspaces prop（气泡列归档排除集
+ * 派生 + archiveSession 真归档调用）。
  *
  * @param props.sessions - 会话数据源（传入 CharacterOverlay 供气泡列订阅）.
  * @param props.runtime - 会话级状态机 runtime（焦点会话 playback 驱动浮层）.
+ * @param props.workspaces - 工作区数据源（归档权威在 SDK，传入气泡列）.
  * @returns CharacterOverlay + SidebarEntry.
  */
 function RootApp({
   sessions,
   runtime,
+  workspaces,
 }: {
   sessions?: ISessions | undefined;
   runtime?: OverlaySessionRuntime | undefined;
+  workspaces?: IWorkspaces | undefined;
 }) {
   return createElement(
     Fragment,
     null,
-    createElement(CharacterOverlay, { sessions, runtime }),
+    createElement(CharacterOverlay, { sessions, runtime, workspaces }),
     createElement(SidebarEntry),
   );
 }
@@ -191,6 +204,9 @@ export function apply(ctx: ClientContext): void {
   // 函数随模块失效不可达，只能裸摘）。
   teardownFx();
   sweepResidualFxLayers(document);
+  // 同约束覆盖欢迎背景壁纸层（ADR-0024）：裸摘已作废模块实例逃逸的
+  // body > [data-jx-backdrop] 容器（其清理函数随模块失效不可达）。
+  sweepResidualBackdrops(document);
 
   const container = document.createElement("div");
   container.dataset.dshJxRoot = "";
@@ -203,7 +219,10 @@ export function apply(ctx: ClientContext): void {
   // position:fixed 自带定位，不参与容器流式布局，互不干扰。
   // ADR-0007：sessions 传入 CharacterOverlay 供会话气泡列订阅。
   // ADR-0008：runtime 传入 CharacterOverlay，浮层订阅焦点会话 playback。
+  // ADR-0022 D3/D8：workspaces 传入气泡列——archivedSessionIds 归档排除 +
+  // archiveSession 真归档（归档权威在 SDK，本地不重复记账）。
   const sessions = ctx.get("sessions");
+  const workspaces = ctx.get("workspaces");
   const runtime =
     sessions !== undefined
       ? createOverlaySessionRuntime(sessions, {
@@ -211,7 +230,7 @@ export function apply(ctx: ClientContext): void {
           variantRotationEnabled: getVariantRotationEnabled,
         })
       : undefined;
-  root.render(createElement(RootApp, { sessions, runtime }));
+  root.render(createElement(RootApp, { sessions, runtime, workspaces }));
 
   // 启动 FX 特效系统（随 fiber 走完整生命周期：ADR-0017 可重入约束——
   // fall/warp 的 body 直挂装饰层容器、window 指针监听、reduced-motion
@@ -224,6 +243,15 @@ export function apply(ctx: ClientContext): void {
       };
     },
     "dsh-web-ui-jx: fx lifecycle",
+  );
+
+  // 欢迎背景壁纸层（ADR-0024）：挂载/同步/卸载随 fiber 走完整生命周期。
+  // startWelcomeBackdrop 返回的清理函数退订配置变化 + 卸层 + 清
+  // --jx-panel-alpha；皮肤开关切换后的即时同步由 SettingsCard 调
+  // syncWelcomeBackdrop()（皮肤变化不走 config 订阅）。
+  ctx.effect(
+    () => startWelcomeBackdrop(),
+    "dsh-web-ui-jx: welcome backdrop lifecycle",
   );
 
   // ADR-0008：runtime 生命周期随 ctx.effect（dispose 释放全部订阅 + tick timer）。

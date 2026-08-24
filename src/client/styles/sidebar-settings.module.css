@@ -464,6 +464,18 @@
   background: var(--dsw-specific-sidebar-bg);
 }
 
+/* 主从灰显（ADR-0022 D6，工单03）：拖拽归档开关②在总开关①关闭时不可用——
+ * 整体降透明度 + 禁用光标，hover 不再提亮描边。不另改轨道/旋钮配色：
+ * opacity 统一压暗已足以与「可用但关闭」的素线轨区分，且天然兼容深浅双主题。 */
+.toggleDisabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toggleSwitch.toggleDisabled:hover {
+  border-color: var(--dsw-alias-border-l1);
+}
+
 /* ============================================================
  * SettingsCard — 数字输入（ADR-0007 角色 section）
  * ============================================================ */
@@ -495,6 +507,82 @@
 }
 
 /* ============================================================
+ * SettingsCard — 范围滑杆（ADR-0024 D3：壁纸/面板不透明度）
+ * ============================================================ */
+.rangeInput {
+  flex: 0 0 auto;
+  width: 120px;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--dsw-alias-border-l1);
+  border-radius: 3px;
+  cursor: pointer;
+  outline: none;
+}
+
+/* WebKit 滑块 thumb */
+.rangeInput::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--dsw-alias-brand-text);
+  border: 2px solid var(--dsw-specific-sidebar-bg);
+  box-shadow: 0 0 0 1px var(--dsw-alias-border-l2);
+  transition: transform 150ms var(--ds-ease-in-out);
+}
+
+.rangeInput::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.rangeInput::-webkit-slider-thumb:active {
+  transform: scale(0.95);
+}
+
+/* Firefox 滑块 thumb */
+.rangeInput::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--dsw-alias-brand-text);
+  border: 2px solid var(--dsw-specific-sidebar-bg);
+  box-shadow: 0 0 0 1px var(--dsw-alias-border-l2);
+  transition: transform 150ms var(--ds-ease-in-out);
+}
+
+.rangeInput::-moz-range-thumb:hover {
+  transform: scale(1.15);
+}
+
+.rangeInput::-moz-range-thumb:active {
+  transform: scale(0.95);
+}
+
+/* 禁用态：降不透明度 + 无 hover 放大 */
+.rangeInput:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.rangeInput:disabled::-webkit-slider-thumb {
+  transform: none;
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.rangeInput:disabled::-moz-range-thumb {
+  transform: none;
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.rangeInput:focus-visible {
+  outline: 2px solid var(--jx-gold);
+  outline-offset: 2px;
+}
+
+/* ============================================================
  * SettingsCard — 重置浮层位置按钮（工单 03，ADR-0006 决策 6）
  * ============================================================ */
 .resetRow {
@@ -520,7 +608,8 @@
   .toggleKnob,
   .closeBtn,
   .resetBtn,
-  .numberInput {
+  .numberInput,
+  .rangeInput {
     transition: none;
   }
   /* sidebarRail 默认 transform: translateY(-50%) 用于垂直居中，

@@ -7,6 +7,9 @@
  *     调 setFxEnabled 即时生效 + 写 localStorage('jx-fx') 持久化。
  *   - 素材管理：内嵌 ManagementUI（ImportPanel + AssetList），展开时 section
  *     body 内滚动（D6）。
+ *   - 角色（ADR-0007 起，默认折叠）：状态标签 / 动作轮换 / 会话气泡上限 /
+ *     查看后保留气泡（ADR-0022 D6 总开关①，调 setKeepEnabled 即时生效 +
+ *     写 localStorage('jx-bubble-keep-enabled') 持久化）。
  * 设置卡底部含「重置浮层位置」次要按钮（工单 03，ADR-0006 决策 6）：调
  * overlayPositionStore.reset() → 浮层回右下角 + 清 localStorage('jx-overlay-pos')。
  *
@@ -46,6 +49,21 @@ import {
   getVariantRotationEnabled,
   setVariantRotationEnabled,
 } from "../state-machine/overlay-settings.ts";
+import {
+  getArchiveDragEnabled,
+  getKeepEnabled,
+  setArchiveDragEnabled,
+  setKeepEnabled,
+} from "../state-machine/session-bubble-keep-config.ts";
+import {
+  getBackdropEnabled,
+  getPanelOpacity,
+  getWallOpacity,
+  setBackdropEnabled,
+  setPanelOpacity,
+  setWallOpacity,
+} from "../welcome-backdrop-config.ts";
+import { syncWelcomeBackdrop } from "../welcome-backdrop.ts";
 import { ManagementUI } from "./ManagementUI.tsx";
 import styles from "../styles/sidebar-settings.module.css";
 
@@ -115,10 +133,33 @@ export function SettingsCard({ className }: SettingsCardProps) {
     getVariantRotationEnabled(),
   );
 
+  // 保留模式总开关①「查看后保留气泡」（ADR-0022 D6，默认开）
+  const [keepEnabled, setKeepEnabledOn] = useState<boolean>(() =>
+    getKeepEnabled(),
+  );
+
+  // 欢迎背景（ADR-0024 D3）：总开关 + 壁纸/面板不透明度
+  const [backdropOn, setBackdropOnState] = useState<boolean>(() =>
+    getBackdropEnabled(),
+  );
+  const [wallOpacity, setWallOpacityState] = useState<number>(() =>
+    getWallOpacity(),
+  );
+  const [panelOpacity, setPanelOpacityState] = useState<number>(() =>
+    getPanelOpacity(),
+  );
+
+  // 拖拽归档开关②「拖拽归档会话」（ADR-0022 D6，默认开；主从于①）
+  const [archiveDragOn, setArchiveDragOn] = useState<boolean>(() =>
+    getArchiveDragEnabled(),
+  );
+
   /** 切换皮肤总开关：setSkinEnabled 即时生效 + 持久化，并更新本地视图状态. */
   const handleToggleSkin = useCallback(() => {
     const next = !skinEnabled;
     setSkinEnabled(next);
+    // 欢迎背景随皮肤联动（ADR-0024）：皮肤关 → 壁纸层即时卸载
+    syncWelcomeBackdrop();
     setSkinOn(next);
   }, [skinEnabled]);
 
@@ -167,6 +208,45 @@ export function SettingsCard({ className }: SettingsCardProps) {
     setVariantRotationEnabled(next);
     setVariantRotationOn(next);
   }, [variantRotationOn]);
+
+  /** 切换保留模式总开关①：调 setKeepEnabled 即时生效 + 持久化（ADR-0022 D6）. */
+  const handleToggleKeep = useCallback(() => {
+    const next = !keepEnabled;
+    setKeepEnabled(next);
+    setKeepEnabledOn(next);
+  }, [keepEnabled]);
+
+  /** 切换拖拽归档开关②：调 setArchiveDragEnabled 即时生效 + 持久化（ADR-0022 D6）. */
+  const handleToggleArchiveDrag = useCallback(() => {
+    const next = !archiveDragOn;
+    setArchiveDragEnabled(next);
+    setArchiveDragOn(next);
+  }, [archiveDragOn]);
+
+  /** 切换欢迎背景总开关（ADR-0024 D3）：即时生效 + 持久化 + 更新视图. */
+  const handleToggleBackdrop = useCallback(() => {
+    const next = !backdropOn;
+    setBackdropEnabled(next);
+    setBackdropOnState(next);
+  }, [backdropOn]);
+
+  /** 壁纸不透明度滑杆（ADR-0024 D3）：钳制写入 + 即时生效. */
+  const handleWallOpacityChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const next = setWallOpacity(Number(e.target.value));
+      setWallOpacityState(next);
+    },
+    [],
+  );
+
+  /** 面板不透明度滑杆（ADR-0024 D3）：钳制写入 + 即时生效. */
+  const handlePanelOpacityChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const next = setPanelOpacity(Number(e.target.value));
+      setPanelOpacityState(next);
+    },
+    [],
+  );
 
   /** 重置浮层位置：调位置 store 的 reset()，浮层立即回右下角 + 清持久化（工单 03）. */
   const handleResetPosition = useCallback(() => {
@@ -229,6 +309,63 @@ export function SettingsCard({ className }: SettingsCardProps) {
                 >
                   <span className={styles.toggleKnob} />
                 </button>
+              </li>
+              {/* 欢迎背景组（ADR-0024 D3）：总开关 + 壁纸/面板双滑杆 */}
+              <li className={styles.fxItem}>
+                <div className={styles.fxLabelBox}>
+                  <span className={styles.fxLabel}>欢迎背景</span>
+                  <span className={styles.fxDesc}>
+                    姜晓欢迎立绘铺满整页作壁纸，面板随之半透明（皮肤关闭时一并隐藏）
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={backdropOn}
+                  aria-label="切换欢迎背景"
+                  className={`${styles.toggleSwitch}${backdropOn ? " " + styles.toggleOn : ""}`}
+                  onClick={handleToggleBackdrop}
+                >
+                  <span className={styles.toggleKnob} />
+                </button>
+              </li>
+              <li className={styles.fxItem}>
+                <div className={styles.fxLabelBox}>
+                  <span className={styles.fxLabel}>壁纸不透明度</span>
+                  <span className={styles.fxDesc}>
+                    {backdropOn ? "欢迎立绘在背景上的浓度（0-100%）" : "需先开启「欢迎背景」"}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={wallOpacity}
+                  onChange={handleWallOpacityChange}
+                  disabled={!backdropOn}
+                  aria-label="壁纸不透明度"
+                  className={styles.rangeInput}
+                />
+              </li>
+              <li className={styles.fxItem}>
+                <div className={styles.fxLabelBox}>
+                  <span className={styles.fxLabel}>面板不透明度</span>
+                  <span className={styles.fxDesc}>
+                    {backdropOn ? "界面面板透出壁纸的程度（0-100%，越低越透）" : "需先开启「欢迎背景」"}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={panelOpacity}
+                  onChange={handlePanelOpacityChange}
+                  disabled={!backdropOn}
+                  aria-label="面板不透明度"
+                  className={styles.rangeInput}
+                />
               </li>
             </ul>
           </div>
@@ -348,6 +485,57 @@ export function SettingsCard({ className }: SettingsCardProps) {
                 aria-label="会话气泡数量上限"
                 className={styles.numberInput}
               />
+            </div>
+            {/* 保留模式总开关①（ADR-0022 D6）：开 = 单击气泡跳转后保留，
+                关 = 完全回到现状（点击即跳转即消失）。主从控制开关②。 */}
+            <div className={styles.fxItem}>
+              <div className={styles.fxLabelBox}>
+                <span className={styles.fxLabel}>查看后保留气泡</span>
+                <span className={styles.fxDesc}>
+                  单击气泡跳转后保留提醒，直到拖入收起区或归档区
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={keepEnabled}
+                aria-label="切换查看后保留气泡"
+                className={`${styles.toggleSwitch}${keepEnabled ? " " + styles.toggleOn : ""}`}
+                onClick={handleToggleKeep}
+              >
+                <span className={styles.toggleKnob} />
+              </button>
+            </div>
+            {/* 拖拽归档开关②（ADR-0022 D6，工单03）：主从灰显——①关时不可用；
+                ②关 = 归档区不渲染、仅剩收起区（已归档会话仍被 SDK 排除集隐藏，
+                不复活）。默认开：误触已被远近分置 + 朱砂警示 + 仅 completed 可拖
+                三重约束兜住，且归档收益（永不复活）大于误归档成本（PRD 用户故事 8）。
+                审查 S3：disabled 按钮在部分浏览器不弹 title——提示移到外层
+                .fxItem 容器承载（悬停整行可见）。 */}
+            <div
+              className={styles.fxItem}
+              title={keepEnabled ? undefined : "需先开启「查看后保留气泡」"}
+            >
+              <div className={styles.fxLabelBox}>
+                <span className={styles.fxLabel}>拖拽归档会话</span>
+                <span className={styles.fxDesc}>
+                  {keepEnabled
+                    ? "拖入归档区即真归档：从列表隐藏且不可恢复"
+                    : "需先开启「查看后保留气泡」"}
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={archiveDragOn}
+                aria-label="切换拖拽归档会话"
+                aria-disabled={!keepEnabled}
+                disabled={!keepEnabled}
+                className={`${styles.toggleSwitch}${archiveDragOn ? " " + styles.toggleOn : ""}${!keepEnabled ? " " + styles.toggleDisabled : ""}`}
+                onClick={handleToggleArchiveDrag}
+              >
+                <span className={styles.toggleKnob} />
+              </button>
             </div>
           </div>
         )}
