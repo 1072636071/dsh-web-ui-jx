@@ -45,6 +45,7 @@ import {
   setSkinEnabled,
 } from "../../src/client/skin.ts";
 import {
+  BACKDROP_ACTIVE_ATTR,
   BACKDROP_ATTR,
   startWelcomeBackdrop,
   sweepResidualBackdrops,
@@ -260,5 +261,238 @@ describe("welcome-backdrop runtime", () => {
 
     expect(stale.isConnected).toBe(false);
     expect(document.querySelectorAll(`[${BACKDROP_ATTR}]`).length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 表面探测器 + 中和规则（ADR-0027 D1，方案 A）
+// ---------------------------------------------------------------------------
+
+describe("welcome-backdrop surface neutralizer (ADR-0027 02)", () => {
+  function makeFullViewportSurface() {
+    const el = document.createElement("div");
+    // jsdom 不跑布局，rect.height 恒 0；stub 返回全视口覆盖（layout seam）。
+    el.getBoundingClientRect = () =>
+      ({ height: window.innerHeight, width: window.innerWidth, top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth } as DOMRect);
+    el.style.backgroundColor = "rgb(0, 0, 0)";
+    el.style.setProperty("position", "absolute");
+    document.body.appendChild(el);
+    return el;
+  }
+
+  it("全视口不透明表面被标记 data-jx-backdrop-surface", () => {
+    const dispose = startWelcomeBackdrop();
+    const surface = makeFullViewportSurface();
+    syncWelcomeBackdrop();
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(true);
+    dispose();
+  });
+
+  it("非不透明(透明)背景表面不被标记", () => {
+    const dispose = startWelcomeBackdrop();
+    const surface = document.createElement("div");
+    surface.style.height = `${window.innerHeight}px`;
+    surface.style.backgroundColor = "transparent";
+    document.body.appendChild(surface);
+    syncWelcomeBackdrop();
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(false);
+    dispose();
+  });
+
+  it("小表面积（未覆盖视口<90%）不被标记", () => {
+    const dispose = startWelcomeBackdrop();
+    const small = document.createElement("div");
+    small.style.height = "50px";
+    small.style.backgroundColor = "rgb(0, 0, 0)";
+    document.body.appendChild(small);
+    syncWelcomeBackdrop();
+    expect(small.hasAttribute("data-jx-backdrop-surface")).toBe(false);
+    dispose();
+  });
+
+  it("modal/plugin/dialog 表面不被标记（放行）", () => {
+    const dispose = startWelcomeBackdrop();
+    const modal = document.createElement("div");
+    modal.getBoundingClientRect = () =>
+      ({ height: window.innerHeight, width: window.innerWidth, top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth } as DOMRect);
+    modal.style.backgroundColor = "rgb(0, 0, 0)";
+    modal.setAttribute("role", "dialog");
+    // 大 z-index（>100）也排除
+    modal.style.zIndex = "1000";
+    document.body.appendChild(modal);
+
+    // 插件面板（data-dsh-plugin）即使全视口不透明也不应被全局中和（方案 B 玻璃处理）
+    const plugin = document.createElement("div");
+    plugin.getBoundingClientRect = () =>
+      ({ height: window.innerHeight, width: window.innerWidth, top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth } as DOMRect);
+    plugin.style.backgroundColor = "rgb(0, 0, 0)";
+    plugin.setAttribute("data-dsh-plugin", "task-board");
+    document.body.appendChild(plugin);
+
+    syncWelcomeBackdrop();
+    expect(modal.hasAttribute("data-jx-backdrop-surface")).toBe(false);
+    expect(plugin.hasAttribute("data-jx-backdrop-surface")).toBe(false);
+    dispose();
+  });
+
+  it("中和 style 注入而激活标记存在时生效、关闭后移除", () => {
+    const dispose = startWelcomeBackdrop();
+    const surface = makeFullViewportSurface();
+    syncWelcomeBackdrop();
+
+    // 激活时注入带 data-jx-scene-neutralizer 的 style（对齐参考项目）。
+    const style = document.querySelector(
+      'head style[data-jx-scene-neutralizer]',
+    );
+    expect(style).not.toBeNull();
+    expect(style?.textContent).toContain("data-jx-backdrop-surface");
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(true);
+
+    setBackdropEnabled(false);
+    syncWelcomeBackdrop();
+    dispose();
+  });
+
+  it("卸载后清除表面标记且中和 style 移除", () => {
+    const dispose = startWelcomeBackdrop();
+    const surface = makeFullViewportSurface();
+    syncWelcomeBackdrop();
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(true);
+
+    dispose();
+
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(false);
+    expect(document.querySelector('head style[data-jx-scene-neutralizer]')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 全浮层毛玻璃（ADR-0027 D2，方案 B）
+// ---------------------------------------------------------------------------
+
+describe("welcome-backdrop glass (ADR-0027 03)", () => {
+  it("激活时注入的玻璃样式含 backdrop-filter blur", () => {
+    const dispose = startWelcomeBackdrop();
+    const style = document.querySelector("head style[data-jx-scene-neutralizer]");
+    expect(style).not.toBeNull();
+    expect(style?.textContent).toContain("backdrop-filter: blur(10px)");
+    dispose();
+  });
+
+  it("玻璃覆盖输入卡/侧栏/通用浮层等表面选择器", () => {
+    const dispose = startWelcomeBackdrop();
+    const style = document.querySelector("head style[data-jx-scene-neutralizer]");
+    const content = style?.textContent ?? "";
+    for (const sel of [
+      "[data-composer-card]",
+      '[data-slot="sidebar"]',
+      "[role=\"dialog\"]",
+      "[data-dsh-surface=\"settings\"]",
+      'bubble',
+      "[class*=\"md-code-block\"]",
+      "[data-dsh-plugin]",
+      "[data-radix-popper-content-wrapper]",
+    ]) {
+      expect(content, sel).toContain(sel);
+    }
+    dispose();
+  });
+
+  it("玻璃规则仅在激活标记作用域内生效", () => {
+    const dispose = startWelcomeBackdrop();
+    const style = document.querySelector<HTMLStyleElement>(
+      "head style[data-jx-scene-neutralizer]",
+    );
+    // 规则显式作用在 body[data-jx-wallpaper-active] 下，皮肤/插件默认样式不受污染。
+    expect(style?.textContent).toContain("body[data-jx-wallpaper-active] [data-composer-card]");
+    dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reduced-motion 降级（ADR-0027 D4）
+// ---------------------------------------------------------------------------
+
+describe("welcome-backdrop reduced-motion (ADR-0027 04)", () => {
+  it("注入样式含 prefers-reduced-motion 下毛玻璃全关", () => {
+    const dispose = startWelcomeBackdrop();
+    const style = document.querySelector<HTMLStyleElement>(
+      "head style[data-jx-scene-neutralizer]",
+    );
+    expect(style?.textContent).toContain("@media (prefers-reduced-motion: reduce)");
+    expect(style?.textContent).toContain("backdrop-filter: none");
+    dispose();
+  });
+});
+
+describe("welcome-backdrop layer base (ADR-0027 01)", () => {
+  it("挂载时写 data-jx-wallpaper-active 双端标记（body + html）", () => {
+    const dispose = startWelcomeBackdrop();
+    expect(document.body.hasAttribute(BACKDROP_ACTIVE_ATTR)).toBe(true);
+    expect(document.documentElement.hasAttribute(BACKDROP_ACTIVE_ATTR)).toBe(
+      true,
+    );
+    dispose();
+  });
+
+  it("卸载/关闭后清除激活标记", () => {
+    const dispose = startWelcomeBackdrop();
+    expect(document.body.hasAttribute(BACKDROP_ACTIVE_ATTR)).toBe(true);
+
+    setBackdropEnabled(false);
+    syncWelcomeBackdrop();
+
+    expect(document.body.hasAttribute(BACKDROP_ACTIVE_ATTR)).toBe(false);
+    expect(document.documentElement.hasAttribute(BACKDROP_ACTIVE_ATTR)).toBe(
+      false,
+    );
+    dispose();
+  });
+
+  it("壁纸层容器 z-index 为负值（栈位于宿主内容之下）", () => {
+    const dispose = startWelcomeBackdrop();
+    const el = document.querySelector<HTMLElement>(`[${BACKDROP_ATTR}]`);
+    expect(el).not.toBeNull();
+    // ADR-0027 D3：负 z-index，不与宿主 app 根（z-index:0/auto）同层互排。
+    expect(Number(el?.style.zIndex)).toBeLessThan(0);
+    dispose();
+  });
+
+  it("层被从 body 摘除后自动复挂（导航重建场景，ADR-0027 01）", () => {
+    const dispose = startWelcomeBackdrop();
+    const el = document.querySelector<HTMLElement>(`[${BACKDROP_ATTR}]`);
+    expect(el).not.toBeNull();
+    expect(el?.isConnected).toBe(true);
+
+    // 模拟导航把 body 子树重建——本层被摘出、引用断连，但配置/皮肤仍激活。
+    el?.remove();
+    expect(el?.isConnected).toBe(false);
+
+    // 订阅配置回调 / 外部同步触发 syncBackdrop，应把层复挂回 body。
+    syncWelcomeBackdrop();
+
+    const reattached = document.querySelector<HTMLElement>(`[${BACKDROP_ATTR}]`);
+    expect(reattached).not.toBeNull();
+    expect(reattached?.parentElement).toBe(document.body);
+    expect(reattached).toBe(el); // 复用原有层元素，不重建
+    dispose();
+  });
+
+  it("清扫同时清理逃逸容器残留（含未激活标记）", () => {
+    const stale = document.createElement("div");
+    stale.setAttribute(BACKDROP_ATTR, "");
+    document.body.appendChild(stale);
+    document.body.setAttribute(BACKDROP_ACTIVE_ATTR, "");
+    const staleSurface = document.createElement("div");
+    staleSurface.setAttribute("data-jx-backdrop-surface", "");
+    document.body.appendChild(staleSurface);
+
+    sweepResidualBackdrops(document);
+
+    expect(stale.isConnected).toBe(false);
+    expect(document.querySelectorAll(`[${BACKDROP_ATTR}]`).length).toBe(0);
+    // 清扫兜清作废模块残留的激活标记 + 表面标记（ADR-0027 D5）。
+    expect(document.body.hasAttribute(BACKDROP_ACTIVE_ATTR)).toBe(false);
+    expect(staleSurface.hasAttribute("data-jx-backdrop-surface")).toBe(false);
   });
 });

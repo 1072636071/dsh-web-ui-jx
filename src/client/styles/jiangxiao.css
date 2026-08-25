@@ -337,7 +337,12 @@ body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) {
 [data-jx-backdrop] {
   position: fixed;
   inset: 0;
-  z-index: 0;
+  /* ADR-0027 D3：负 z-index，垫于全部宿主内容之下，与宿主 app 根(z-index:0/auto)
+   * 互不干扰；运行时 welcome-backdrop.ts 也写内联 z-index:-3（此处为基线）。
+   * 三层 base/img/veil 收束在同一容器栈（-3）内，veil 用容器内 z-index:1 高过
+   * img 实现压暗——「media=-3 / veil=-2」在嵌套容器语义下由「容器 -3 + veil 栈内
+   * 1」等效表达（见 ADR-0027 后果注）。 */
+  z-index: -3;
   overflow: hidden;
   pointer-events: none;
 }
@@ -354,6 +359,7 @@ body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) {
   height: 100%;
   object-fit: cover;
   object-position: center;
+  /* ADR-0027 D3：media/图层与容器同栈（容器 -3 已垫底），此处不必再设 z-index。 */
   /* 运行时由 welcome-backdrop.ts 按壁纸滑杆覆写（0–1） */
   opacity: 0.85;
   user-select: none;
@@ -361,6 +367,9 @@ body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) {
 [data-jx-backdrop-veil] {
   position: absolute;
   inset: 0;
+  /* ADR-0027 D3：压纱位于图之上、仍随容器整体垫底（容器栈 = -3），
+     在 shared stacking context 内略高于 img 以压暗。 */
+  z-index: 1;
   /* 暗色（墨金卷轴）：暗纱压暗保文字对比 */
   background: rgb(11 9 13 / 0.25);
 }
