@@ -28,6 +28,21 @@ const PANEL_OPACITY_KEY = "jx-backdrop-panel";
 /** 压暗浓度 localStorage 键名。 */
 const VEIL_OPACITY_KEY = "jx-backdrop-veil";
 
+/** 侧栏区域 alpha localStorage 键名。 */
+const SIDEBAR_ALPHA_KEY = "jx-backdrop-sidebar";
+
+/** 输入栏区域 alpha localStorage 键名。 */
+const INPUT_ALPHA_KEY = "jx-backdrop-input";
+
+/** 用户气泡区域 alpha localStorage 键名。 */
+const BUBBLE_ALPHA_KEY = "jx-backdrop-bubble";
+
+/** 目标/Todo/Queue 卡区域 alpha localStorage 键名。 */
+const TIP_ALPHA_KEY = "jx-backdrop-tip";
+
+/** 附件钮区域 alpha localStorage 键名。 */
+const SELECTOR_ALPHA_KEY = "jx-backdrop-selector";
+
 /** 总开关默认值（ADR-0024 D3：默认开）。 */
 export const DEFAULT_BACKDROP_ENABLED = true;
 
@@ -39,6 +54,9 @@ export const DEFAULT_PANEL_OPACITY = 50;
 
 /** 压暗浓度默认值（%，深色叠暗纱 / 浅色叠白纱，ADR-0024 D3 中间偏淡档）。 */
 export const DEFAULT_VEIL_OPACITY = 25;
+
+/** 五区域 alpha 默认值（%，ADR-0025 D4：与全局面板默认一致）。 */
+export const DEFAULT_REGION_ALPHA = 50;
 
 /** 不透明度下界（%，0 = 完全透明）。 */
 export const MIN_BACKDROP_OPACITY = 0;
@@ -192,6 +210,93 @@ export function setVeilOpacity(value: number): number {
   }
   notifyBackdropListeners();
   return clamped;
+}
+
+/**
+ * 区域 alpha 存储工厂（ADR-0025 D1）：五区域共用同一读写/钳制/通知模式，
+ * 消除十函数同构重复（审查意见 Duplicated Code）。
+ *
+ * @param key - localStorage 键名。
+ * @returns `[read, write]`：读回钳制后的 0–100 整数；写持久化并通知订阅者，
+ *   返回实际写入值。
+ */
+function createRegionAlphaStore(key: string): [() => number, (value: number) => number] {
+  const read = (): number => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return DEFAULT_REGION_ALPHA;
+      return clampBackdropOpacity(Number(raw), DEFAULT_REGION_ALPHA);
+    } catch {
+      return DEFAULT_REGION_ALPHA;
+    }
+  };
+  const write = (value: number): number => {
+    const clamped = clampBackdropOpacity(value, DEFAULT_REGION_ALPHA);
+    try {
+      localStorage.setItem(key, String(clamped));
+    } catch {
+      // localStorage 不可用，静默忽略（仅本次会话生效）。
+    }
+    notifyBackdropListeners();
+    return clamped;
+  };
+  return [read, write];
+}
+
+const [readSidebarAlpha, writeSidebarAlpha] = createRegionAlphaStore(SIDEBAR_ALPHA_KEY);
+const [readInputAlpha, writeInputAlpha] = createRegionAlphaStore(INPUT_ALPHA_KEY);
+const [readBubbleAlpha, writeBubbleAlpha] = createRegionAlphaStore(BUBBLE_ALPHA_KEY);
+const [readTipAlpha, writeTipAlpha] = createRegionAlphaStore(TIP_ALPHA_KEY);
+const [readSelectorAlpha, writeSelectorAlpha] = createRegionAlphaStore(SELECTOR_ALPHA_KEY);
+
+/** 读取侧栏区域 alpha（%，钳制 0–100，默认 50）。 */
+export function getSidebarAlpha(): number {
+  return readSidebarAlpha();
+}
+
+/** 写入侧栏区域 alpha（越界钳制）并持久化，返回实际写入值。 */
+export function setSidebarAlpha(value: number): number {
+  return writeSidebarAlpha(value);
+}
+
+/** 读取输入栏区域 alpha（%，钳制 0–100，默认 50）。 */
+export function getInputAlpha(): number {
+  return readInputAlpha();
+}
+
+/** 写入输入栏区域 alpha（越界钳制）并持久化，返回实际写入值。 */
+export function setInputAlpha(value: number): number {
+  return writeInputAlpha(value);
+}
+
+/** 读取用户气泡区域 alpha（%，钳制 0–100，默认 50）。 */
+export function getBubbleAlpha(): number {
+  return readBubbleAlpha();
+}
+
+/** 写入用户气泡区域 alpha（越界钳制）并持久化，返回实际写入值。 */
+export function setBubbleAlpha(value: number): number {
+  return writeBubbleAlpha(value);
+}
+
+/** 读取目标/Todo/Queue 卡区域 alpha（%，钳制 0–100，默认 50）。 */
+export function getTipAlpha(): number {
+  return readTipAlpha();
+}
+
+/** 写入目标/Todo/Queue 卡区域 alpha（越界钳制）并持久化，返回实际写入值。 */
+export function setTipAlpha(value: number): number {
+  return writeTipAlpha(value);
+}
+
+/** 读取附件钮区域 alpha（%，钳制 0–100，默认 50）。 */
+export function getSelectorAlpha(): number {
+  return readSelectorAlpha();
+}
+
+/** 写入附件钮区域 alpha（越界钳制）并持久化，返回实际写入值。 */
+export function setSelectorAlpha(value: number): number {
+  return writeSelectorAlpha(value);
 }
 
 // ---------------------------------------------------------------------------

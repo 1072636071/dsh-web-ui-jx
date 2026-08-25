@@ -57,15 +57,74 @@ import {
 } from "../state-machine/session-bubble-keep-config.ts";
 import {
   getBackdropEnabled,
+  getBubbleAlpha,
+  getInputAlpha,
   getPanelOpacity,
+  getSelectorAlpha,
+  getSidebarAlpha,
+  getTipAlpha,
+  getVeilOpacity,
   getWallOpacity,
   setBackdropEnabled,
+  setBubbleAlpha,
+  setInputAlpha,
   setPanelOpacity,
+  setSelectorAlpha,
+  setSidebarAlpha,
+  setTipAlpha,
+  setVeilOpacity,
   setWallOpacity,
 } from "../welcome-backdrop-config.ts";
 import { syncWelcomeBackdrop } from "../welcome-backdrop.ts";
 import { ManagementUI } from "./ManagementUI.tsx";
 import styles from "../styles/sidebar-settings.module.css";
+
+/** 压暗/区域 alpha 滑杆 UI 配置（ADR-0024/0025）：label/描述/aria/读写器数据驱动. */
+type RegionAlphaKey = "veil" | "sidebar" | "input" | "bubble" | "tip" | "selector";
+
+const REGION_ALPHA_UI: Record<
+  RegionAlphaKey,
+  { label: string; desc: string; get: () => number; set: (v: number) => number }
+> = {
+  veil: {
+    label: "压暗浓度",
+    desc: "叠在壁纸上的暗纱（深色）/白纱（浅色）浓度，越高文字越清晰（0-100%）",
+    get: getVeilOpacity,
+    set: setVeilOpacity,
+  },
+  sidebar: {
+    label: "侧栏不透明度",
+    desc: "左侧导航列/文件树透出壁纸的程度（0-100%，越低越透）",
+    get: getSidebarAlpha,
+    set: setSidebarAlpha,
+  },
+  input: {
+    label: "输入栏不透明度",
+    desc: "底部输入框透出壁纸的程度（0-100%，越低越透）",
+    get: getInputAlpha,
+    set: setInputAlpha,
+  },
+  bubble: {
+    label: "用户气泡不透明度",
+    desc: "用户消息气泡透出壁纸的程度（0-100%，越低越透）",
+    get: getBubbleAlpha,
+    set: setBubbleAlpha,
+  },
+  tip: {
+    label: "任务卡不透明度",
+    desc: "目标/Todo/Queue 卡片透出壁纸的程度（0-100%，三卡联动）",
+    get: getTipAlpha,
+    set: setTipAlpha,
+  },
+  selector: {
+    label: "附件钮不透明度",
+    desc: "输入框附件「+」钮透出壁纸的程度（0-100%）",
+    get: getSelectorAlpha,
+    set: setSelectorAlpha,
+  },
+};
+
+const REGION_ALPHA_KEYS = Object.keys(REGION_ALPHA_UI) as RegionAlphaKey[];
 
 /** 五类 FX 的中文标签（用于开关 UI 显示）. */
 const FX_LABELS: Record<FxName, string> = {
@@ -147,6 +206,17 @@ export function SettingsCard({ className }: SettingsCardProps) {
   );
   const [panelOpacity, setPanelOpacityState] = useState<number>(() =>
     getPanelOpacity(),
+  );
+  // 压暗 + 五区域 alpha（ADR-0024/0025）：单 state 对象，键与 REGION_ALPHA_UI 对齐
+  const [regionAlpha, setRegionAlpha] = useState<Record<RegionAlphaKey, number>>(
+    () => ({
+      veil: getVeilOpacity(),
+      sidebar: getSidebarAlpha(),
+      input: getInputAlpha(),
+      bubble: getBubbleAlpha(),
+      tip: getTipAlpha(),
+      selector: getSelectorAlpha(),
+    }),
   );
 
   // 拖拽归档开关②「拖拽归档会话」（ADR-0022 D6，默认开；主从于①）
@@ -244,6 +314,16 @@ export function SettingsCard({ className }: SettingsCardProps) {
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const next = setPanelOpacity(Number(e.target.value));
       setPanelOpacityState(next);
+    },
+    [],
+  );
+
+  /** 压暗/区域滑杆统一写入：按 key 分派到对应 setter，钳制 + 持久化 + 即时生效. */
+  const handleRegionAlphaChange = useCallback(
+    (key: RegionAlphaKey, value: number) => {
+      const write = REGION_ALPHA_UI[key].set;
+      const next = write(value);
+      setRegionAlpha((prev) => ({ ...prev, [key]: next }));
     },
     [],
   );
@@ -350,9 +430,9 @@ export function SettingsCard({ className }: SettingsCardProps) {
               </li>
               <li className={styles.fxItem}>
                 <div className={styles.fxLabelBox}>
-                  <span className={styles.fxLabel}>面板不透明度</span>
+                  <span className={styles.fxLabel}>其余面板不透明度</span>
                   <span className={styles.fxDesc}>
-                    {backdropOn ? "界面面板透出壁纸的程度（0-100%，越低越透）" : "需先开启「欢迎背景」"}
+                    {backdropOn ? "会话区/顶栏/详情等其余面板透出壁纸的程度（0-100%，越低越透）" : "需先开启「欢迎背景」"}
                   </span>
                 </div>
                 <input
@@ -363,10 +443,34 @@ export function SettingsCard({ className }: SettingsCardProps) {
                   value={panelOpacity}
                   onChange={handlePanelOpacityChange}
                   disabled={!backdropOn}
-                  aria-label="面板不透明度"
+                  aria-label="其余面板不透明度"
                   className={styles.rangeInput}
                 />
               </li>
+              {REGION_ALPHA_KEYS.map((key) => {
+                const item = REGION_ALPHA_UI[key];
+                return (
+                  <li key={key} className={styles.fxItem}>
+                    <div className={styles.fxLabelBox}>
+                      <span className={styles.fxLabel}>{item.label}</span>
+                      <span className={styles.fxDesc}>
+                        {backdropOn ? item.desc : "需先开启「欢迎背景」"}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={regionAlpha[key]}
+                      onChange={(e) => handleRegionAlphaChange(key, Number(e.target.value))}
+                      disabled={!backdropOn}
+                      aria-label={item.label}
+                      className={styles.rangeInput}
+                    />
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

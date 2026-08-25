@@ -20,11 +20,21 @@ import {
   DEFAULT_WALL_OPACITY,
   clampBackdropOpacity,
   getBackdropEnabled,
+  getBubbleAlpha,
+  getInputAlpha,
   getPanelOpacity,
+  getSelectorAlpha,
+  getSidebarAlpha,
+  getTipAlpha,
   getVeilOpacity,
   getWallOpacity,
   setBackdropEnabled,
+  setBubbleAlpha,
+  setInputAlpha,
   setPanelOpacity,
+  setSelectorAlpha,
+  setSidebarAlpha,
+  setTipAlpha,
   setVeilOpacity,
   setWallOpacity,
   subscribeBackdrop,
@@ -83,6 +93,36 @@ describe("welcome-backdrop-config", () => {
     expect(getWallOpacity()).toBe(60);
     expect(getPanelOpacity()).toBe(40);
     expect(getVeilOpacity()).toBe(35);
+  });
+
+  it("五区域 alpha：默认 50、读写一致", () => {
+    expect(getSidebarAlpha()).toBe(50);
+    expect(getInputAlpha()).toBe(50);
+    expect(getBubbleAlpha()).toBe(50);
+    expect(getTipAlpha()).toBe(50);
+    expect(getSelectorAlpha()).toBe(50);
+
+    setSidebarAlpha(30);
+    setInputAlpha(80);
+    setBubbleAlpha(65);
+    setTipAlpha(20);
+    setSelectorAlpha(95);
+    // 越界钳制（issue 01：与壁纸/压暗同标准）
+    setSidebarAlpha(-10);
+    setInputAlpha(150);
+    setBubbleAlpha(NaN);
+    expect(getSidebarAlpha()).toBe(0);
+    expect(getInputAlpha()).toBe(100);
+    expect(getBubbleAlpha()).toBe(50);
+    // 还原供后续断言
+    setSidebarAlpha(30);
+    setInputAlpha(80);
+    setBubbleAlpha(65);
+    expect(getSidebarAlpha()).toBe(30);
+    expect(getInputAlpha()).toBe(80);
+    expect(getBubbleAlpha()).toBe(65);
+    expect(getTipAlpha()).toBe(20);
+    expect(getSelectorAlpha()).toBe(95);
   });
 
   it("订阅回调在任意配置项写入时触发", () => {
@@ -160,6 +200,32 @@ describe("welcome-backdrop runtime", () => {
     expect(veil?.style.background).toContain("250, 245, 238");
     expect(veil?.style.background).toContain("0.4");
 
+    dispose();
+  });
+
+  it("区域 alpha：背景开时写入 body、关闭时移除", () => {
+    const dispose = startWelcomeBackdrop();
+
+    setSidebarAlpha(30);
+    setInputAlpha(80);
+    setBubbleAlpha(65);
+    setTipAlpha(20);
+    setSelectorAlpha(95);
+    syncWelcomeBackdrop();
+
+    expect(document.body.style.getPropertyValue("--jx-panel-sidebar-alpha")).toBe("0.3");
+    expect(document.body.style.getPropertyValue("--jx-panel-input-alpha")).toBe("0.8");
+    expect(document.body.style.getPropertyValue("--jx-panel-bubble-alpha")).toBe("0.65");
+    expect(document.body.style.getPropertyValue("--jx-panel-tip-alpha")).toBe("0.2");
+    expect(document.body.style.getPropertyValue("--jx-panel-selector-alpha")).toBe("0.95");
+
+    setBackdropEnabled(false);
+    syncWelcomeBackdrop();
+    expect(document.body.style.getPropertyValue("--jx-panel-sidebar-alpha")).toBe("");
+    expect(document.body.style.getPropertyValue("--jx-panel-input-alpha")).toBe("");
+    expect(document.body.style.getPropertyValue("--jx-panel-bubble-alpha")).toBe("");
+    expect(document.body.style.getPropertyValue("--jx-panel-tip-alpha")).toBe("");
+    expect(document.body.style.getPropertyValue("--jx-panel-selector-alpha")).toBe("");
     dispose();
   });
 

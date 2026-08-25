@@ -49,6 +49,7 @@
 | 官方三层 token 架构 | 唯一设计基准（ADR-0002）：L1 base（`--dsw-*`）→ L2 skin remap（`body[data-dsh-jiangxiao]`）→ L3 组件（只消费语义别名）。固化于根目录 `DESIGN.md`。 |
 | 暗/亮信号 | 官方主题信号 `body[data-ds-dark-theme]`；浅色变体 = `:not([data-ds-dark-theme])`。 |
 | 欢迎背景 | 整页视口背景图层：姜晓欢迎立绘（2560×1440，16:9）垫于全部宿主内容之下；素材随插件打包 `assets/welcome/`，经 `/api/dsh-jx` 本机路由服务，不依赖外网；设置卡开关可整体关闭（ADR-0024）。 |
+| 面板区域不透明度（区域 alpha） | 在全局 `--jx-panel-alpha` 之上，对宿主 `--dsw-specific-*` 可独立 remap 的**区域**各设专属 alpha 变量（`--jx-panel-{sidebar,input,bubble,tip,selector}-alpha`），实现按面板区域独立滑块（ADR-0025）。宿主 specific 变量真名以 `design-platform.css` 为准（如侧栏是 `sidebar-fill`、目标/Todo/Queue 卡同用 `tip`），不得按插件捏造名 remap。 |
 
 ## FX 特效系统
 

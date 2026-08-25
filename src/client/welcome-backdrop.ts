@@ -24,7 +24,12 @@
 
 import {
   getBackdropEnabled,
+  getBubbleAlpha,
+  getInputAlpha,
   getPanelOpacity,
+  getSelectorAlpha,
+  getSidebarAlpha,
+  getTipAlpha,
   getVeilOpacity,
   getWallOpacity,
   subscribeBackdrop,
@@ -37,6 +42,23 @@ export const WELCOME_BACKDROP_URL =
 
 /** 背景层容器标记属性。 */
 export const BACKDROP_ATTR = "data-jx-backdrop";
+
+/** 五个区域独立 alpha：CSS 变量 → 读取器（ADR-0025 D1）。写入与移除共用此映射。 */
+const REGION_ALPHA_VARS = {
+  "--jx-panel-sidebar-alpha": getSidebarAlpha,
+  "--jx-panel-input-alpha": getInputAlpha,
+  "--jx-panel-bubble-alpha": getBubbleAlpha,
+  "--jx-panel-tip-alpha": getTipAlpha,
+  "--jx-panel-selector-alpha": getSelectorAlpha,
+} as const;
+
+/** 移除全局面板 alpha + 五区域 alpha 变量（背景关/dispose 共用，ADR-0025）。 */
+function clearBackdropCssVars(): void {
+  document.body.style.removeProperty("--jx-panel-alpha");
+  for (const name of Object.keys(REGION_ALPHA_VARS)) {
+    document.body.style.removeProperty(name);
+  }
+}
 
 /** 当前挂载的层容器（单例；未挂载为 null）。 */
 let backdropEl: HTMLDivElement | null = null;
@@ -97,8 +119,12 @@ function syncBackdrop(): void {
       "--jx-panel-alpha",
       String(getPanelOpacity() / 100),
     );
+    // 区域独立 alpha（ADR-0025 D1/D2）：仅背景开时写，关即移除回实色。
+    for (const [name, read] of Object.entries(REGION_ALPHA_VARS)) {
+      document.body.style.setProperty(name, String(read() / 100));
+    }
   } else {
-    document.body.style.removeProperty("--jx-panel-alpha");
+    clearBackdropCssVars();
   }
 }
 
@@ -150,7 +176,7 @@ export function startWelcomeBackdrop(): () => void {
       unsubConfig = null;
     }
     unmountLayer();
-    document.body.style.removeProperty("--jx-panel-alpha");
+    clearBackdropCssVars();
   };
 }
 

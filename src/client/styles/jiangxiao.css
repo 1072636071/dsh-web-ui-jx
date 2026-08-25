@@ -1,4 +1,4 @@
-﻿/**
+/**
  * L2 skin remap 层 — 姜晓唐风皮肤令牌。
  *
  * 挂 body[data-dsh-jiangxiao] 选择器。暗色为默认（墨金卷轴），
@@ -17,11 +17,23 @@
  * 暗色（墨金卷轴）— 默认
  * ============================================================ */
 body[data-dsh-jiangxiao] {
-  /* --- Surface 色阶 --- */
-  --jx-surface-0: rgb(11 9 13 / var(--jx-panel-alpha, 1));
-  --jx-surface-1: rgb(18 16 22 / var(--jx-panel-alpha, 1));
-  --jx-surface-2: rgb(26 22 32 / var(--jx-panel-alpha, 1));
-  --jx-surface-3: rgb(45 36 47 / var(--jx-panel-alpha, 1));
+  /* --- Surface 色阶（RGB 基准独立声明，供 surface 与区域 remap 复用，避免字面量重复） --- */
+  --jx-surface-0-rgb: 11 9 13;
+  --jx-surface-1-rgb: 18 16 22;
+  --jx-surface-2-rgb: 26 22 32;
+  --jx-surface-3-rgb: 45 36 47;
+  --jx-surface-0: rgb(var(--jx-surface-0-rgb) / var(--jx-panel-alpha, 1));
+  --jx-surface-1: rgb(var(--jx-surface-1-rgb) / var(--jx-panel-alpha, 1));
+  --jx-surface-2: rgb(var(--jx-surface-2-rgb) / var(--jx-panel-alpha, 1));
+  --jx-surface-3: rgb(var(--jx-surface-3-rgb) / var(--jx-panel-alpha, 1));
+
+  /* --- 区域独立 alpha（ADR-0025 D1）：仅欢迎背景开时由运行时写值，
+   * 关闭时变量不存在回落 1（不透明）。 --- */
+  --jx-panel-sidebar-alpha: 1;
+  --jx-panel-input-alpha: 1;
+  --jx-panel-bubble-alpha: 1;
+  --jx-panel-tip-alpha: 1;
+  --jx-panel-selector-alpha: 1;
 
   /* 实底基色（欢迎背景壁纸层 base 专用，不吃面板 alpha，ADR-0024 D2） */
   --jx-surface-0-solid: #0b090d;
@@ -177,16 +189,16 @@ body[data-dsh-jiangxiao] {
   /* ============================================================
    * remap: --dsw-specific-* → --jx-*
    * ============================================================ */
-  /* sidebar */
-  --dsw-specific-sidebar-bg: var(--jx-surface-1);
+  /* sidebar（ADR-0025 D3：宿主真名 sidebar-fill，原 sidebar-bg 为捏造名） */
+  --dsw-specific-sidebar-fill: rgb(var(--jx-surface-1-rgb) / var(--jx-panel-sidebar-alpha, 1));
   --dsw-specific-sidebar-nav-item-active: var(--jx-surface-2);
   --dsw-specific-sidebar-nav-item-active-accent: var(--jx-gold);
-  /* 用户气泡 */
-  --dsw-specific-bubble: var(--jx-surface-2);
-  /* assistant 气泡 */
-  --dsw-specific-assistant-bubble: var(--jx-surface-0);
-  /* composer 输入框 */
-  --dsw-specific-input-major: var(--jx-surface-1);
+  /* 用户气泡（ADR-0025 D1 区域化；assistant-bubble 宿主不存在已删除） */
+  --dsw-specific-bubble: rgb(var(--jx-surface-2-rgb) / var(--jx-panel-bubble-alpha, 1));
+  /* composer 输入框 + 宿主 tip（目标/Todo/Queue 卡）+ selector（附件钮） */
+  --dsw-specific-input-major: rgb(var(--jx-surface-1-rgb) / var(--jx-panel-input-alpha, 1));
+  --dsw-specific-tip: rgb(var(--jx-surface-1-rgb) / var(--jx-panel-tip-alpha, 1));
+  --dsw-specific-selector: rgb(var(--jx-surface-1-rgb) / var(--jx-panel-selector-alpha, 1));
   /* 侧栏底仅含数字的次级文字弱化 */
   --dsw-specific-sidebar-nav-item-hover: var(--jx-surface-3);
 }
@@ -221,10 +233,21 @@ body[data-dsh-jiangxiao] ::-webkit-scrollbar-thumb {
  * ============================================================ */
 body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) {
   /* --- Surface 色阶 --- */
-  --jx-surface-0: rgb(250 245 238 / var(--jx-panel-alpha, 1));
-  --jx-surface-1: rgb(245 237 223 / var(--jx-panel-alpha, 1));
-  --jx-surface-2: rgb(239 227 208 / var(--jx-panel-alpha, 1));
-  --jx-surface-3: rgb(232 220 200 / var(--jx-panel-alpha, 1));
+  --jx-surface-0-rgb: 250 245 238;
+  --jx-surface-1-rgb: 245 237 223;
+  --jx-surface-2-rgb: 239 227 208;
+  --jx-surface-3-rgb: 232 220 200;
+  --jx-surface-0: rgb(var(--jx-surface-0-rgb) / var(--jx-panel-alpha, 1));
+  --jx-surface-1: rgb(var(--jx-surface-1-rgb) / var(--jx-panel-alpha, 1));
+  --jx-surface-2: rgb(var(--jx-surface-2-rgb) / var(--jx-panel-alpha, 1));
+  --jx-surface-3: rgb(var(--jx-surface-3-rgb) / var(--jx-panel-alpha, 1));
+
+  /* 区域 remap 浅色 RGB（alpha 变量主题无关，深色块已声明）。 */
+  --dsw-specific-sidebar-fill: rgb(var(--jx-surface-1-rgb) / var(--jx-panel-sidebar-alpha, 1));
+  --dsw-specific-bubble: rgb(var(--jx-surface-2-rgb) / var(--jx-panel-bubble-alpha, 1));
+  --dsw-specific-input-major: rgb(var(--jx-surface-1-rgb) / var(--jx-panel-input-alpha, 1));
+  --dsw-specific-tip: rgb(var(--jx-surface-1-rgb) / var(--jx-panel-tip-alpha, 1));
+  --dsw-specific-selector: rgb(var(--jx-surface-1-rgb) / var(--jx-panel-selector-alpha, 1));
 
   /* 实底基色（欢迎背景壁纸层 base 专用，不吃面板 alpha，ADR-0024 D2） */
   --jx-surface-0-solid: #faf5ee;
