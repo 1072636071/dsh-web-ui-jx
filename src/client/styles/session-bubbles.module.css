@@ -1,97 +1,92 @@
-﻿/**
- * SessionBubble / SessionBubbleList 缁勪欢灞€閮ㄦ牱寮忥紙CSS Module锛夈€?
+/**
+ * SessionBubble / SessionBubbleList 组件局部样式（CSS Module）。
  *
- * ADR-0007 浼氳瘽姘旀场鍒楋細
- *   - 浣嶇疆锛氭暣浣撳湪瑙掕壊鐩掑宸︿晶绔栨帓涓€鍒楋紙.bubbleList position:absolute;
- *     right: calc(100% + 8px)锛夛紝bottom:0 + flex-direction: column-reverse
- *     鑷笅鑰屼笂鐢熼暱锛堝垪琛ㄩ『搴忕涓€涓湪搴曢儴锛夈€?
- *   - 姘旀场鏈綋鍙偣鍑伙紙pointer-events:auto + cursor:pointer锛夛紝鍙嶈浆鍙拌瘝姘旀场绌块€忓師鍒欍€?
- *   - 姘旀场 132脳24 鍗曡銆佹爣棰?text-overflow: ellipsis銆?
- *   - 鐘舵€佺偣锛氳繍琛屼腑 --jx-gold 鍛煎惛鐐癸紙.dotRunning + @keyframes breathe锛夛紱
- *     宸插畬鎴?--dsw-alias-state-success-primary 鐭崇豢瀹炲績鐐癸紙.dotCompleted锛夈€?
- *   - 褰撳墠浼氳瘽姘旀场 --jx-gold 閲戞弿杈归珮浜紙.current锛夈€?
- *   - hover 閲戞弿杈规彁瑙嗭紙.bubble:hover锛夈€?
- *   - 銆?N銆嶅急鍖栨牱寮忥紙.more锛屾枃瀛?--dsw-alias-label-dimmed锛夈€?
- *   - 鍔ㄦ晥锛氬嚭鐜?150ms 娣″叆锛坥pacity + translateY 4px锛? 娑堝け 100ms 娣″嚭锛?
- *     prefers-reduced-motion 鍏ㄥ叧銆?
+ * ADR-0007 会话气泡列：
+ *   - 位置：整体在角色盒外左侧竖排一列（.bubbleList position:absolute;
+ *     right: calc(100% + 8px)），bottom:0 + flex-direction: column-reverse
+ *     自下而上生长（列表顺序第一个在底部）。
+ *   - 气泡本体可点击（pointer-events:auto + cursor:pointer），反转列表气泡穿透原则。
+ *   - 气泡 132×24 单行、标题 text-overflow: ellipsis。
+ *   - 状态点：运行中 --jx-gold 呼吸点（.dotRunning + @keyframes breathe）；
+ *     已完成 --dsw-alias-state-success-primary 石绿实心点（.dotCompleted）。
+ *   - 当前会话气泡 --jx-gold 金描边高亮（.current）。
+ *   - hover 金描边提视（.bubble:hover）。
+ *   - 「+N」弱化样式（.more，文字 --dsw-alias-label-dimmed）。
+ *   - 动效：出现 150ms 淡入（opacity + translateY 4px）/ 消失 100ms 淡出，
+ *     prefers-reduced-motion 全关。
  *
- * ADR-0020 pending-interaction-bubble-effect 绛夊緟鐢ㄦ埛浜や簰鐗规晥锛?
- *   - 淇″彿婧愶細SDK SessionSummary.pendingInteraction锛坅pproval/plan-review/
- *     question锛屼晶杈规爮鐞ョ弨鐐瑰悓婧愶級锛屾皵娉℃寕 .pending + 鐐逛綅鎹?.dotPending銆?
- *   - 鏈辩爞鍗拌涔夛細闇€瑕佺敤鎴枫€岀敤鍗伴鑲€嶁€斺€旀弿杈硅浆 --jx-seal锛屽叆鍦烘挱鏀句竴娆?
- *     鍗扮珷鎸夊帇寮忓己璋冿紙scale 寰秴钀藉洖锛夛紝鐐逛綅浠ユ稛婕墿鏁ｇ幆鏇夸唬鍛煎惛
- *     锛坱ransform+opacity锛孏PU 鍙嬪ソ锛夈€?
- *   - 浼樺厛绾э細鏈辩爞鎻忚竟澹版槑鍦ㄩ噾鎻忚竟锛坈urrent/hover锛変箣鍚庯紝绱ф€ユ€佷笉琚鐩栵紱
- *     :focus-visible 閲戞弿杈逛负鍙闂€ф爣鍑嗭紝淇濇寔涓嶅彉銆?
- *   - 鎶樺彔璞佸厤鍦ㄧ函閫昏緫灞傦紙buildBubbleGroups锛夛細绛夊緟浜や簰鐨勬皵娉?缁勬案椹诲彲瑙併€?
- *   - prefers-reduced-motion 涓嬪仠鍗扮珷鍏ュ満涓庢稛婕紝淇濈暀闈欐€佹湵鐮傜偣/鎻忚竟
- *     锛堟棤鍔ㄦ晥鏃剁姸鎬佷粛鍙尯鍒嗭級銆?
+ * ADR-0020 pending-interaction-bubble-effect 等待用户交互特效：
+ *   - 信号源：SDK SessionSummary.pendingInteraction（approval/plan-review/
+ *     question，与侧边栏疑问点同源），气泡挂 .pending + 点位换 .dotPending。
+ *   - 朱砂印语义：需要用户「用印首肯」——描边转 --jx-seal，入场播放一次
+ *     印章按压式强调（scale 微超落回），点位以涟漪扩散环替代呼吸
+ *     （transform+opacity，GPU 友好）。
+ *   - 优先级：朱砂描边声明在金描边（current/hover）之后，紧急状态不被覆盖；
+ *     :focus-visible 金描边为可访问性标准，保持不变。
+ *   - 折叠豁免在纯逻辑层（buildBubbleGroups）：等待交互的气泡/组永驻可见。
+ *   - prefers-reduced-motion 下停印章入场与涟漪，保留静态朱砂点/描边
+ *     （无动画时状态仍可区分）。
  *
- * ADR-0018 褰掔粍妯″瀷锛堝伐鍗?2 鍒嗙粍娓叉煋 + 宸ュ崟03 灞曞紑浜や簰锛夛細
- *   - 寰芥爣 .badge锛堝伐鍗?3 鎸夐挳鍖栵級锛氱湡瀹?role=button锛屸柛N/鈻綨 璁¤缁勯€氳繃鑼冨洿
- *     杩囨护鐨勫悗浠ｆ€绘暟锛坆adge.total锛屾敹璧?鈻?/ 灞曞紑 鈻撅級锛沠lex-shrink:0 +
- *     white-space:nowrap 涓嶆崲琛屼笉鎸ゅ帇锛屾爣棰樹晶 ellipsis 璁╀綅銆傛枃瀛楀彇
- *     --dsw-alias-label-dimmed锛堜笌銆?N銆嶅急鍖栧悓杞ㄧ殑鍏冩暟鎹瑷€锛夈€傜偣鍑诲師鍦?
- *     灞曞紑/鏀惰捣璇ョ粍瀛愭皵娉″垪琛細stopPropagation 闃绘柇鍐掓场锛堜笉瑙﹀彂鏍规皵娉¤烦杞級銆?
- *     data-jx-interactive 涓嶈Е鍙戞暣鐩掓嫋鍔紱Enter/Space 閿洏鍙縺娲伙紱
- *     aria-label 鎶ュ憡鍓╀綑瀛愪細璇濇暟銆乤ria-expanded 鍙嶆槧鐢熸晥灞曞紑鎬併€?
- *   - 杩愯涓悗浠ｈ糠浣犵偣 .badgeRunningDot锛?px 閲戣壊灏忕偣锛屽鐢?dot-breathe
- *     鍏抽敭甯ц涔夛紙鍚屽懆鏈熷悓缂撳姩锛屼笌鏍圭姸鎬佺偣鍛煎惛鑺傚涓€鑷达級锛涘瓨鍦ㄨ繍琛屼腑
- *     鍚庝唬锛坆adge.running > 0锛夋椂娓叉煋锛宺educed-motion 涓嬮潤鎬佹樉绀恒€?
- *   - 鍒楀榻愶細.bubbleList align-items:flex-end鈥斺€斾氦鍙夎酱锛堟按骞筹級鍙崇紭瀵归綈锛?
- *     鍙崇紭閿氬畾 right: calc(100% + 8px) 涓嶅姩锛涘睍寮€瀛愬垪琛ㄦ椂瀹瑰櫒鍚戝乏澧炲锛?
- *     鐖剁骇涓庛€?N銆嶆皵娉″彸缂樹繚鎸佸師浣嶏紙绛夊姘旀场瑙嗚涓嶅彉銆佸睍寮€涓嶆尋鍘嬩粬缁勶級銆?
- *   - 瀛愭皵娉?.bubbleChild锛堝伐鍗?3锛夛細鐢熸晥灞曞紑锛堟墜鍔?|| containsCurrent锛夋椂
- *     娓叉煋浜庣埗姘旀场涔嬪悗锛坈olumn-reverse 鈬?瑙嗚涓婃柟锛夛紱margin-right:12px 鍦?
- *     鍙崇紭瀵归綈甯冨眬涓嬪舰鎴愬悜宸︾缉杩涳紱鑳屾櫙澧ㄩ樁涓嬫矇涓€绾э紙--jx-surface-1锛夈€?
- *     鏂囧瓧寮卞寲涓€妗ｏ紙--dsw-alias-label-tertiary锛夛紱::before 宸︿晶 1px 绔栬繛鎺ョ嚎
- *     鍙?--dsw-alias-border-l1 绱犵嚎杞紙鍙栬壊涓庝綅缃悊鐢辫绫绘敞閲婏級锛涚粍鍐呴『搴?=
- *     瀹夸富鍒楄〃鍘熷簭锛涚姸鎬佹牱寮忥紙閲戞弿杈?鏈辩爞鎻忚竟/娑熸吉鐐癸級鎸夋垚鍛樿嚜韬爣蹇楁寕杞姐€?
+ * ADR-0018 归组模型（工单02 分组渲染 + 工单03 展开交互）：
+ *   - 徽标 .badge（工单03 按钮化）：真实 role=button，▸N/▾N 计数该组通过范围
+ *     过滤的后代总数（badge.total，收起 ▸ / 展开 ▾），flex-shrink:0 +
+ *     white-space:nowrap 不换行不挤压，标题旁 ellipsis 让位。文字取
+ *     --dsw-alias-label-dimmed（与「+N」弱化同轨的元数据语义）。点击原地
+ *     展开/收起该组子气泡列：stopPropagation 阻断冒泡（不触发根气泡跳转）。
+ *     data-jx-interactive 不触发整盒拖动；Enter/Space 键盘可激活；
+ *     aria-label 报告剩余子会话数、aria-expanded 反映生效展开态。
+ *   - 运行中后代迷你点 .badgeRunningDot：4px 金色小点，复用 dot-breathe
+ *     关键帧语义（同周期同缓动），与根状态点呼吸节奏一致；存在运行中
+ *     后代（badge.running > 0）时渲染，reduced-motion 下静态显示。
+ *   - 列对齐：.bubbleList align-items:flex-end——交叉轴（水平）右缘对齐，
+ *     右缘锚定 right: calc(100% + 8px) 不动；展开子列表时容器向左增宽，
+ *     父级气泡与「+N」气泡右缘保持原位（等宽气泡视觉不变、展开不挤压其他组）。
+ *   - 子气泡 .bubbleChild（工单03）：生效展开（手动 || containsCurrent）时
+ *     渲染于父气泡之后（column-reverse ⇒ 视觉上方）；margin-right:12px 在
+ *     右缘对齐布局下形成向左缩进；背景墨阶下沉一级（--jx-surface-1），
+ *     文字弱化一档（--dsw-alias-label-tertiary）；::before 左侧 1px 竖连接线
+ *     取 --dsw-alias-border-l1 素线轨（取色与位置理由见类注释）；组内顺序 =
+ *     宿主列表原序；状态样式（金描边/朱砂描边/涟漪点）按成员自身标志挂载。
  *
- * ADR-0022 淇濈暀妯″紡鎷栨嫿锛堝伐鍗?2/03锛氭敹璧峰尯 + 褰掓。鍖?+ 绂佹鎬侊級锛?
- *   - .draggable锛氬彲绉婚櫎鎸囩ず绾库€斺€斾繚鐣欐ā寮忎笅鍙嫋鎷芥敹绾虫潯鐩乏缂樺唴渚?3px
- *     鐭崇豢绔栫嚎锛坕nset box-shadow锛屼笌 border 鎻忚竟閫氶亾鍒嗗睘鎬у叡瀛橈紝闃熼暱杩藉姞
- *     闇€姹傦紱棰滆壊涓?.dotCompleted 鍚屾簮璇箟杞級銆?
- *   - .dragForbidden锛歳unning/pending 姘旀场绂佹鎬佲€斺€攃ursor:not-allowed +
- *     铏氱嚎绱犵嚎鎻忚竟寮卞寲锛?not(.pending) 鏀剁獎锛屾湵鐮傜揣鎬ユ弿杈圭粷涓嶈瑕嗙洊锛?
- *     hover 涓嶇粰閲戞彁瑙嗭級銆?
- *   - .dismissZone锛氭敹璧峰尯杩戞斁鈥斺€旈敋瀹?.bubbleList 鐩掓涓嬫柟 8px銆佸彸缂樺榻愶紱
- *     铏氱嚎绱犵嚎 + surface-1 澧ㄩ樁涓嬫矇 + dimmed 鏂囧瓧锛沺ointer-events:auto
- *     鏄惧紡鏀惧紑锛堣惤鐐硅В鏋愰潬 elementFromPoint 鍛戒腑锛夛紱闈欐€佹棤鍔ㄧ敾銆?
- *   - .archiveZone锛氬綊妗ｅ尯杩滄斁锛堣鑹茶剼杈癸級鈥斺€擣ragment 绗簩鏍归敋瀹氭诞灞傜洅
- *     锛?overlay fixed 鍖呭惈鍧楋級姝ｄ笅鏂瑰眳涓€佽浣嶇姸鎬佹枃妗堬紱鏈辩爞瀹炵嚎鎻忚竟 +
- *     鏈辩爞鏂囧瓧璀︾ず璇█ + title hover 鎻愮ず涓嶅彲鎭㈠锛涗笌鏀惰捣鍖烘í鍚戠浉闅旀暣涓?
- *     鐩掑锛堣繙杩戝垎缃槻璇Е锛孌3锛夛紱闈欐€佹棤鍔ㄧ敾銆?
+ * ADR-0022 保留模式改型（工单02/03：可移除指示线 + 左侧手柄点击收起）：
+ *   - .draggable：可移除指示线——保留模式下可点击手柄收起的条目左缘内嵌 3px
+ *     石绿竖线（inset box-shadow，与 border 描边通道分属性共存，队长追加
+ *     需求；颜色与 .dotCompleted 同源语义轨）。
+ *   - .dragForbidden：running/pending 气泡禁止态——cursor:not-allowed +
+ *     虚线素线描边弱化，:not(.pending) 收虚，朱砂紧急描边绝不被覆盖，
+ *     hover 不给金提视。
+ *   - .dragHandle：气泡外部左侧手柄，点击直接收起（addDismissed 记账）。
+ *     圆角竖条造型，石绿色，hover 放大提亮。
  *
- * 鍙秷璐硅涔夊埆鍚?+ --jx-* 涓撳睘杞紝鏃犻鑹插瓧闈㈤噺銆佹棤涓婚閫夋嫨鍣ㄣ€?
- * 娣辨祬鍙屼富棰樼敱 L2 remap 鑷姩澶勭悊銆?
+ * 只消费语义别名 + --jx-* 专属轨，无颜色字面量、无主题选择器。
+ * 深浅双主题由 L2 remap 自动处理。
  */
 
 .bubbleList {
   position: absolute;
-  /* 鏁翠綋绉诲埌瑙掕壊鐩掑宸︿晶锛氬彸缂樿创鐩掑乏缂樺苟鐣?8px 闂撮殭锛屼笉鍙犲姞鍦ㄨ鑹叉湰韬笂 */
+  /* 整体移到角色盒外左侧：右缘贴盒左缘并留 8px 间隙，不叠加在角色本身上 */
   left: auto;
   right: calc(100% + 8px);
-  /* 搴曢儴閿氬畾 + column-reverse 鈫?鑷笅鑰屼笂鐢熼暱锛屽垪琛ㄩ『搴忕涓€涓湪搴曢儴 */
+  /* 底部锚定 + column-reverse ⇒ 自下而上生长，列表顺序第一个在底部 */
   bottom: 0;
   display: flex;
   flex-direction: column-reverse;
-  /* 浜ゅ弶杞达紙姘村钩锛夊彸缂樺榻愶紙ADR-0018 D5锛屽伐鍗?3锛夛細鍒楀鐢辨渶瀹界殑 margin-box
-   * 鎾戝嚭銆佸彸缂橀敋瀹氬湪 right: calc(100% + 8px) 涓嶅姩鈥斺€斿睍寮€瀛愭皵娉″垪琛ㄦ椂瀹瑰櫒
-   * 鍚戝乏澧炲锛岀埗姘旀场涓庛€?N銆嶇殑鍙崇紭淇濇寔鍘熶綅涓嶄綅绉伙紙绛夊姘旀场瑙嗚涓嶅彉銆?
-   * 灞曞紑涓嶆尋鍘嬪叾浠栭《灞傜粍锛夛紱瀛愭皵娉″€?margin-right:12px 鍚戝乏浼稿睍鎴愮缉杩?*/
+  /* 交叉轴（水平）右缘对齐（ADR-0018 D5，工单03）：列宽由最宽的 margin-box
+   * 撑出、右缘锚定在 right: calc(100% + 8px) 不动——展开子气泡列表时容器
+   * 向左增宽，父气泡与「+N」的右缘保持原位不位移（等宽气泡视觉不变、
+   * 展开不挤压其他顶层组）；子气泡的 margin-right:12px 向左伸展成缩进 */
   align-items: flex-end;
   gap: 4px;
-  /* 姘旀场鍒楁湰韬笉鎷︽埅鎸囬拡锛岀敱鍚勬皵娉℃湰浣撹嚜琛?pointer-events:auto */
+  /* 气泡列本身不拦截指针，由各气泡本体自承 pointer-events:auto */
   pointer-events: none;
-  /* 鍒楀搴︾敱姘旀场鍐呭鎾戝嚭 */
+  /* 列宽度由气泡内容撑出 */
 }
 
 .bubble {
-  /* 姘旀场鏈綋鍙偣鍑伙紙鍙嶈浆鍙拌瘝姘旀场 pointer-events:none 绌块€忓師鍒欙紝浠呴檺姘旀场鏈綋锛?*/
+  /* 气泡本体可点击（反转列表气泡 pointer-events:none 穿透原则，仅限气泡本体） */
   pointer-events: auto;
   cursor: pointer;
-  /* 鍗曡姘旀场锛?32脳24 */
+  /* 单行气泡：132×24 */
   display: flex;
   align-items: center;
   gap: 6px;
@@ -99,7 +94,9 @@
   height: 24px;
   padding: 0 8px;
   box-sizing: border-box;
-  /* 璇箟鍒悕锛氳儗鏅?/ 杈规 / 瀛楁棌 */
+  /* 定位上下文：左缘拖拽手柄（ADR-0026 D2）绝对定位基准 */
+  position: relative;
+  /* 语义别名：背景 / 边框 / 字族 */
   background: var(--dsw-specific-bubble);
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 4px;
@@ -107,15 +104,14 @@
   font-size: 12px;
   line-height: 1;
   color: var(--dsw-alias-label-primary);
-  /* 鍗曡鐪佺暐鍙?*/
+  /* 单行省略号：由 .title 自身承担 overflow:hidden */
   white-space: nowrap;
-  overflow: hidden;
-  /* 鍑虹幇鍔ㄦ晥锛?50ms 娣″叆锛坥pacity + translateY 4px锛岃嚜鐒跺噺閫燂級 */
+  /* 出现动效：150ms 淡入（opacity + translateY 4px，自然减速） */
   animation: bubble-enter 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .bubble:hover {
-  /* hover 閲戞弿杈规彁瑙?*/
+  /* hover 金描边提视 */
   border-color: var(--jx-gold);
 }
 
@@ -124,18 +120,18 @@
   outline-offset: 2px;
 }
 
-/* 閫€鍑烘€侊細100ms 娣″嚭锛堥€€鍑哄揩浜庤繘鍏ワ紝DESIGN.md 搂6锛?*/
+/* 退出态：100ms 淡出（退出快于进入，DESIGN.md §6） */
 .bubble.leaving {
   pointer-events: none;
   animation: bubble-exit 100ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* 褰撳墠浼氳瘽姘旀场锛氶噾鎻忚竟甯搁┗楂樹寒 */
+/* 当前会话气泡：金描边常驻高亮 */
 .bubble.current {
   border-color: var(--jx-gold);
 }
 
-/* 鏍囬锛氬崟琛岀渷鐣ュ彿 */
+/* 标题：单行省略号 */
 .title {
   flex: 1 1 auto;
   min-width: 0;
@@ -144,36 +140,36 @@
   white-space: nowrap;
 }
 
-/* 鐘舵€佺偣瀹瑰櫒 */
+/* 状态点容器 */
 .dot {
   flex: 0 0 auto;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  /* 鎵胯浇 .dotPending::after 娑熸吉鐜殑瀹氫綅鍩哄噯 */
+  /* 承载 .dotPending::after 涟漪环的定位基准 */
   position: relative;
 }
 
-/* 杩愯涓細閲戣壊鍛煎惛鐐?*/
+/* 运行中：金色呼吸点 */
 .dotRunning {
   background: var(--jx-gold);
   animation: dot-breathe 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
-/* 宸插畬鎴愶細鐭崇豢瀹炲績鐐?*/
+/* 已完成：石绿实心点 */
 .dotCompleted {
   background: var(--dsw-alias-state-success-primary);
 }
 
 /* ============================================================
- * ADR-0018锛氬瓙浠ｇ悊寰芥爣锛堝綊缁勬ā鍨嬶紱鏈伐鍗曚粎灞曠ず锛屽睍寮€浜や簰灞炲悗缁伐鍗曪級
+ * ADR-0018：子代理徽标（归组模型；本工单仅展示，展开交互属后续工单）
  * ============================================================ */
 
-/* 寰芥爣瀹瑰櫒锛氣柛N 璁″悗浠ｆ€绘暟銆?
- * flex-shrink:0 + nowrap鈥斺€斿窘鏍囨槸璁℃暟鍏冩暟鎹紝姘镐笉鎹㈣銆佷笉琚暱鏍囬鎸ゅ帇锛?
- * 鎸ゅ帇鍘嬪姏浜ょ粰鏍囬渚э紙.title min-width:0 ellipsis 璁╀綅锛夈€?
- * 鏂囧瓧鍙?--dsw-alias-label-dimmed锛氫笌銆?N銆嶅急鍖栨皵娉″悓杞ㄧ殑娆¤淇℃伅璇█锛?
- * 寰芥爣鏄厓鏁版嵁鑰岄潪鐘舵€佷俊鍙凤紙鐘舵€佺敱杩蜂綘鐐?鏍圭姸鎬佺偣鎵胯浇锛夈€?*/
+/* 徽标容器：「N 计后代总数」。
+ * flex-shrink:0 + nowrap——徽标是计数元数据，永不换行、不被长标题挤压，
+ * 挤压压力交给标题侧（.title min-width:0 ellipsis 让位）。
+ * 文字取 --dsw-alias-label-dimmed：与「+N」弱化气泡同轨的次要信息语义，
+ * 徽标是元数据而非状态信号（状态由迷你点+根状态点承载）。 */
 .badge {
   flex: 0 0 auto;
   display: inline-flex;
@@ -185,10 +181,10 @@
   color: var(--dsw-alias-label-dimmed);
 }
 
-/* 杩愯涓悗浠ｉ噾鑹插懠鍚歌糠浣犵偣锛氬瓨鍦?running 鍚庝唬鏃舵覆鏌撲簬 鈻?鍓嶃€?
- * 澶嶇敤鏃㈡湁 @keyframes dot-breathe锛堝悓鍛ㄦ湡鍚岀紦鍔級鈥斺€斾笌鏍圭姸鎬佺偣鍛煎惛鑺傚
- * 涓€鑷达紝銆屼笅闈㈣繕鏈夋椿浜哄湪骞层€嶇殑閲戣壊璇箟鍏ㄥ垪缁熶竴锛?px 灏忎簬鏍圭姸鎬佺偣 6px锛?
- * 灞傜骇浠庡睘鍏崇郴涓€鐪煎彲杈ㄣ€?*/
+/* 运行中后代金色呼吸迷你点：存在 running 后代时渲染于 ▾ 前。
+ * 复用既有 @keyframes dot-breathe（同周期同缓动）——与根状态点呼吸节奏
+ * 一致，「下面还有活人在干」的金色语义全列统一；4px 小于根状态点 6px，
+ * 层级从属关系一眼可辨。 */
 .badgeRunningDot {
   flex: 0 0 auto;
   width: 4px;
@@ -199,44 +195,45 @@
 }
 
 /* ============================================================
- * ADR-0018 D5锛氬瓙姘旀场鍛堢幇锛堝伐鍗?3 灞曞紑浜や簰锛?
+ * ADR-0018 D5：子气泡呈现（工单03 展开交互）
  * ============================================================ */
 
-/* 缁勫唴鎴愬憳姘旀场锛氱敓鏁堝睍寮€鏃舵覆鏌撲簬鐖舵皵娉′箣鍚庯紙DOM 搴忛厤鍚堝垪鐨?column-reverse
- * 鈬?瑙嗚浣嶄簬鐖朵笂鏂癸級銆?
+/* 组内成员气泡：生效展开时渲染于父气泡之后（DOM 序配合列的 column-reverse
+ * ⇒ 视觉位于父上方）。
  *
- * 缂╄繘鍑犱綍锛?bubbleList 宸?align-items:flex-end锛堝彸缂樺榻愶級锛屾湰鍏冪礌鐨?
- * margin-right:12px 浣胯竟妗嗙洅鐩稿鐖舵皵娉℃暣浣撳乏绉?12px鈥斺€旂埗绾у彸缂樹笉鍔ㄣ€?
- * 瀛愮骇鍚戝乏浼稿睍锛屽嵆銆屽彸缂樺榻愬竷灞€涓嬬殑鑷劧缂╄繘鏂瑰悜銆嶏紙D5锛夈€?
+ * 缩进几何：.bubbleList 的 align-items:flex-end（右缘对齐），本元素的
+ * margin-right:12px 使边框盒相对父气泡整体左移 12px——父级右缘不动、
+ * 子级向左伸展，即「右缘对齐布局下的自然缩进方向」（D5）。
  *
- * 寮卞寲鍙栬壊锛堟棤棰滆壊瀛楅潰閲忋€佹棤涓婚閫夋嫨鍣紝娣辨祬鍙屽€奸殢 L2 remap 鑷姩鍒囨崲锛夛細
- * 鑳屾櫙鍙?--jx-surface-1鈥斺€斿ⅷ闃舵瘮鐖舵皵娉★紙--dsw-specific-bubble = surface-2锛?
- * 涓嬫矇涓€绾э紝鏆楄壊涓嬫洿娣便€佹祬鑹蹭笅鏇磋创杩戠焊闈紝涓や富棰樹腑鍧囨瘮鐖剁骇閫€鍚庝竴灞傦紝
- * 銆屽眰绾т粠灞炪€嶇敱琛ㄩ潰闃跺樊琛ㄨ揪锛涙枃瀛楀急鍖栦竴妗ｅ彇 --dsw-alias-label-tertiary
- * 锛坱ext-weak锛夛紝鍙鎬т粛杈炬爣涓旀槑鏄炬浜庣埗绾ф爣棰樸€?*/
+ * 弱化取色（无颜色字面量、无主题选择器，深浅双主题随 L2 remap 自动切换）：
+ * 背景取 --jx-surface-1——墨阶比父气泡（--dsw-specific-bubble = surface-2）
+ * 下沉一级，暗色下更暗、浅色下更贴近纸面，两主题中均比父级退后一层，
+ * 「层级从属」由表面阶差表达；文字弱化一档取 --dsw-alias-label-tertiary
+ * （text-weak），可读性仍达标且明显次于父级标题。
+ *
+ * 放开 .bubble 的 overflow:hidden，让左侧连接线伪元素能逃出气泡盒；
+ * 单行文本裁切不受影响——ellipsis 由内层 .title 自身的 overflow:hidden
+ * 承担 */
 .bubbleChild {
-  /* 鎵胯浇 ::before 杩炴帴绾跨殑瀹氫綅鍩哄噯 */
+  /* 承载 ::before 连接线的定位基准 */
   position: relative;
   margin-right: 12px;
   background: var(--jx-surface-1);
   color: var(--dsw-alias-label-tertiary);
-  /* 鏀惧紑 .bubble 鐨?overflow:hidden锛岃宸︿晶杩炴帴绾夸吉鍏冪礌鑳介€冨嚭姘旀场鐩掞紱
-   * 鍗曡鏂囨湰瑁佸垏涓嶅彈褰卞搷鈥斺€攅llipsis 鐢卞唴灞?.title 鑷韩鐨?overflow:hidden
-   * 鎵挎媴 */
   overflow: visible;
 }
 
-/* 宸︿晶绔栬繛鎺ョ嚎锛?px锛夛細鏍戠姸灞傜骇鐨勭粨鏋勬寚绀恒€?
+/* 左侧竖连接线（1px）：树状层级的结构指示。
  *
- * 棰滆壊鍙?--dsw-alias-border-l1锛圠2 remap 鍒?--jx-border-deco 瑁呴グ杈圭晫杞級锛?
- * 鍒绘剰閫夈€屼笌姘旀场鎻忚竟鍚岃建鐨勭礌绾裤€嶈€岄潪閲戞棌/鐘舵€佹棌鈥斺€旇繛鎺ョ嚎鏄粨鏋勮涔夛紝
- * 涓嶅湪閲戝懠鍚哥偣/鏈辩爞娑熸吉/鐭崇豢瀹屾垚鐐圭殑鐘舵€佷俊鍙烽€氶亾涓婃姠娉ㄦ剰鍔涳紝娣辨祬涓や富棰?
- * 鍧囦笌鎻忚竟浣撶郴澶╃劧鍗忚皟銆?
+ * 颜色取 --dsw-alias-border-l1（L2 remap 到 --jx-border-deco 装饰边界轨），
+ * 刻意选「与气泡描边同轨的素线」而非金/朱砂/状态色——连接线是结构语义，
+ * 不在金呼吸点/朱砂涟漪/石绿完成点的状态信号通道上抢注意力，深浅双主题
+ * 均与描边体系天然协调。
  *
- * 浣嶇疆锛氭偓鍦ㄦ皵娉″乏缂樺渚?4px 娌熸Ы鍐呫€佸 1px锛涚旱鍚戜笂涓嬪悇瓒婂嚭 4px鈥斺€旀伆濂?
- * 妗ユ帴 .bubbleList 鐨?4px 琛岄棿闅欙紝浣垮悓涓€缁勬垚鍛樼殑绾挎鍦ㄨ瑙変笂杩炴垚涓€鏉¤繛缁?
- * lineage 绔栬建锛屽苟鍚戠埗姘旀场鏂瑰悜寤朵几绀烘剰褰掑睘锛堥鎴愬憳鐨勭嚎涓嬫帰 4px 鍗宠Е鐖舵场
- * 椤剁紭锛夈€傜函闈欐€佽楗帮細鏃?animation/transition锛宺educed-motion 鏃犻渶鍒嗘敮銆?*/
+ * 位置：悬在气泡左缘外侧 4px 沟槽内、宽 1px；纵向上下各越出 4px——恰好
+ * 桥接 .bubbleList 的 4px 行间间隔，使同一组成员的线段在视觉上连成一条连续
+ * lineage 竖直链，并向父气泡方向延伸示归属（首成员的线下探 4px 即触父泡
+ * 顶缘）。纯静态装饰：无 animation/transition，reduced-motion 无需分支支持。 */
 .bubbleChild::before {
   content: "";
   position: absolute;
@@ -249,20 +246,20 @@
 }
 
 /* ============================================================
- * ADR-0020 pending-interaction-bubble-effect锛氱瓑寰呯敤鎴蜂氦浜掞紙approval/plan-review/question锛?
- * 鏈辩爞鍗颁俊鍙封€斺€旀弿杈硅浆鏈辩爞銆佺偣浣嶆崲娑熸吉鎵╂暎鐜€?
- * 澹版槑椤哄簭鍦?.current/.bubble:hover 涔嬪悗锛氱揣鎬ユ€佹弿杈逛笉琚鐩栥€?
+ * ADR-0020 pending-interaction-bubble-effect：等待用户交互（approval/plan-review/question）
+ * 朱砂印信号——描边转朱砂、点位换涟漪扩散环。
+ * 声明顺序在 .current/.bubble:hover 之后：紧急状态描边不被覆盖。
  * ============================================================ */
 
-/* 鏈辩爞鎻忚竟锛堜紭鍏堢骇楂樹簬褰撳墠閲戞弿杈逛笌 hover 閲戞弿杈癸級 */
+/* 朱砂描边（优先级高于当前金描边与 hover 金描边） */
 .bubble.pending {
   border-color: var(--jx-seal);
-  /* 鍏ュ満/杞负绛夊緟浜や簰鏃舵挱鏀句竴娆″嵃绔犳寜鍘嬪紡寮鸿皟锛堝己璋?350ms锛孌ESIGN.md 搂6锛夛紱
-   * 涓嶅姩 opacity锛屼腑閫斿彔鍔?class 涓嶄骇鐢熷彲瑙佹€ч棯鐑?*/
+  /* 入场/转为等待交互时播放一次印章按压式强调（强震 350ms，DESIGN.md §6）；
+   * 不动 opacity，中途叠加 class 不产生可见性闪烁 */
   animation: bubble-stamp 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* 鏈辩爞鐐?+ 娑熸吉鎵╂暎鐜紙transform+opacity锛孏PU 鍙嬪ソ锛?*/
+/* 朱砂点 + 涟漪扩散环（transform+opacity，GPU 友好） */
 .dotPending {
   background: var(--jx-seal);
 }
@@ -277,14 +274,14 @@
   animation: dot-pending-ping 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
-/* 閫€鍑轰紭鍏堜簬鍗扮珷寮鸿皟锛歭eaving 涓殑绛夊緟浜や簰姘旀场浠嶆挱 100ms 娣″嚭 */
+/* 退出优先于印章强调：leaving 中的等待交互气泡仍播 100ms 淡出 */
 .bubble.pending.leaving {
   animation: bubble-exit 100ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* 銆?N銆?銆屾敹璧枫€嶅急鍖栨皵娉?*/
+/* 「+N」「收起」弱化气泡 */
 .more {
-  /* 寮卞寲鏍峰紡锛歞immed 鏂囧瓧 */
+  /* 弱化样式：dimmed 文字 */
   color: var(--dsw-alias-label-dimmed);
   background: var(--dsw-specific-bubble);
 }
@@ -300,18 +297,18 @@
 }
 
 /* ============================================================
- * ADR-0022 宸ュ崟02锛氫繚鐣欐ā寮忔嫋鎷解€斺€旇瑙夌姝㈡€?+ 鏀惰捣鍖猴紙杩戞斁鎶曟斁鍖猴級
+ * ADR-0022 工单02：保留模式——视觉要止态 + 可移除指示线
  * ============================================================ */
 
-/* 绂佹鎬侊紙ADR-0022 D4锛夛細running / 绛夊緟浜や簰姘旀场鍦ㄤ繚鐣欐ā寮忎笅涓嶅彲鎷栬蛋銆?
+/* 禁止态（ADR-0022 D4）：running / 等待交互气泡在保留模式下不可拖走。
  *
- * cursor:not-allowed 琛ㄨ揪銆屾嬁涓嶈蛋銆嶏紱鎻忚竟寮卞寲涓鸿櫄绾跨礌绾库€斺€旇櫄绾跨ず鎰?
- * 銆屾鐗╀笉鍙鍙栬蛋銆嶇殑缁撴瀯璇箟锛屼笉寮曞叆鏂伴鑹茶建銆?
+ * cursor:not-allowed 表达「拿不走」；描边弱化为虚线素线——虚线示
+ * 「此物不可被取走」的结构语义，不引入新颜色轨。
  *
- * 澹版槑绾緥锛歜order 鍙樺寲鐢?:not(.pending) 鏀剁獎鈥斺€旀湵鐮傜揣鎬ユ弿杈癸紙.pending锛?
- * 澹版槑鍦ㄥ墠锛夌粷涓嶈绂佹鎬佽鐩栵紙ADR-0020 pending-interaction-bubble-effect 绱ф€ヤ俊鍙蜂紭鍏堬級锛沺ending 姘旀场浠嶅緱
- * 鍒?not-allowed 鍏夋爣锛屼絾涓嶆敼鍏舵弿杈广€俬over 涓嶇粰閲戞弿杈规彁瑙嗭細闈炲彲鎷栧璞?
- * 涓嶆殫绀哄彲鎶撳彇銆?*/
+ * 声明纪律：border 变化由 :not(.pending) 收窄——朱砂紧急描边（.pending）
+ * 声明在前，绝不被禁止态覆盖（ADR-0020 pending-interaction-bubble-effect 紧急信号优先）；pending 气泡仍得
+ * not-allowed 光标，但不改其描边。hover 不给金描边提视：非可拖对象
+ * 不暗示可抓取。 */
 .bubble.dragForbidden {
   cursor: not-allowed;
 }
@@ -324,109 +321,31 @@
   border-color: var(--dsw-alias-border-l1);
 }
 
-/* 鍙Щ闄ゆ寚绀虹嚎锛堥槦闀胯拷鍔犻渶姹傦級锛氫繚鐣欐ā寮忎笅鍙嫋鎷芥敹绾崇殑鏉＄洰鈥斺€旀皵娉″乏缂?
- * 鍐呬晶涓€鏉″叏楂樼豢绔栫嚎锛堝 3px锛夛紝涓€鐪煎彲杈ㄣ€岃繖鏉¤兘鎷栧幓鏀惰捣鍖?褰掓。鍖烘敹绾炽€嶃€?
+/* 可移除指示线（队长追加需求）：保留模式下可点击手柄收起的条目——气泡左缘
+ * 内嵌一条全高石绿竖线（宽 3px），一眼可辨「这个能点手柄收起」。
  *
- * 棰滆壊鍙?--dsw-alias-state-success-primary锛氱煶缁匡紝涓庡凡瀹屾垚鐘舵€佺偣
- * 锛?dotCompleted锛夊悓婧愨€斺€斻€屽凡瀹屾垚 鈬?鍙敹绾炽€嶇殑璇箟鍦ㄧ偣涓庣嚎涓婂悓杞ㄧ粺涓€锛?
- * 鏃犻鑹插瓧闈㈤噺锛屾繁娴呭弻涓婚闅?L2 remap 鑷姩鍒囨崲銆?
+ * 颜色取 --dsw-alias-state-success-primary：石绿，与已完成状态点
+ * （.dotCompleted）同源——「已完成 ⇄ 可收起」的语义在点与线上同轨统一，
+ * 无颜色字面量，深浅双主题随 L2 remap 自动切换。
  *
- * 瀹炵幇閫夊瀷锛歩nset box-shadow 鑰岄潪 border 鎴栦吉鍏冪礌鈥斺€旀湰鏂囦欢 .bubble/.current/
- * .pending/.dragForbidden 鐨勭姸鎬佹弿杈瑰叏閮ㄨ蛋 border/border-color 閫氶亾锛?
- * box-shadow 灞炴€ф棤浜哄崰鐢紝inset 闃村奖涓庢弿杈瑰垎灞炴€у垎灞傚叡瀛橈紙閲戞弿杈?鏈辩爞
- * 鎻忚竟闆惰鐩栭闄╋級锛涗笉鍗犲竷灞€銆佷笉鍙?.bubble overflow:hidden 褰卞搷锛涗害涓嶄笌
- * 瀛愭皵娉?::before 宸﹁繛鎺ョ嚎锛堢洅澶?left:-4px锛夊啿绐佲€斺€旂嚎灞呯洅鍐呫€佽繛鎺ョ嚎鎮洅澶栥€?
+ * 实现选型：inset box-shadow 而非 border 或伪元素——本文件 .bubble/.current/
+ * .pending/.dragForbidden 的状态描边全部走 border/border-color 通道，
+ * box-shadow 属性无人占用，inset 阴影与描边分属性分层共存（金描边/朱砂
+ * 描边覆盖风险），不占布局、不受 .bubble overflow:hidden 影响；亦不与
+ * 子气泡 ::before 左侧连接线（盒外 left:-4px）冲突——线居盒内、连接线悬盒外。
  *
- * 鍙犲姞鑷煡锛堝洓鎬侊級锛?draggable 涓?.pending/.dragForbidden 鍦ㄩ€昏緫灞備簰鏂?
- * 锛堣鎸傝浇鐢?isBubbleRowDraggable 缁熶竴椹卞姩锛氳嚜韬?completed 绫?&& 缁勫唴鏃?
- * 杩愯涓垚鍛樷€斺€旇 session-bubbles.ts锛夛紝
- * 鏁呯豢绾垮疄闄呭彧涓庣礌绾挎弿杈规垨閲戞弿杈瑰彔鍔犫€斺€旂煶缁挎寚绀虹嚎灞呭唴銆佺姸鎬佹弿杈瑰眳澶栵紝
- * 鍚勭粍鍚堜笅缁跨嚎涓嶄涪澶便€佷笉閬斀鐘舵€佹弿杈广€俴eepEnabled 鍏抽棴鏃剁粍浠朵笉鎸傛绫?
- * 锛堝畬鍏ㄥ洖鍒扮幇鐘惰瑙夛級銆傞潤鎬佸憟鐜版棤鍔ㄧ敾锛宺educed-motion 鏃犻渶鍒嗘敮銆?*/
+ * 叠加自查（四态）：.draggable 与 .pending/.dragForbidden 在逻辑层互斥
+ * （行挂载由 isBubbleRowDraggable 统一驱动：自身 completed 类 && 组内无
+ * 运行中成员——见 session-bubbles.ts），
+ * 故绿线实际只与素线描边或金描边叠加——石绿指示线居内、状态描边居外，
+ * 各组合下绿线不露头、不遮蔽状态描边。KeepEnabled 关闭时组件不挂此类
+ * （完全回到现状视觉）。静态呈现无动画，reduced-motion 无需分支。 */
 .draggable {
   box-shadow: inset 3px 0 0 0 var(--dsw-alias-state-success-primary);
 }
 
-/* 鏀惰捣鍖猴紙杩戞斁锛孉DR-0022 D3 / PRD 鐢ㄦ埛鏁呬簨 2锛夛細鎷栧叆 = 鏈湴 dismissed 璁拌处
- * 锛堟殏鏃堕殣钘忔彁閱掞紝鍙€嗭級銆?
- *
- * 瀹氫綅鍑犱綍锛氱埗瀹瑰櫒 .bubbleList 鏄?position:absolute 鐨勫寘鍚潡鈥斺€旀湰鍏冪礌
- * top: calc(100% + 8px) 閿氬畾鏁村垪鐩掓涓嬫柟鐣?8px 闂撮殭锛況ight:0 涓庡垪鍙崇紭瀵归綈
- * 锛堝垪 align-items:flex-end 鐨勫彸缂橀敋瀹氳瑷€涓€鑷达級銆俶in-width 涓庣瓑瀹芥皵娉?
- * 锛?32px锛夊榻愶紝鎶曟斁鐩爣瓒冲澶с€?
- *
- * pointer-events:auto 蹇呴』鏄惧紡澹版槑锛?bubbleList 鑷韩 pointer-events:none
- * 浼氳瀛愮骇缁ф壙锛岃€岃惤鐐硅В鏋愰潬 document.elementFromPoint 鍛戒腑鏈厓绱犫€斺€斾笉鏀惧紑
- * 鍒欐姇鏀炬案涓嶅懡涓€?
- *
- * 瑙嗚鍙栬壊鍏ㄩ儴璧版棦鏈夎涔夎建锛氳櫄绾跨礌绾挎弿杈?+ surface-1 澧ㄩ樁涓嬫矇鑳屾櫙 +
- * dimmed 鍏冩暟鎹枃瀛楋紙涓庛€?N銆嶅悓杞ㄧ殑娆¤淇℃伅璇█锛夛紱闈欐€佸憟鐜版棤鍔ㄧ敾锛?
- * prefers-reduced-motion 澶╃劧鏃犻渶闄嶇骇鍒嗘敮銆?*/
-.dismissZone {
-  /* 鑴辩 column-reverse 娴侊紝閿氬畾鏁村垪涓嬫柟 */
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  min-width: 132px;
-  height: 24px;
-  padding: 0 10px;
-  border: 1px dashed var(--dsw-alias-border-l1);
-  border-radius: 4px;
-  font-family: var(--dsw-font-family);
-  font-size: 12px;
-  line-height: 1;
-  color: var(--dsw-alias-label-dimmed);
-  background: var(--jx-surface-1);
-  white-space: nowrap;
-  /* 钀界偣鍛戒腑鍓嶆彁锛歟lementFromPoint 蹇呴』鑳芥墦涓湰鍏冪礌锛堣涓婃敞锛?*/
-  pointer-events: auto;
-}
-
-/* 褰掓。鍖猴紙杩滄斁路瑙掕壊鑴氳竟锛孉DR-0022 D3 / PRD 鐢ㄦ埛鏁呬簨 3/5/8/9锛夛細鎷栧叆 = 璋?
- * SDK archiveSession 鐪熷綊妗ｂ€斺€斾晶杈规爮鍚屾闅愯棌銆佹棩蹇椾繚鐣欍€佷笉鍙€嗐€?
- *
- * 瀹氫綅鍑犱綍锛氭湰鍏冪礌娓叉煋涓?SessionBubbleList 杩斿洖 Fragment 鐨勭浜屾牴锛?bubbleList
- * 鐨勫厔寮熻妭鐐癸級锛岀粷瀵瑰畾浣嶅寘鍚潡涓婃函鍒?position:fixed 鐨勬诞灞傜洅锛?overlay锛夆€斺€?
- * top: calc(100% + 32px) 閿氬畾鐩掓涓嬫柟锛堣浣?bottom:-28px 鐨勭姸鎬佹枃妗堟爣绛撅級锛?
- * left:50% 灞呬腑浜庤鑹茶剼杈广€備笌鏀惰捣鍖烘í鍚戠浉闅旀暣涓诞灞傜洅瀹斤細杩滆繎鍒嗙疆鏈韩鍗?
- * 闃茶瑙︽爮锛圖3銆屽嵄闄╅噸鎿嶄綔蹇呴』鐗规剰澶熻繃鍘汇€嶏級銆?
- *
- * 璀︾ず瑙嗚锛圖3锛夛細鏈辩爞瀹炵嚎鎻忚竟 + 鏈辩爞鏂囧瓧锛?-jx-seal 鍙屼富棰樹护鐗岋紝涓庣瓑寰呬氦浜?
- * 鎻忚竟鍚屾簮鐨勮绀鸿涔夎壊锛夛紝鍖哄埆浜庢敹璧峰尯鐨勮櫄绾跨礌绾垮急鍖栬瑷€锛泃itle 灞炴€ф彁渚?
- * hover 鎻愮ず銆屽綊妗ｅ悗浠庡垪琛ㄩ殣钘忥紝涓嶅彲鎭㈠銆嶏紙PRD 鐢ㄦ埛鏁呬簨 9锛夈€?
- *
- * pointer-events:auto 鍚屾敹璧峰尯鐞嗙敱锛歟lementFromPoint 钀界偣鍛戒腑鍓嶆彁銆?
- * 闈欐€佸憟鐜版棤鍔ㄧ敾锛宲refers-reduced-motion 澶╃劧鏃犻渶闄嶇骇鍒嗘敮銆?*/
-.archiveZone {
-  position: absolute;
-  left: 50%;
-  top: calc(100% + 32px);
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  min-width: 132px;
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid var(--jx-seal);
-  border-radius: 4px;
-  font-family: var(--dsw-font-family);
-  font-size: 12px;
-  line-height: 1;
-  color: var(--jx-seal);
-  background: var(--jx-surface-1);
-  white-space: nowrap;
-  /* 钀界偣鍛戒腑鍓嶆彁锛歟lementFromPoint 蹇呴』鑳芥墦涓湰鍏冪礌锛堣涓婃敞锛?*/
-  pointer-events: auto;
-}
-
 /* ============================================================
- * 鍔ㄦ晥
+ * 动效
  * ============================================================ */
 
 @keyframes bubble-enter {
@@ -461,7 +380,7 @@
   }
 }
 
-/* 鍗扮珷鎸夊帇寮忓己璋冿細杞诲井鏀惧ぇ鍚庤惤鍥烇紙涓嶅姩 opacity锛岃 .bubble.pending 娉級 */
+/* 印章按压式强调：轻微放大后落回（不动 opacity，见 .bubble.pending 注） */
 @keyframes bubble-stamp {
   0% {
     transform: scale(1);
@@ -474,7 +393,7 @@
   }
 }
 
-/* 鏈辩爞鐐规稛婕細鎵╂暎鐜嚜鐐圭紭鏀惧ぇ娣″嚭锛屽惊鐜ず鎰忋€岀瓑寰呴鑲€?*/
+/* 朱砂点涟漪：扩散环自点放大淡出，循环示意「等待首肯」。 */
 @keyframes dot-pending-ping {
   0% {
     opacity: 0.8;
@@ -488,13 +407,13 @@
 }
 
 /* ============================================================
- * prefers-reduced-motion锛氬叏鍏?
- * 绛夊緟浜や簰姘旀场淇濈暀闈欐€佹湵鐮傜偣/鎻忚竟锛堟棤鍔ㄦ晥鏃剁姸鎬佷粛鍙尯鍒嗭紝ADR-0020 pending-interaction-bubble-effect锛?
+ * prefers-reduced-motion：全关
+ * 等待交互气泡保留静态朱砂点/描边（无动画时状态仍可区分，ADR-0020 pending-interaction-bubble-effect）
  * ============================================================ */
 @media (prefers-reduced-motion: reduce) {
-  /* 宸ュ崟03 娉細.bubbleChild 涓庡叾杩炴帴绾夸吉鍏冪礌鍧囦负绾潤鎬佽楗帮紙鏃?animation/
-   * transition锛夛紝瀛愭皵娉″鐢?.bubble/.leaving 鏃㈡湁 class鈥斺€斾笂鏂瑰垎鏀凡鍏ㄨ鐩栵紝
-   * 鏈伐鍗曟棤闇€鏂板 reduced-motion 鍒嗘敮銆?*/
+  /* 工单03 注：.bubbleChild 与其连接线伪元素均为纯静态装饰（无 animation/
+   * transition），子气泡复用 .bubble/.leaving 既有 class——上方分支已全覆盖，
+   * 本工单无需新增 reduced-motion 分支。 */
   .bubble {
     animation: none;
   }
@@ -505,7 +424,7 @@
     animation: none;
   }
   .badgeRunningDot {
-    /* 寰芥爣鍛煎惛杩蜂綘鐐瑰悓鏍峰叏鍏筹細淇濈暀闈欐€侀噾鐐癸紙鐘舵€佷粛鍙尯鍒嗭紝ADR-0020 pending-interaction-bubble-effect 鎯緥锛?*/
+    /* 徽标呼吸迷你点同样全关：保留静态金点（状态仍可区分，ADR-0020 pending-interaction-bubble-effect 惯例） */
     animation: none;
   }
   .bubble.pending {
@@ -518,4 +437,37 @@
     animation: none;
     opacity: 0;
   }
+}
+
+/* ============================================================
+ * 左侧手柄（ADR-0026 改型）：气泡外部，点击直接收起
+ * ============================================================ */
+/*
+ * 定位几何：绝对定位于气泡外部左侧（left: -10px），纵向居中，
+ * 宽 6px、高 16px、圆角 3px——石绿色圆角竖条，hover 放大提亮。
+ * 手柄是可点击按钮（role=button），点击直接触发 addDismissed 记账。
+ * 气泡 .bubble 已移除 overflow:hidden，手柄不受裁切。
+ */
+.dragHandle {
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 16px;
+  border-radius: 3px;
+  background: var(--dsw-alias-state-success-primary);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.dragHandle:hover {
+  opacity: 1;
+  transform: translateY(-50%) scale(1.2);
+}
+
+.dragHandle:focus-visible {
+  outline: 2px solid var(--jx-gold);
+  outline-offset: 2px;
 }

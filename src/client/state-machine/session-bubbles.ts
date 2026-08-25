@@ -18,9 +18,8 @@
  *     selectBubbleEntries——其行为语义由 buildBubbleGroups 平铺退化路径承载，
  *     回归护栏以测试域行为基准比对的形式保留在 session-bubbles.test.ts。）
  *   - resolveDragAction / isBubbleDraggable / DRAG_THRESHOLD_PX（工单 02，
- *     ADR-0022 D2/D3/D4/D5）：拖拽判定矩阵纯函数一次写全——位移阈值区分
- *     点击与拖拽（禁拖不禁点）；running/等待交互禁止拖动；当前会话 × 归档区
- *     forbidden（03 直接消费）；有位移未命中 = forbidden（组件弹回不记账）。
+ *     ADR-0022 D2/D3/D4/D5）【已废弃：ADR-0026 改型为左侧手柄点击直接收起，
+ *     无拖拽手势、无投放区判定。保留导出供历史兼容，新代码不应依赖】。
  *
  * 纯逻辑模块：不操作 DOM、不依赖 React、不依赖 SDK 类型。DOM 薄壳在
  * SessionBubbleList 组件。对齐 state-machine / overlay-position 单例模式。
@@ -494,6 +493,24 @@ export function isBubbleRowDraggable(
   groupRunningMembers: number,
 ): boolean {
   return isBubbleDraggable(flags) && groupRunningMembers <= 0;
+}
+
+/** 手柄命中选择器（ADR-0026 D1）：组件 JSX 与入口判定共用的唯一事实源。 */
+export const DRAG_HANDLE_SELECTOR = "[data-jx-drag-handle]";
+
+/**
+ * pointerdown 是否命中气泡拖拽手柄（ADR-0026 D1：手柄唯一拖拽入口）。
+ *
+ * 「整泡即拖拽面」（ADR-0022 工单02）由组件层以本函数收敛为「手柄即拖拽面」：
+ * 未命中 [data-jx-drag-handle] 的按下不进入臂态，气泡本体回归纯点击语义
+ * （点击跳转 + kept 记账路径零变化）。判定走 closest——手柄自身或其内部
+ * 装饰元素均算命中。判定矩阵 resolveDragAction / isBubbleRowDraggable 零改动。
+ */
+export function isBubbleHandleHit(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(DRAG_HANDLE_SELECTOR) !== null
+  );
 }
 
 /**

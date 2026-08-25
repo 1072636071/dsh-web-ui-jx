@@ -74,20 +74,10 @@
  * 布局（ADR-0007 决策 3）：整体在角色盒外左侧竖排（right: calc(100% + 8px)），
  * bottom:0 + flex-direction: column-reverse 自下而上生长。随浮层盒整体移动。
  *
- * 收起区拖拽（ADR-0022 D2/D3/D4/D7/D9，工单02）：保留模式下仅 completed 类
- * 气泡行可移除（isBubbleRowDraggable 统一判定：自身 flags + 组内无运行中
- * 成员——有子代理还在运行就不是可移除的气泡，队长追加需求 #2；门控臂态/
- * 绿线指示/键盘收起）；pointerdown 记起点 + setPointerCapture，
- * 位移超 DRAG_THRESHOLD_PX(8px) 进入拖动态——直接写 DOM style.transform 跟手
- * （不经 React state，避免高频重渲染）；pointerup 以 elementFromPoint →
- * closest("[data-jx-zone]") 解析落点，resolveDragAction 判定：dismiss ⇒
- * addDismissed 记账（投影变化走既有 leaving 淡出）、click 放行原生路径、
- * 其余弹回原位（CSS transition 弹回，reduced-motion 直接复位）。拖拽发生过
- * 必吞合成 click（容器 onClickCapture 消费一次 suppressClickRef，防「拖完又
- * 跳转」）。收起区常驻渲染于整列正下方 8px（data-jx-zone="dismiss"），归档区
- * 本片不渲染。running/pending 气泡挂 .dragForbidden 禁止态；可拖条目 aria-label
- * 追加拖拽说明；Delete/Backspace 收起聚焦气泡（当前会话允许，归档无键盘路径）；
- * completed 上升沿清除 dismissed 记账（旧收起不吞新提醒）。
+ * 收起区拖拽（ADR-0022 D2/D3/D4/D7/D9，工单02）→ ADR-0026 改型：
+ * 保留模式下仅 completed 类气泡行可移除（isBubbleRowDraggable 统一判定）。
+ * 左侧手柄点击直接收起（addDismissed 记账），无拖拽手势、无投放区。
+ * 键盘 Delete/Backspace 收起聚焦气泡（当前会话允许）。
  *
  * 样式只消费语义别名 + --jx-* 专属轨，无颜色字面量、无主题选择器。
  *
@@ -112,14 +102,11 @@ import type {
 import {
   buildBubbleGroups,
   displayTitle,
-  DRAG_THRESHOLD_PX,
   isBubbleRowDraggable,
-  resolveDragAction,
   type BubbleEntry,
   type BubbleGroup,
   type BubbleKeepContext,
   type DragEntryFlags,
-  type DropZoneKind,
   type SessionListEntry,
 } from "../state-machine/session-bubbles.ts";
 import { deriveSessionListEntries } from "../state-machine/session-list-adapter.ts";
@@ -131,13 +118,11 @@ import {
   addDismissed,
   addKept,
   clearDismissed,
-  getArchiveDragEnabledSnapshot,
   getDismissedSnapshot,
   getKeepEnabledSnapshot,
   getKeptSnapshot,
   pruneDismissed,
   pruneKept,
-  subscribeArchiveDragEnabled,
   subscribeDismissed,
   subscribeKeepEnabled,
   subscribeKept,
@@ -187,23 +172,6 @@ function useActivationKey(onActivate: () => void) {
 // GroupBubble — 顶层归组气泡（内部组件）
 // ---------------------------------------------------------------------------
 
-/** 保留模式拖拽手势回调包（父层稳定引用，useMemo 包裹；门控在父层 pointerdown 内）. */
-interface BubbleDragHandlers {
-  /** 按下：记录起点并尝试指针捕获（仅可移除行实际生效）. */
-  readonly onPointerDown: (
-    e: React.PointerEvent<HTMLElement>,
-    id: string,
-    flags: DragEntryFlags,
-    groupRunningMembers: number,
-  ) => void;
-  /** 移动：超阈值进入拖动态后直接写 DOM transform 跟手（不走 React state）. */
-  readonly onPointerMove: (e: React.PointerEvent<HTMLElement>) => void;
-  /** 松手：落点解析 zone → resolveDragAction 判定（click 放行 / dismiss 记账 / 其余弹回）. */
-  readonly onPointerUp: (e: React.PointerEvent<HTMLElement>) => void;
-  /** 打断（pointercancel）：复位弹回、吞合成 click、不记账. */
-  readonly onPointerCancel: (e: React.PointerEvent<HTMLElement>) => void;
-}
-
 /** GroupBubble props. */
 interface GroupBubbleProps {
   /** 顶层归组数据（根条目 + 徽标 + current/pending 传播标志）. */
@@ -220,14 +188,12 @@ interface GroupBubbleProps {
   /** 退出态：true 时挂 leaving class 触发退出动画，不交互. */
   leaving?: boolean;
   /**
-   * 保留模式总开关（ADR-0022 D6）：驱动可拖态判定 / 禁止态样式 / aria 说明；
-   * false = 完全现状外观与交互（无拖拽语义）.
+   * 保留模式总开关（ADR-0022 D6）：驱动可移除态判定 / 样式 / aria 说明；
+   * false = 完全现状外观与交互（无收起语义）.
    */
   dragEnabled: boolean;
-  /** 拖拽手势回调包（工单02）. */
-  dragHandlers: BubbleDragHandlers;
-  /** Delete/Backspace 收起回调；仅保留模式 && 该条目可拖时由父层提供. */
-  onDismissKey?: (() => void) | undefined;
+  /** 点击左侧手柄直接收起该会话；仅保留模式 && 该条目可移除时由父层提供. */
+  onDismiss?: (() => void) | undefined;
 }
 
 /**
@@ -258,8 +224,7 @@ function GroupBubble({
   onToggle,
   leaving,
   dragEnabled,
-  dragHandlers,
-  onDismissKey,
+  onDismiss,
 }: GroupBubbleProps) {
   const root = group.root;
   const handleClick = useCallback(() => {
@@ -267,9 +232,7 @@ function GroupBubble({
     onOpen(root.sessionId);
   }, [root.isCurrent, root.sessionId, onOpen, leaving]);
 
-  // 键盘激活合并（工单02 C12）：Enter/Space = 点击语义；Delete/Backspace =
-  // 收起聚焦气泡（onDismissKey 由父层按「保留模式 && 可拖」提供；归档刻意
-  // 无键盘路径）。stopPropagation 防止按键同时触发徽标折叠等上层行为。
+  // 键盘激活合并：Enter/Space = 点击；Delete/Backspace = 收起。
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -277,26 +240,20 @@ function GroupBubble({
         handleClick();
         return;
       }
-      if ((e.key === "Delete" || e.key === "Backspace") && onDismissKey) {
+      if ((e.key === "Delete" || e.key === "Backspace") && onDismiss) {
         e.preventDefault();
         e.stopPropagation();
-        onDismissKey();
+        onDismiss();
       }
     },
-    [handleClick, onDismissKey],
+    [handleClick, onDismiss],
   );
 
-  // 保留模式拖拽判定输入（ADR-0022 D4）：根条目自身的三标志投影。
+  // 可移除判定：保留模式开 && 仅 completed 类 && 组内无运行中成员。
   const rootFlags: DragEntryFlags = toDragFlags(root);
-  // 可拖 = 保留模式开 && 仅 completed 类 && 组内无运行中成员（队长追加需求
-  // #2：有子代理还在运行就不是可移除的气泡——badge.running 为组内运行中
-  // 成员计数，归组模型已折叠全部嵌套后代）。禁止态只在保留模式下呈现——
-  // 总开关关时完全回到现状外观（回归护栏精神）。
-  const draggable = dragEnabled && isBubbleRowDraggable(rootFlags, group.badge.running);
+  const dismissible = dragEnabled && isBubbleRowDraggable(rootFlags, group.badge.running);
 
-  // 徽标激活：阻断冒泡是硬约束（D5）——鼠标点击不落到根气泡 onClick 上
-  //（否则触发 sessions.open 跳转），键盘 Enter/Space 不冒泡到根气泡的
-  // handleKeyDown（否则一次按键同时展开+跳转）。
+  // 徽标激活：阻断冒泡是硬约束——鼠标点击不落到根气泡 onClick 上。
   const handleBadgeClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -316,12 +273,8 @@ function GroupBubble({
   );
 
   const title = displayTitle(root);
-  // 描边传播：根本身命中或 current 在后代中 → 金描边（D6）。
   const highlighted = root.isCurrent || group.containsCurrent;
-  // 组级紧急信号（ADR-0020 pending-interaction-bubble-effect 组级聚合，队长裁定）：根或任一入选成员等待交互。
   const isPending = group.pending;
-  // 状态点保持根会话自身语义（ADR-0020 pending-interaction-bubble-effect 分组裁定）：朱砂涟漪点仅当根本身
-  // 等待交互；否则金呼吸（运行中）/ 石绿实心（已完成）。
   const dotClass =
     root.pendingInteraction !== undefined
       ? styles.dotPending
@@ -332,9 +285,8 @@ function GroupBubble({
     styles.bubble,
     highlighted ? styles.current : "",
     isPending ? styles.pending : "",
-    dragEnabled && !draggable ? styles.dragForbidden : "",
-    // 可移除指示线（队长追加需求）：保留模式下可拖拽收纳的条目——左缘绿竖线
-    draggable ? styles.draggable : "",
+    dragEnabled && !dismissible ? styles.dragForbidden : "",
+    dismissible ? styles.draggable : "",
     leaving ? styles.leaving : "",
   ].filter(Boolean).join(" ");
 
@@ -347,18 +299,32 @@ function GroupBubble({
       tabIndex={leaving ? -1 : 0}
       aria-label={`会话：${title}${isPending ? "（等待确认）" : ""}${
         root.isCurrent ? "（当前）" : ""
-      }${draggable ? "，可拖至收起区移除，或按 Delete 收起" : ""}`}
+      }${dismissible ? "，点击左侧手柄收起，或按 Delete 收起" : ""}`}
       aria-current={root.isCurrent ? "true" : undefined}
       data-jx-interactive=""
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      onPointerDown={(e) =>
-        dragHandlers.onPointerDown(e, root.sessionId, rootFlags, group.badge.running)
-      }
-      onPointerMove={dragHandlers.onPointerMove}
-      onPointerUp={dragHandlers.onPointerUp}
-      onPointerCancel={dragHandlers.onPointerCancel}
     >
+      {/* 左侧手柄：气泡外部，点击直接收起（ADR-0026 改型）。 */}
+      {dismissible && (
+        <span
+          className={styles.dragHandle}
+          role="button"
+          tabIndex={0}
+          aria-label="收起会话"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDismiss?.();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              onDismiss?.();
+            }
+          }}
+        />
+      )}
       <span className={`${styles.dot} ${dotClass}`} aria-hidden="true" />
       <span className={styles.title}>{title}</span>
       {hasDescendants && (
@@ -396,19 +362,17 @@ interface ChildBubbleProps {
   /** 退出态：true 时挂 leaving class 触发退出动画，不交互. */
   leaving?: boolean;
   /**
-   * 保留模式总开关（ADR-0022 D6）：驱动可拖态判定 / 禁止态样式 / aria 说明；
-   * false = 完全现状外观与交互（无拖拽语义）.
+   * 保留模式总开关（ADR-0022 D6）：驱动可移除态判定 / 样式 / aria 说明；
+   * false = 完全现状外观与交互（无收起语义）.
    */
   dragEnabled: boolean;
-  /** 拖拽手势回调包（工单02）. */
-  dragHandlers: BubbleDragHandlers;
   /**
    * 所属归组的运行中成员数（group.badge.running，队长追加需求 #2）：组内
    * 仍有运行中子代理时该行不可移除——与根气泡同一行级判定.
    */
   groupRunningMembers: number;
-  /** Delete/Backspace 收起回调；仅保留模式 && 该条目可拖时由父层提供. */
-  onDismissKey?: (() => void) | undefined;
+  /** 点击左侧手柄直接收起该会话；仅保留模式 && 该条目可移除时由父层提供. */
+  onDismiss?: (() => void) | undefined;
 }
 
 /**
@@ -430,16 +394,15 @@ function ChildBubble({
   onOpen,
   leaving,
   dragEnabled,
-  dragHandlers,
   groupRunningMembers,
-  onDismissKey,
+  onDismiss,
 }: ChildBubbleProps) {
   const handleClick = useCallback(() => {
     if (entry.isCurrent || leaving) return;
     onOpen(entry.sessionId);
   }, [entry.isCurrent, entry.sessionId, onOpen, leaving]);
 
-  // 键盘激活合并（工单02 C12）：Enter/Space = 点击；Delete/Backspace = 收起。
+  // 键盘激活合并：Enter/Space = 点击；Delete/Backspace = 收起。
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -447,20 +410,17 @@ function ChildBubble({
         handleClick();
         return;
       }
-      if ((e.key === "Delete" || e.key === "Backspace") && onDismissKey) {
+      if ((e.key === "Delete" || e.key === "Backspace") && onDismiss) {
         e.preventDefault();
         e.stopPropagation();
-        onDismissKey();
+        onDismiss();
       }
     },
-    [handleClick, onDismissKey],
+    [handleClick, onDismiss],
   );
 
-  // 成员自身的拖拽判定三标志投影（ADR-0022 D4）。
   const entryFlags: DragEntryFlags = toDragFlags(entry);
-  // 行级可移除判定（队长追加需求 #2）：与根气泡同规则——组内仍有运行中
-  // 子代理（groupRunningMembers > 0）时整组不可移除。
-  const draggable =
+  const dismissible =
     dragEnabled && isBubbleRowDraggable(entryFlags, groupRunningMembers);
 
   const title = displayTitle(entry);
@@ -475,9 +435,8 @@ function ChildBubble({
     styles.bubbleChild,
     entry.isCurrent ? styles.current : "",
     isPending ? styles.pending : "",
-    dragEnabled && !draggable ? styles.dragForbidden : "",
-    // 可移除指示线（队长追加需求）：同根气泡语义
-    draggable ? styles.draggable : "",
+    dragEnabled && !dismissible ? styles.dragForbidden : "",
+    dismissible ? styles.draggable : "",
     leaving ? styles.leaving : "",
   ].filter(Boolean).join(" ");
 
@@ -488,18 +447,32 @@ function ChildBubble({
       tabIndex={leaving ? -1 : 0}
       aria-label={`会话：${title}${isPending ? "（等待确认）" : ""}${
         entry.isCurrent ? "（当前）" : ""
-      }${draggable ? "，可拖至收起区移除，或按 Delete 收起" : ""}`}
+      }${dismissible ? "，点击左侧手柄收起，或按 Delete 收起" : ""}`}
       aria-current={entry.isCurrent ? "true" : undefined}
       data-jx-interactive=""
       onClick={handleClick}
       onKeyDown={handleKeyDown}
-      onPointerDown={(e) =>
-        dragHandlers.onPointerDown(e, entry.sessionId, entryFlags, groupRunningMembers)
-      }
-      onPointerMove={dragHandlers.onPointerMove}
-      onPointerUp={dragHandlers.onPointerUp}
-      onPointerCancel={dragHandlers.onPointerCancel}
     >
+      {/* 左侧手柄：气泡外部，点击直接收起。 */}
+      {dismissible && (
+        <span
+          className={styles.dragHandle}
+          role="button"
+          tabIndex={0}
+          aria-label="收起会话"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDismiss?.();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              onDismiss?.();
+            }
+          }}
+        />
+      )}
       <span className={`${styles.dot} ${dotClass}`} aria-hidden="true" />
       <span className={styles.title}>{title}</span>
     </div>
@@ -615,14 +588,10 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
     getMaxSessionBubblesSnapshot,
   );
 
-  // 订阅保留模式配置（ADR-0022 D6）：总开关① + 开关② + kept/dismissed 快照。
+  // 订阅保留模式配置（ADR-0022 D6）：总开关① + kept/dismissed 快照。
   const keepEnabled: boolean = useSyncExternalStore(
     subscribeKeepEnabled,
     getKeepEnabledSnapshot,
-  );
-  const archiveDragEnabled: boolean = useSyncExternalStore(
-    subscribeArchiveDragEnabled,
-    getArchiveDragEnabledSnapshot,
   );
   const keptIds: ReadonlySet<string> = useSyncExternalStore(
     subscribeKept,
@@ -747,213 +716,9 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
     });
   }, []);
 
-  // ---- 保留模式拖拽手势（ADR-0022 D2/D3/D9，工单02）----------------------
-  // 手势状态全走 ref：跟随用直接 DOM style.transform，不经 React state
-  // （pointermove 高频触发，state 化会每帧重渲染整列）。
-  //
-  // 迷雾实测结论（map.md 迷雾①）：setPointerCapture 后浏览器仍会在捕获元素
-  // 上合成 click（pointerdown/up 目标同为被捕获元素，大位移拖拽也不例外），
-  // 因此「拖拽发生过 ⇒ 必须显式吞掉紧随的合成 click」——由 suppressClickRef
-  // + 容器 onClickCapture 捕获阶段消费一次实现；未超阈值的按下-松手不置位
-  // suppressClickRef，原生 click（跳转+记账）完全不受影响。
-  interface BubbleGesture {
-    readonly pointerId: number;
-    readonly startX: number;
-    readonly startY: number;
-    readonly id: string;
-    readonly flags: DragEntryFlags;
-    readonly el: HTMLElement;
-    /** 是否已超阈值进入拖动态（false = 仍是潜在点击，up 时放行原生 click）。 */
-    active: boolean;
-  }
-  const bubbleGestureRef = useRef<BubbleGesture | null>(null);
-  const suppressClickRef = useRef(false);
-  // 弹回挂起清理句柄（审查 N10）：springBackBubble 登记的监听/定时器取消器。
-  const springBackCleanupsRef = useRef<Set<() => void>>(new Set());
-
-  const handleBubblePointerDown = useCallback(
-    (
-      e: React.PointerEvent<HTMLElement>,
-      id: string,
-      flags: DragEntryFlags,
-      groupRunningMembers: number,
-    ) => {
-      // 新按压 = 新交互周期（审查 S2）：清掉上一次 pointercancel 可能残留的
-      // 吞 click 标记——cancel 后浏览器通常不再合成 click，标记无人消费会
-      // 残留并吞掉下一次正常点击。同手势的 up→click 消费序列恒先于下一次
-      // pointerdown，此处重置不会误清未消费的当次标记。
-      suppressClickRef.current = false;
-      if (!keepEnabled) return; // 总开关关 = 无拖拽范式（现状回归）
-      // 行级可移除判定（D4 + 队长追加需求 #2）：自身 running/pending 不进
-      // 臂态；组内仍有运行中成员时整组同样不进（进行中的工作流不许收纳）。
-      if (!isBubbleRowDraggable(flags, groupRunningMembers)) return;
-      if (e.pointerType === "mouse" && e.button !== 0) return; // 仅主键启动
-      bubbleGestureRef.current = {
-        pointerId: e.pointerId,
-        startX: e.clientX,
-        startY: e.clientY,
-        id,
-        flags,
-        el: e.currentTarget,
-        active: false,
-      };
-      // 指针捕获：拖出气泡范围仍持续收到 move/up（触屏必需）。
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        // 个别环境无活动指针时抛错——降级为仅元素内跟踪，不影响点击。
-      }
-    },
-    [keepEnabled],
-  );
-
-  /** 弹回原位：清 transform；reduced-motion 直接复位，否则 CSS transition 弹回。 */
-  const springBackBubble = useCallback((el: HTMLElement) => {
-    if (
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    ) {
-      el.style.transform = "";
-      return;
-    }
-    el.style.transition = "transform 180ms cubic-bezier(0.16, 1, 0.3, 1)";
-    el.style.transform = "";
-    // 审查 N10：弹回的 transitionend 监听与兜底定时器登记到组件级集合，
-    // 卸载时集中取消并复位——不随组件生命周期自动清理的句柄不留悬挂。
-    const clear = () => {
-      window.clearTimeout(timer);
-      el.removeEventListener("transitionend", clear);
-      el.style.transition = "";
-      springBackCleanupsRef.current.delete(cancel);
-    };
-    const timer = window.setTimeout(clear, 260);
-    const cancel = () => {
-      window.clearTimeout(timer);
-      el.removeEventListener("transitionend", clear);
-      // 卸载路径直接复位内联样式，不留半态。
-      el.style.transition = "";
-      el.style.transform = "";
-      springBackCleanupsRef.current.delete(cancel);
-    };
-    springBackCleanupsRef.current.add(cancel);
-    el.addEventListener("transitionend", clear);
-  }, []);
-
-  // 卸载清理（审查 N10）：取消全部挂起的弹回句柄（监听 + 兜底定时器）并
-  // 直接复位内联样式，对齐 React 生命周期纪律。
-  useEffect(() => {
-    const pending = springBackCleanupsRef.current;
-    return () => {
-      for (const cancel of pending) cancel();
-      pending.clear();
-    };
-  }, []);
-
-  const handleBubblePointerMove = useCallback(
-    (e: React.PointerEvent<HTMLElement>) => {
-      const g = bubbleGestureRef.current;
-      if (g === null || g.pointerId !== e.pointerId) return;
-      const dx = e.clientX - g.startX;
-      const dy = e.clientY - g.startY;
-      if (!g.active) {
-        if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-        g.active = true; // 超阈值进入拖态（ADR-0022 D9）
-      }
-      g.el.style.transform = `translate(${dx}px, ${dy}px)`;
-    },
-    [],
-  );
-
-  const handleBubblePointerCancel = useCallback(
-    (e: React.PointerEvent<HTMLElement>) => {
-      const g = bubbleGestureRef.current;
-      if (g === null || g.pointerId !== e.pointerId) return;
-      bubbleGestureRef.current = null;
-      if (g.active) suppressClickRef.current = true; // 打断也吞合成 click
-      springBackBubble(g.el); // 零记账
-    },
-    [springBackBubble],
-  );
-
-  const handleBubblePointerUp = useCallback(
-    (e: React.PointerEvent<HTMLElement>) => {
-      const g = bubbleGestureRef.current;
-      if (g === null || g.pointerId !== e.pointerId) return;
-      bubbleGestureRef.current = null;
-      if (!g.active) return; // 未超阈值 ⇒ 原生 click 自然发生（跳转+记账不动）
-      // 拖拽发生过 ⇒ 必吞紧随的合成 click（防「拖完又跳转」，见迷雾注）。
-      suppressClickRef.current = true;
-      // 落点解析：elementFromPoint → 最近 [data-jx-zone] 祖先（收起区/归档区
-      // 均挂此标记；zone 归一化为 DropZoneKind，喂判定矩阵）。
-      const hit =
-        typeof document !== "undefined"
-          ? document.elementFromPoint(e.clientX, e.clientY)
-          : null;
-      const zoneAttr = hit
-        ?.closest("[data-jx-zone]")
-        ?.getAttribute("data-jx-zone");
-      const zone: DropZoneKind | undefined =
-        zoneAttr === "dismiss" || zoneAttr === "archive" ? zoneAttr : undefined;
-      const verdict = resolveDragAction({
-        movedPx: Math.hypot(e.clientX - g.startX, e.clientY - g.startY),
-        zone,
-        flags: g.flags,
-      });
-      if (verdict === "dismiss") {
-        // 本地隐藏记账 → 投影变化 → 既有 leaving 淡出机制接管视觉移除
-        //（复用 ADR-0018 D9 双层退出跟踪，勿另写动画）。
-        addDismissed(g.id);
-        return;
-      }
-      if (verdict === "archive") {
-        // 真归档（ADR-0022 D3/D8，工单03）：归档权威在 SDK——调
-        // workspaces.archiveSession；成功后宿主 archivedSessionIds 快照更新
-        // ⇒ 排除集派生变化 ⇒ 投影移除该会话（气泡淡出 + 侧边栏同步隐藏，
-        // 永不复活）。失败静默：无错误 UI，气泡不消失即为失败信号。
-        // 当前泡×归档已被判定矩阵拦为 forbidden（D5），不会走到这里。
-        void workspaces?.archiveSession(g.id as SessionId).catch(() => {
-          // 静默吞掉 RPC 失败（ADR-0022 D3「失败静默」约定）。
-        });
-        return;
-      }
-      // forbidden / 未命中：弹回原位，零记账。
-      springBackBubble(g.el);
-    },
-    [springBackBubble, workspaces],
-  );
-
-  // 手势回调包（稳定引用：子组件 props 与其 useCallback deps 不抖动）。
-  const dragHandlers = useMemo<BubbleDragHandlers>(
-    () => ({
-      onPointerDown: handleBubblePointerDown,
-      onPointerMove: handleBubblePointerMove,
-      onPointerUp: handleBubblePointerUp,
-      onPointerCancel: handleBubblePointerCancel,
-    }),
-    [
-      handleBubblePointerDown,
-      handleBubblePointerMove,
-      handleBubblePointerUp,
-      handleBubblePointerCancel,
-    ],
-  );
-
-  // 容器级捕获阶段消费一次合成 click：拖拽后的防跳转闸门。React 合成事件
-  // 捕获阶段自外向内，先于气泡自身 onClick 执行——stopPropagation 后气泡
-  // 点击处理器不再触发。未发生拖拽时零介入（ref 为 false 直通）。
-  const handleContainerClickCapture = useCallback(
-    (e: React.MouseEvent) => {
-      if (!suppressClickRef.current) return;
-      suppressClickRef.current = false;
-      e.stopPropagation();
-      e.preventDefault();
-    },
-    [],
-  );
-
-  // 键盘收起（ADR-0022 D7）：Delete/Backspace 收起聚焦气泡；当前会话允许
-  // （纯本地操作无副作用）；归档刻意无键盘路径（危险操作保持拖拽仪式感）。
-  const handleDismissKey = useCallback(
+  // ---- 保留模式收起（ADR-0022 D7 + ADR-0026 改型）------------------------
+  // 手柄点击直接收起：子组件内部消费 onClick，父层只提供稳定 dismiss 回调。
+  const handleDismiss = useCallback(
     (id: string) => {
       if (!keepEnabled) return;
       addDismissed(id);
@@ -1122,7 +887,7 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
 
   return (
     <Fragment>
-      <div className={styles.bubbleList} onClickCapture={handleContainerClickCapture}>
+      <div className={styles.bubbleList}>
       {visibleGroups.map((group) => {
         const groupEffectiveExpanded = isEffectivelyExpanded(group);
         // 该组仍在退出中的成员（父组仍可见 → 紧随其活成员之后渲染淡出）。
@@ -1143,9 +908,8 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
               onOpen={handleOpen}
               onToggle={() => handleToggleGroup(group.rootId)}
               dragEnabled={keepEnabled}
-              dragHandlers={dragHandlers}
-              onDismissKey={
-                rootDraggable ? () => handleDismissKey(group.rootId) : undefined
+              onDismiss={
+                rootDraggable ? () => handleDismiss(group.rootId) : undefined
               }
             />
             {groupEffectiveExpanded &&
@@ -1160,11 +924,10 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
                     entry={member}
                     onOpen={handleOpen}
                     dragEnabled={keepEnabled}
-                    dragHandlers={dragHandlers}
                     groupRunningMembers={group.badge.running}
-                    onDismissKey={
+                    onDismiss={
                       memberDraggable
-                        ? () => handleDismissKey(member.sessionId)
+                        ? () => handleDismiss(member.sessionId)
                         : undefined
                     }
                   />
@@ -1177,7 +940,6 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
                 onOpen={handleOpen}
                 leaving
                 dragEnabled={keepEnabled}
-                dragHandlers={dragHandlers}
                 groupRunningMembers={group.badge.running}
               />
             ))}
@@ -1194,7 +956,6 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
             onToggle={() => handleToggleGroup(group.rootId)}
             leaving
             dragEnabled={keepEnabled}
-            dragHandlers={dragHandlers}
           />
           {children.map((child) => (
             <ChildBubble
@@ -1203,7 +964,6 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
               onOpen={handleOpen}
               leaving
               dragEnabled={keepEnabled}
-              dragHandlers={dragHandlers}
               groupRunningMembers={group.badge.running}
             />
           ))}
@@ -1216,40 +976,7 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
           onToggle={handleToggleExpand}
         />
       )}
-      {/* 收起区（近放，ADR-0022 D3 / PRD 用户故事 2/18，工单02）：保留模式下
-          常驻于整列正下方留 8px 间隙、右缘与列对齐——.bubbleList 自身是
-          position:absolute 包含块，子级 top: calc(100% + 8px) 即锚定其盒下方。
-          挂 data-jx-zone="dismiss" 供 pointerup 落点解析（elementFromPoint →
-          closest）。静态呈现无动画，prefers-reduced-motion 天然无需降级分支。 */}
-      {keepEnabled && (
-        <div
-          className={styles.dismissZone}
-          data-jx-zone="dismiss"
-          role="note"
-          aria-label="收起区：把气泡拖到这里可暂时隐藏该会话提醒，也可对气泡按 Delete 收起"
-        >
-          <span aria-hidden="true">收起</span>
-        </div>
-      )}
       </div>
-      {/* 归档区（远放·角色脚边，ADR-0022 D3 / PRD 用户故事 3/5/8/9/18，工单03）：
-          双开关门控——总开关①与「拖拽归档会话」②同时开启才渲染（②关 = 仅剩
-          收起区）。锚定浮层盒（.overlay 是 position:fixed 包含块）正下方居中，
-          与列下收起区横向相隔整个盒宽——远近分置本身即防误触栏。朱砂警示描边 +
-          title hover 提示「归档后从列表隐藏，不可恢复」。挂
-          data-jx-zone="archive" 接入既有落点解析；当前泡×归档 forbidden 由
-          判定矩阵在落点拦截（D5），归档调用失败静默（ADR-0022 D3）。 */}
-      {keepEnabled && archiveDragEnabled && (
-        <div
-          className={styles.archiveZone}
-          data-jx-zone="archive"
-          role="note"
-          aria-label="归档区：把气泡拖到这里将归档该会话——从列表隐藏且不可恢复"
-          title="归档后从列表隐藏，不可恢复"
-        >
-          <span aria-hidden="true">归档</span>
-        </div>
-      )}
     </Fragment>
   );
 }
