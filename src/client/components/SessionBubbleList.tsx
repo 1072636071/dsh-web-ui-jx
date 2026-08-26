@@ -117,15 +117,19 @@ import {
 import {
   addDismissed,
   addKept,
+  addSeen,
   clearDismissed,
   getDismissedSnapshot,
   getKeepEnabledSnapshot,
   getKeptSnapshot,
+  getSeenSnapshot,
   pruneDismissed,
   pruneKept,
+  pruneSeen,
   subscribeDismissed,
   subscribeKeepEnabled,
   subscribeKept,
+  subscribeSeen,
 } from "../state-machine/session-bubble-keep-config.ts";
 import styles from "../styles/session-bubbles.module.css";
 
@@ -601,6 +605,11 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
     subscribeDismissed,
     getDismissedSnapshot,
   );
+  // 完成见闻集（ADR-0028 决策 1）：订阅 + 投影接线，与 kept/dismissed 同构。
+  const seenIds: ReadonlySet<string> = useSyncExternalStore(
+    subscribeSeen,
+    getSeenSnapshot,
+  );
 
   // 订阅 workspaces.list 快照（ADR-0022 D8，工单03）：归档权威在 SDK——
   // archivedSessionIds 每次从宿主快照派生，本地不重复记账归档态。workspaces
@@ -626,9 +635,10 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
       keepEnabled,
       kept: keptIds,
       dismissed: dismissedIds,
+      seen: seenIds,
       archived: archivedIds,
     }),
-    [keepEnabled, keptIds, dismissedIds, archivedIds],
+    [keepEnabled, keptIds, dismissedIds, seenIds, archivedIds],
   );
 
   // 派生 items + current（仅 rawState 变化时重算）。
@@ -639,18 +649,31 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
   );
   const current = rawState?.current;
 
-  // 惰性裁剪（ADR-0022 D1，工单 01）：宿主列表镜像变化时，把记账集合中已
-  // 不在列表的 id 清除（集合不膨胀）。pruneKept/pruneDismissed 仅在确有删除
-  // 时才写 localStorage 并通知——无删除路径零副作用，不产生写循环。rawState
-  // 缺省（无数据源/挂载早期）时不裁剪，避免空列表误清持久化记忆；仍在列表
-  // 外的 id 在投影层本就被惰性忽略（双保险）。
+  // 惰性裁剪（ADR-0022 D1，工单 01；ADR-0028 决策 2 相位门控）：宿主列表
+  // 基线就绪（phase === "ready"）后才允许裁剪。SDK sessions.list 的初始快照
+  // 是「已定义但为空 + pending 相位」，仅判 undefined 挡不住挂载首帧的空基线
+  // ——曾导致每次页面加载把 kept/dismissed 记账全量误清（ADR-0028 背景事实）。
+  // pending 期一律跳过；仍在列表外的 id 在投影层本就被惰性忽略（双保险）。
+  // pruneKept/pruneDismissed 仅在确有删除时才写 localStorage 并通知——无删除
+  // 路径零副作用，不产生写循环。
   useEffect(() => {
-    if (rawState === undefined) return;
+    if (rawState === undefined || rawState.phase !== "ready") return;
     const validIds = new Set<string>();
     for (const item of items) validIds.add(item.sessionId);
     pruneKept(validIds);
     pruneDismissed(validIds);
+    pruneSeen(validIds);
   }, [rawState, items]);
+
+  // 完成见闻集记账（ADR-0028 决策 1 / D-seen1）：凡投影中观察到
+  // completed === true 的条目即提交见闻集（addSeen 幂等，无上一帧对照表）。
+  // 记账与总开关无关——记账是事实记录，投影由 keepContext.keepEnabled 门控；
+  // 关闭期间完成的会话同样留有记忆，重开开关后不丢提醒。
+  useEffect(() => {
+    for (const item of items) {
+      if (item.completed) addSeen(item.sessionId);
+    }
+  }, [items]);
 
   // dismissed 生命周期（PRD §dismissed 生命周期 / 用户故事 13，工单02）：
   // 会话新一轮 completed 上升沿（上一帧 !completed → 本帧 completed）清除其

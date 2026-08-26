@@ -7,10 +7,12 @@
  *
  * 提供：
  *   - buildBubbleGroups（ADR-0018）：唯一气泡投影入口——范围过滤（running ||
- *     completed，保留模式下扩展为 running || completed || kept 并减去
- *     dismissed/archived，ADR-0022 D1）+ 归组模型：subagent 后代沿 parentId
- *     折叠进根祖先（第一个非 subagent 来源的祖先），一条工作流恒占一个顶层
- *     归组气泡；每组携带 rootId / 根条目 / 成员序列 / 徽标 badge{total,
+ *     completed，保留模式下扩展为 running || completed || kept || seen 并减去
+ *     dismissed/archived，ADR-0022 D1 + ADR-0028 决策 1；归档排除无条件生效、
+ *     不受总开关门控，ADR-0028 决策 4）+ 根归档整组隐藏（根被静态归档且组内
+ *     无豁免成员 ⇒ 整组消失，ADR-0028 决策 3）+ 归组模型：subagent 后代沿
+ *     parentId 折叠进根祖先（第一个非 subagent 来源的祖先），一条工作流恒占
+ *     一个顶层归组气泡；每组携带 rootId / 根条目 / 成员序列 / 徽标 badge{total,
  *     running} / containsCurrent / pending 聚合标志；上限只管顶层，pending
  *     组豁免折叠、永驻可见（ADR-0020 pending-interaction-bubble-effect 组级聚合）；无谱系字段输入退化为旧行为
  *     （每会话一泡，向后兼容护栏）。
@@ -168,10 +170,13 @@ export interface BubbleGroup {
  * - kept：本地记账的已查看会话集合（SDK 在会话打开时清除 completed 位，
  *   客户端记账使其持续可见，直至显式移除）。
  * - dismissed：收起区记账集合（暂时隐藏提醒，可逆；手势由工单 02 填充）。
+ * - seen：完成见闻集（ADR-0028 决策 1）——SDK completed 位是连接内活事实、
+ *   刷新即失忆，凡投影中观察到完成态的会话由客户端持久记账，使其跨刷新
+ *   持续可见；隐藏优先级低于 dismissed/archived。
  * - archived：SDK 归档会话 id 集合（archivedSessionIds 快照；归档权威在
  *   SDK，派生层只读排除防复活，工单 03 接线）。
  *
- * 三集合全部可选（缺省视同空集）；其中不存在于 items 的 id 一律惰性忽略
+ * 四集合全部可选（缺省视同空集）；其中不存在于 items 的 id 一律惰性忽略
  * （配置层写入时裁剪，此处过滤双保险）。集合过滤发生在本模块内部的范围
  * 过滤处——其硬编码 running||completed 会把 kept 条目丢弃，外部前置过滤
  * 无法实现该语义，这正是参数必须进入 seam 的原因。
@@ -183,6 +188,13 @@ export interface BubbleKeepContext {
   readonly kept?: ReadonlySet<SessionId>;
   /** 收起区 dismissed 记账集合（暂时隐藏）；缺省视同空集. */
   readonly dismissed?: ReadonlySet<SessionId>;
+  /**
+   * 完成见闻集（ADR-0028 决策 1）：客户端持久记账的完成态集合——SDK
+   * completed 位是连接内活事实、刷新即失忆，凡观察到完成态的会话记入此集，
+   * 使完成气泡跨刷新持续可见。隐藏优先级低于 dismissed/archived；缺省视同
+   * 空集.
+   */
+  readonly seen?: ReadonlySet<SessionId>;
   /** SDK 归档会话 id 集合（排除防复活）；缺省视同空集. */
   readonly archived?: ReadonlySet<SessionId>;
 }
@@ -256,27 +268,40 @@ export function buildBubbleGroups(
   const keepActive = context !== undefined && context.keepEnabled;
   const kept = context?.kept;
   const dismissed = context?.dismissed;
+  const seen = context?.seen;
   const archived = context?.archived;
 
+  // 豁免形态：running 或等待交互的条目不被任何记账集合隐藏（ADR-0020
+  // pending-interaction-bubble-effect，活动与紧急信号优先）。归档排除、收起
+  // 隐藏与组装配的暂留判定共用此单点事实（ADR-0028 审查收敛：豁免不变量
+  // 只在此定义一次）。
+  const isExemptForm = (e: SessionListEntry): boolean =>
+    e.running || e.pendingInteraction !== undefined;
+
   /**
-   * 范围过滤谓词：入选 = (running || completed || kept.has(id)) 且不被
-   * dismissed/archived 隐藏。豁免规则：running === true 或
-   * pendingInteraction !== undefined 的条目不被记账隐藏（ADR-0020 pending-interaction-bubble-effect
-   * pending-interaction-bubble-effect，活动与紧急信号优先）；豁免只防隐藏、不放宽入选资格。集合中不存在于
-   * items 的 id 天然惰性忽略（has 不命中）。
+   * 范围过滤谓词：入选 = (running || completed || kept.has(id) || seen.has(id))
+   * 且不被 dismissed/archived 隐藏（ADR-0022 D1 + ADR-0028 决策 1/4）。
+   *
+   * 归档排除**无条件生效**（ADR-0028 决策 4）：归档是宿主级事实，不被客户端
+   * 显示开关否决——总开关关闭时静态归档条目同样不可见。豁免规则见
+   * isExemptForm（对归档集照常适用）；豁免只防隐藏、不放宽入选资格。集合中
+   * 不存在于 items 的 id 天然惰性忽略（has 不命中）。
    */
   const passesRange = (e: SessionListEntry): boolean => {
-    if (!keepActive) return e.running || e.completed;
-    if (
-      !e.running &&
-      e.pendingInteraction === undefined &&
-      ((dismissed !== undefined && dismissed.has(e.sessionId)) ||
-        (archived !== undefined && archived.has(e.sessionId)))
-    ) {
-      return false; // 记账隐藏（running/pending 豁免优先于集合）
+    if (!isExemptForm(e)) {
+      // 归档排除（无条件，先于总开关判定）。
+      if (archived !== undefined && archived.has(e.sessionId)) return false;
+      // 收起记账隐藏（仅在保留模式下生效）。
+      if (keepActive && dismissed !== undefined && dismissed.has(e.sessionId)) {
+        return false;
+      }
     }
+    if (!keepActive) return e.running || e.completed;
     return (
-      e.running || e.completed || (kept !== undefined && kept.has(e.sessionId))
+      e.running ||
+      e.completed ||
+      (kept !== undefined && kept.has(e.sessionId)) ||
+      (seen !== undefined && seen.has(e.sessionId))
     );
   };
 
@@ -359,14 +384,26 @@ export function buildBubbleGroups(
     skeletons.get(r)?.members.push(item); // 组内按宿主列表原序累积（D8）
   }
 
-  // 组装配：入选判定 → current 标记 → 徽标计数 → 组级 pending 聚合。
+  // 组装配：入选判定 → 根归档整组隐藏 → current 标记 → 徽标计数 → 组级
+  // pending 聚合。
   const groups: BubbleGroup[] = [];
   for (const sk of skeletons.values()) {
-    // 范围过滤走统一谓词（保留模式下含 kept、减 dismissed/archived）。
+    // 范围过滤走统一谓词（保留模式下含 kept/seen、减 dismissed/archived）。
     const rootPasses = passesRange(sk.root);
     const members = sk.members.filter(passesRange).map((m) =>
       toGroupBubbleEntry(m, current),
     );
+    // 根归档整组隐藏（ADR-0028 决策 3 / D-grp1）：归档工作流入口 = 整条工作流
+    // 办结——根本身被静态归档（非豁免形态）且组内不存在豁免形态的可见成员时，
+    // 整组从气泡列消失。存在豁免成员则维持现状渲染（瞬态暂留），全部静止后
+    // 自然落入本分支。
+    const rootArchivedStatic =
+      archived !== undefined &&
+      archived.has(sk.root.sessionId) &&
+      !isExemptForm(sk.root);
+    if (rootArchivedStatic && !members.some(isExemptForm)) {
+      continue;
+    }
     // 组入选条件（实现决策 1）：根本身或任一后代通过范围过滤。
     if (!rootPasses && members.length === 0) continue;
     const containsCurrent =

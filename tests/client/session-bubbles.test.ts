@@ -834,22 +834,30 @@ describe("buildBubbleGroups: 保留上下文扩展回归护栏", () => {
     );
   });
 
-  it("context.keepEnabled=false：携带记账集合仍与不传参输出全等（总开关退化路径）", () => {
+  it("context.keepEnabled=false：除归档排除外与不传参输出全等（ADR-0028 决策 4 改写护栏）", () => {
+    const items = [
+      entry("a", { running: true }),
+      entry("b"),
+      entry("c", { completed: true }),
+      entry("d", { running: true, completed: true }),
+      entry("e", { running: true }),
+    ];
     const off: BubbleKeepContext = {
       keepEnabled: false,
       kept: idSet("b"),
-      dismissed: idSet("c"),
-      archived: idSet("a"),
+      dismissed: idSet("b"),
+      archived: idSet("c"),
     };
-    expect(buildBubbleGroups(mixed, "d", 3, off)).toEqual(
-      buildBubbleGroups(mixed, "d", 3),
-    );
-    // 平铺基准三方可比：退化输出同样逐条目等价于改造前行为。
-    const flat = legacyFlatSelect(mixed, "d", 3);
-    const degraded = buildBubbleGroups(mixed, "d", 3, off);
-    expect(degraded.moreCount).toBe(flat.moreCount);
+    const degraded = buildBubbleGroups(items, undefined, 10, off);
+    // 归档排除是开关关路径下的唯一例外：静态归档的 c 被无条件移除；记账
+    // 集合在开关关时整体忽略，其余条目与现状逐条目一致。
+    expect(degraded.groups.map((g) => g.rootId)).toEqual(["a", "d", "e"]);
+    const baseline = buildBubbleGroups(items, undefined, 10);
+    expect(degraded.moreCount).toBe(baseline.moreCount);
+    // 平铺基准三方比对：退化输出 = 基线去掉被归档排除的 c。
+    const flat = legacyFlatSelect(items, undefined, 10);
     expect(degraded.groups.map((g) => g.rootId)).toEqual(
-      flat.visible.map((e) => e.sessionId),
+      flat.visible.map((e2) => e2.sessionId).filter((id) => id !== "c"),
     );
   });
 
@@ -864,7 +872,7 @@ describe("buildBubbleGroups: 保留上下文扩展回归护栏", () => {
     expect(r.groups.every((g) => g.members.length === 0)).toBe(true);
   });
 
-  it("归组输入（谱系字段）下总开关关：与不传参输出全等", () => {
+  it("归组输入下总开关关：运行中的归档根受豁免保护 ⇒ 与不传参输出全等", () => {
     const items = [
       gentry("main", { running: true }),
       sub("s1", "main", "completed"),
@@ -879,6 +887,139 @@ describe("buildBubbleGroups: 保留上下文扩展回归护栏", () => {
     expect(buildBubbleGroups(items, undefined, 5, off)).toEqual(
       buildBubbleGroups(items, undefined, 5),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 归档排除无条件生效（ADR-0028 决策 4）：宿主级事实不被客户端显示开关否决；
+// running/pending 豁免（活动与紧急信号优先）对归档集照常适用
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: 归档排除无条件生效", () => {
+  it("总开关关闭时静态归档条目仍被排除（洞 B 修复）", () => {
+    const items = [entry("z", { completed: true })];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: false,
+      archived: idSet("z"),
+    });
+    expect(r.groups).toEqual([]);
+  });
+
+  it("总开关关闭时运行中/等待交互的归档条目豁免可见（活动信号优先）", () => {
+    const items = [
+      entry("r", { running: true }),
+      entry("p", { completed: true, pendingInteraction: "question" }),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: false,
+      archived: idSet("r", "p"),
+    });
+    expect(r.groups.map((g) => g.rootId)).toEqual(["r", "p"]);
+  });
+
+  it("总开关关闭时 kept/dismissed 记账仍被忽略（门控不变项）", () => {
+    const items = [entry("k"), entry("h", { completed: true })];
+    const off: BubbleKeepContext = {
+      keepEnabled: false,
+      kept: idSet("k"),
+      dismissed: idSet("h"),
+      archived: idSet(),
+    };
+    const r = buildBubbleGroups(items, undefined, 5, off);
+    // k 仅 kept 记账（开关关被忽略）不可见；h 被 dismissed 隐藏（亦忽略）
+    // 但其本身 completed ⇒ 按现状可见。
+    expect(r.groups.map((g) => g.rootId)).toEqual(["h"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 根归档整组隐藏（ADR-0028 决策 3 / D-grp1）：归档工作流入口 = 整条工作流
+// 办结；组内存在豁免形态的可见成员时暂留，全部静止后自动落入隐藏分支
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: 根归档整组隐藏", () => {
+  it("根被归档且无豁免成员 ⇒ 整组隐藏（含未归档的 completed 成员）", () => {
+    const items = [gentry("root"), sub("s1", "root", "completed")];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      archived: idSet("root"),
+    });
+    expect(r.groups).toEqual([]);
+  });
+
+  it("根被归档但组内有运行中成员 ⇒ 组暂留（瞬态；静止后落入隐藏分支）", () => {
+    const items = [gentry("root"), sub("s1", "root", "running")];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      archived: idSet("root"),
+    });
+    expect(groupShape(r.groups)).toEqual([["root", ["s1"]]]);
+  });
+
+  it("根被归档但组内有等待交互成员（completed+pending）⇒ 组暂留", () => {
+    const items = [
+      gentry("root"),
+      gentry("s2", {
+        parentId: "root",
+        origin: "subagent",
+        completed: true,
+        pendingInteraction: "approval",
+      }),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      archived: idSet("root"),
+    });
+    expect(groupShape(r.groups)).toEqual([["root", ["s2"]]]);
+  });
+
+  it("根自身运行中被归档 ⇒ 豁免保护，组照常渲染", () => {
+    const items = [
+      gentry("root", { running: true }),
+      sub("s1", "root", "completed"),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      archived: idSet("root"),
+    });
+    expect(groupShape(r.groups)).toEqual([["root", ["s1"]]]);
+  });
+
+  it("成员归档而根存活 ⇒ 现状不变：组保留、徽标归零（既有语义回归钉）", () => {
+    const items = [
+      gentry("main", { running: true }),
+      sub("s1", "main", "completed"),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      archived: idSet("s1"),
+    });
+    expect(groupShape(r.groups)).toEqual([["main", []]]);
+    expect(r.groups[0]!.badge.total).toBe(0);
+  });
+
+  it("当前会话被静态归档 ⇒ 同样整组隐藏：current 不构成豁免（AC3 组合矩阵）", () => {
+    const items = [
+      gentry("cur"),
+      sub("c1", "cur", "completed"),
+      entry("live", { running: true }),
+    ];
+    const r = buildBubbleGroups(items, "cur", 5, {
+      keepEnabled: true,
+      archived: idSet("cur"),
+    });
+    // 归档的 current 会话不渲染；未归档的活会话照常。
+    expect(r.groups.map((g) => g.rootId)).toEqual(["live"]);
+    expect(r.groups[0]!.containsCurrent).toBe(false);
+  });
+
+  it("总开关关闭时 current 被归档 ⇒ 排除仍生效（AC3 × 决策 4 组合）", () => {
+    const items = [entry("cur2", { completed: true })];
+    const r = buildBubbleGroups(items, "cur2", 5, {
+      keepEnabled: false,
+      archived: idSet("cur2"),
+    });
+    expect(r.groups).toEqual([]);
   });
 });
 
@@ -1080,6 +1221,94 @@ describe("buildBubbleGroups: 活动与紧急豁免", () => {
     });
     // 无记账时它本就不在范围过滤内（现状语义），记账亦不改变入选资格。
     expect(r.groups).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 完成见闻集（ADR-0028 决策 1）：SDK completed 位连接内活事实、刷新失忆，
+// 跨刷新留存由客户端记账承担——入选范围扩展为 running||completed||kept||seen
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: 完成见闻集", () => {
+  it("idle 条目 id∈seen ⇒ 可见（completed 位已被 SDK 失忆的形态）", () => {
+    const items = [entry("s1")];
+    // 对照：无任何记账时该条目不可见。
+    expect(
+      buildBubbleGroups(items, undefined, 5, { keepEnabled: true }).groups,
+    ).toEqual([]);
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      seen: idSet("s1"),
+    });
+    expect(r.groups.map((g) => g.rootId)).toEqual(["s1"]);
+    // 投影透明性：条目字段原样透传，可见性由记账承担。
+    expect(r.groups[0]!.root.completed).toBe(false);
+  });
+
+  it("dismissed 优先于 seen：同 id ⇒ 隐藏", () => {
+    const items = [entry("x")];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      seen: idSet("x"),
+      dismissed: idSet("x"),
+    });
+    expect(r.groups).toEqual([]);
+  });
+
+  it("archived 优先于 seen：同 id ⇒ 排除（归档是真正的终点）", () => {
+    const items = [entry("y")];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      seen: idSet("y"),
+      archived: idSet("y"),
+    });
+    expect(r.groups).toEqual([]);
+  });
+
+  it("kept 与 seen 双记账冗余无害：仍可见且不重复", () => {
+    const items = [entry("z")];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      kept: idSet("z"),
+      seen: idSet("z"),
+    });
+    expect(r.groups.map((g) => g.rootId)).toEqual(["z"]);
+  });
+
+  it("seen 与 kept 同为入选依据：idle/pending 条目 id∈seen ⇒ 可见（豁免规则不受影响）", () => {
+    const items = [
+      entry("r", { running: true }),
+      entry("p", { pendingInteraction: "approval" }),
+    ];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      seen: idSet("r", "p"),
+    });
+    // 见闻集与保留记账同权：任一命中即入选；组级 pending 聚合照常。
+    expect(r.groups.map((g) => g.rootId)).toEqual(["r", "p"]);
+    expect(r.groups.find((g) => g.rootId === "p")!.pending).toBe(true);
+  });
+
+  it("总开关关闭时 seen 被忽略：输出与不传参现状全等", () => {
+    const items = [entry("s1"), entry("a", { running: true })];
+    const off: BubbleKeepContext = {
+      keepEnabled: false,
+      seen: idSet("s1"),
+      kept: idSet("s1"),
+      dismissed: idSet(),
+    };
+    expect(buildBubbleGroups(items, undefined, 5, off)).toEqual(
+      buildBubbleGroups(items, undefined, 5),
+    );
+  });
+
+  it("见闻集惰性忽略：不存在于 items 的 id 无输出、不崩溃", () => {
+    const items = [entry("a", { running: true })];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      seen: idSet("ghost-seen"),
+    });
+    expect(r.groups.map((g) => g.rootId)).toEqual(["a"]);
   });
 });
 
