@@ -377,4 +377,45 @@ describe("SessionBubbleList: 归档排除端到端", () => {
       true,
     );
   });
+
+  it("点击组气泡手柄收起 ⇒ 整组消失（已完成成员经 seen 记账不得复活组）", () => {
+    vi.useFakeTimers();
+    try {
+      mount({
+        sessions: makeSessions(
+          listState("ready", [
+            summary("root"),
+            summary("s1", {
+              parentId: "root",
+              origin: "subagent",
+              completed: true,
+            }),
+          ]),
+        ).sessions,
+      });
+
+      // 手柄存在（根行可移除）。
+      const handles = Array.from(
+        container.querySelectorAll<HTMLButtonElement>(
+          "[aria-label='收起会话']",
+        ),
+      );
+      expect(handles.length).toBeGreaterThan(0);
+
+      act(() => {
+        handles[0]!.click(); // 根行手柄（DOM 序首个 = 根）
+      });
+      // 越过整组退出动画（BUBBLE_EXIT_MS = 100ms）再断言，排除淡出幽灵。
+      act(() => {
+        vi.advanceTimersByTime(150);
+      });
+
+      // 整组消失：被收起的根不再充当锚点，已完成成员不复活组。
+      expect(bubbleTitles().some((label) => label.includes("会话：root"))).toBe(
+        false,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

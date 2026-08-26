@@ -1024,6 +1024,43 @@ describe("buildBubbleGroups: 根归档整组隐藏", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 根收起的组级语义（ADR-0028 决策 3 对收起记账的同构推广）：手柄收起是用户
+// 对整条工作流说「知道了」，成员通过范围过滤（含 seen 永久入选）不得让被
+// 收起的根继续充当锚点
+// ---------------------------------------------------------------------------
+
+describe("buildBubbleGroups: 根收起整组隐藏", () => {
+  it("根被收起且无豁免成员 ⇒ 整组隐藏（seen/completed 成员不复活组）", () => {
+    const items = [gentry("root"), sub("s1", "root", "completed")];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      seen: idSet("s1"),
+      dismissed: idSet("root"),
+    });
+    expect(r.groups).toEqual([]);
+  });
+
+  it("根被收起但组内有运行中成员 ⇒ 组暂留（活动信号优先，与归档同构）", () => {
+    const items = [gentry("root"), sub("s1", "root", "running")];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: true,
+      seen: idSet("s1"),
+      dismissed: idSet("root"),
+    });
+    expect(groupShape(r.groups)).toEqual([["root", ["s1"]]]);
+  });
+
+  it("总开关关闭时收起记账被忽略：completed 成员仍使组渲染（门控不变项）", () => {
+    const items = [gentry("root"), sub("s1", "root", "completed")];
+    const r = buildBubbleGroups(items, undefined, 5, {
+      keepEnabled: false,
+      dismissed: idSet("root"),
+    });
+    expect(groupShape(r.groups)).toEqual([["root", ["s1"]]]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 保留 2/6：kept 记账保留（ADR-0022 D1：可见性 = running || completed || kept）
 // ---------------------------------------------------------------------------
 

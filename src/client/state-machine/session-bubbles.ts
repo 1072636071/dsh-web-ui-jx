@@ -9,8 +9,9 @@
  *   - buildBubbleGroups（ADR-0018）：唯一气泡投影入口——范围过滤（running ||
  *     completed，保留模式下扩展为 running || completed || kept || seen 并减去
  *     dismissed/archived，ADR-0022 D1 + ADR-0028 决策 1；归档排除无条件生效、
- *     不受总开关门控，ADR-0028 决策 4）+ 根归档整组隐藏（根被静态归档且组内
- *     无豁免成员 ⇒ 整组消失，ADR-0028 决策 3）+ 归组模型：subagent 后代沿
+ *     不受总开关门控，ADR-0028 决策 4）+ 根记账隐藏的组级语义（根被归档或
+ *     收起且组内无豁免形态可见成员 ⇒ 整组消失；收起为决策 3 的可逆同构）
+ *     + 归组模型：subagent 后代沿
  *     parentId 折叠进根祖先（第一个非 subagent 来源的祖先），一条工作流恒占
  *     一个顶层归组气泡；每组携带 rootId / 根条目 / 成员序列 / 徽标 badge{total,
  *     running} / containsCurrent / pending 聚合标志；上限只管顶层，pending
@@ -393,15 +394,24 @@ export function buildBubbleGroups(
     const members = sk.members.filter(passesRange).map((m) =>
       toGroupBubbleEntry(m, current),
     );
-    // 根归档整组隐藏（ADR-0028 决策 3 / D-grp1）：归档工作流入口 = 整条工作流
-    // 办结——根本身被静态归档（非豁免形态）且组内不存在豁免形态的可见成员时，
-    // 整组从气泡列消失。存在豁免成员则维持现状渲染（瞬态暂留），全部静止后
-    // 自然落入本分支。
+    // 根被记账隐藏的组级语义（ADR-0028 决策 3，及其对收起记账的可逆同构）：
+    // 归档（不可逆宿主事实）或收起（可逆客户端意图）命中根、且根本身非豁免
+    // 形态时——若组内不存在豁免形态的可见成员，整组从气泡列消失。成员通过
+    // 范围过滤（如 seen 永久入选）不再让被隐藏的根继续充当锚点；有豁免成员
+    // 则维持现状渲染（活动信号优先），全部静止后自然落入本分支。
     const rootArchivedStatic =
       archived !== undefined &&
       archived.has(sk.root.sessionId) &&
       !isExemptForm(sk.root);
-    if (rootArchivedStatic && !members.some(isExemptForm)) {
+    const rootDismissedStatic =
+      keepActive &&
+      dismissed !== undefined &&
+      dismissed.has(sk.root.sessionId) &&
+      !isExemptForm(sk.root);
+    if (
+      (rootArchivedStatic || rootDismissedStatic) &&
+      !members.some(isExemptForm)
+    ) {
       continue;
     }
     // 组入选条件（实现决策 1）：根本身或任一后代通过范围过滤。
