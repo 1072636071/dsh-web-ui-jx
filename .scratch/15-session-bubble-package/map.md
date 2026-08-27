@@ -19,8 +19,10 @@
 - localStorage 键保留 `jx-*` 前缀、库内单点
 - 薄壳最小化：无设置卡/浮层/素材，保留模式默认开
 - 发布：库 access public；薄壳可 npm publish 或 link: 本地安装（朋友开发期）
+- 工单 01（骨架）：库包 exports 的 types 指 src（构建期不生成 .d.ts，沿用根包模式）；CSS import 声明包内自包含（独立构建/发布所需）
 
 ## 迷雾/待办
 
 - host 半区是否必需（已列入工单 05 实施调研）
 - 薄壳挂载位置/锚点细节（已列入工单 05）
+- 库包测试文件落点（vitest include 已扩展 `packages/**/*.test.ts`；加测试时需同步库 tsconfig include，见工单 02）
