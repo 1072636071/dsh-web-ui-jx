@@ -20,12 +20,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
 import { SessionBubbleList } from "../../src/client/components/SessionBubbleList.tsx";
 import {
+  STORAGE_KEYS,
   addDismissed,
   addKept,
   addSeen,
   getKeepEnabled,
   setKeepEnabled,
-} from "../../src/client/state-machine/session-bubble-keep-config.ts";
+} from "../../packages/dsh-session-bubble/src/index.ts";
 import type {
   ISessions,
   IWorkspaces,
@@ -40,10 +41,6 @@ import type {
 
 /** 测试域 SessionId 品牌转换（对齐仓内既有 as SessionId 先例）。 */
 const sid = (id: string): SessionId => id as SessionId;
-
-const KEPT_KEY = "jx-bubble-keep-kept";
-const DISMISSED_KEY = "jx-bubble-keep-dismissed";
-const SEEN_KEY = "jx-bubble-keep-seen";
 
 // ---------------------------------------------------------------------------
 // mock 快照存储
@@ -192,8 +189,8 @@ describe("SessionBubbleList: 记账裁剪相位门控", () => {
 
     mount({ sessions: makeSessions(listState("pending", [])).sessions });
 
-    expect(storedIds(KEPT_KEY)).toEqual(["a"]);
-    expect(storedIds(DISMISSED_KEY)).toEqual(["b"]);
+    expect(storedIds(STORAGE_KEYS.kept)).toEqual(["a"]);
+    expect(storedIds(STORAGE_KEYS.dismissed)).toEqual(["b"]);
   });
 
   it("pending 相位即使携带条目也不裁剪（空基线误清的广义形态）", () => {
@@ -206,7 +203,7 @@ describe("SessionBubbleList: 记账裁剪相位门控", () => {
       ).sessions,
     });
 
-    expect(storedIds(KEPT_KEY)).toEqual(expect.arrayContaining(["ghost", "a"]));
+    expect(storedIds(STORAGE_KEYS.kept)).toEqual(expect.arrayContaining(["ghost", "a"]));
   });
 
   it("基线就绪后惰性裁剪照常：不在列表中的记账 id 被清除，在册 id 保留", () => {
@@ -224,8 +221,8 @@ describe("SessionBubbleList: 记账裁剪相位门控", () => {
       ).sessions,
     });
 
-    expect(storedIds(KEPT_KEY)).toEqual(["a"]);
-    expect(storedIds(DISMISSED_KEY)).toEqual(["b"]);
+    expect(storedIds(STORAGE_KEYS.kept)).toEqual(["a"]);
+    expect(storedIds(STORAGE_KEYS.dismissed)).toEqual(["b"]);
   });
 });
 
@@ -244,7 +241,7 @@ describe("SessionBubbleList: 完成见闻集记账与投影", () => {
       ).sessions,
     });
 
-    expect(storedIds(SEEN_KEY)).toEqual(["c1"]);
+    expect(storedIds(STORAGE_KEYS.seen)).toEqual(["c1"]);
   });
 
   it("基线就绪后见闻集同样惰性裁剪：不在列表的记账 id 被清除", () => {
@@ -257,7 +254,7 @@ describe("SessionBubbleList: 完成见闻集记账与投影", () => {
       ).sessions,
     });
 
-    expect(storedIds(SEEN_KEY)).toEqual(["a"]);
+    expect(storedIds(STORAGE_KEYS.seen)).toEqual(["a"]);
   });
 
   it("见闻记忆使 completed 位已被 SDK 失忆的气泡在重挂载后仍可见（刷新留存）", () => {

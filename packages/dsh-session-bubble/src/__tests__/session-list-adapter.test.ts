@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { deriveSessionListEntries } from "../../src/client/state-machine/session-list-adapter.ts";
+import { deriveSessionListEntries } from "../session-list-adapter.ts";
 
 // ---------------------------------------------------------------------------
 // 辅助构造 SDK 形状输入（类型见 @deepseek-ai/dsh-client-runtime/client）

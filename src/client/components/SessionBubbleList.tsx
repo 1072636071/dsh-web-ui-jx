@@ -100,37 +100,33 @@ import type {
   SessionListState,
 } from "@deepseek-ai/dsh-client-runtime/client";
 import {
-  buildBubbleGroups,
-  displayTitle,
-  isBubbleRowDraggable,
-  type BubbleEntry,
-  type BubbleGroup,
-  type BubbleKeepContext,
-  type DragEntryFlags,
-  type SessionListEntry,
-} from "../state-machine/session-bubbles.ts";
-import { deriveSessionListEntries } from "../state-machine/session-list-adapter.ts";
-import {
-  subscribeMaxSessionBubbles,
-  getMaxSessionBubblesSnapshot,
-} from "../session-bubbles-config.ts";
-import {
   addDismissed,
   addKept,
   addSeen,
+  buildBubbleGroups,
   clearDismissed,
+  deriveSessionListEntries,
+  displayTitle,
   getDismissedSnapshot,
   getKeepEnabledSnapshot,
   getKeptSnapshot,
+  getMaxSessionBubblesSnapshot,
   getSeenSnapshot,
+  isBubbleRowDraggable,
   pruneDismissed,
   pruneKept,
   pruneSeen,
   subscribeDismissed,
   subscribeKeepEnabled,
   subscribeKept,
+  subscribeMaxSessionBubbles,
   subscribeSeen,
-} from "../state-machine/session-bubble-keep-config.ts";
+  type BubbleEntry,
+  type BubbleGroup,
+  type BubbleKeepContext,
+  type DragEntryFlags,
+  type SessionListEntry,
+} from "../../../packages/dsh-session-bubble/src/index.ts";
 import styles from "../styles/session-bubbles.module.css";
 
 /** 气泡退出动画时长 ms（DESIGN.md §6 退出快于进入）. */

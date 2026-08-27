@@ -58,7 +58,7 @@ import {
   type DragEntryFlags,
   type DropZoneKind,
   type SessionListEntry,
-} from "../../src/client/state-machine/session-bubbles.ts";
+} from "../session-bubbles.ts";
 
 // ---------------------------------------------------------------------------
 // 辅助构造

@@ -28,7 +28,7 @@ import { startGrain, stopGrain } from "./grain.ts";
 import { startMicro, stopMicro } from "./micro.ts";
 import { startShimmer, stopShimmer } from "./shimmer.ts";
 import { startWarp, stopWarp } from "./warp.ts";
-import { createPersistentSetting } from "../state-machine/persistent-setting.ts";
+import { createPersistentSetting } from "../../../packages/dsh-session-bubble/src/index.ts";
 
 /** localStorage 键名. */
 const FX_STORAGE_KEY = "jx-fx";

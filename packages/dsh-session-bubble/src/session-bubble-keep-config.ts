@@ -31,23 +31,7 @@
  * @module dsh-web-ui-jx/client
  */
 
-/** 总开关①键名. */
-const KEEP_ENABLED_KEY = "jx-bubble-keep-enabled";
-
-/** 开关②键名（拖拽归档；工单 03 接线 UI）. */
-const ARCHIVE_ENABLED_KEY = "jx-bubble-keep-archive-enabled";
-
-/** kept 记账集合键名. */
-const KEPT_KEY = "jx-bubble-keep-kept";
-
-/** dismissed 记账集合键名. */
-const DISMISSED_KEY = "jx-bubble-keep-dismissed";
-
-/**
- * 完成见闻集键名（ADR-0028 决策 1/D-seen2）：客户端持久记账的完成态集合——
- * SDK completed 位是连接内活事实、刷新即失忆，跨刷新留存由本集合承担。
- */
-const SEEN_KEY = "jx-bubble-keep-seen";
+import { STORAGE_KEYS } from "./storage-keys.ts";
 
 /** 共享空集（读失败/缺省回落，保持稳定引用）. */
 const EMPTY_ID_SET: ReadonlySet<string> = new Set();
@@ -112,8 +96,8 @@ function writeIdSet(key: string, ids: ReadonlySet<string>): void {
 // 内存缓存 + 订阅集（轻量 store；模块加载时初始化一次）
 // ---------------------------------------------------------------------------
 
-let cachedKeepEnabled = readBool(KEEP_ENABLED_KEY, true);
-let cachedArchiveDragEnabled = readBool(ARCHIVE_ENABLED_KEY, true);
+let cachedKeepEnabled = readBool(STORAGE_KEYS.keepEnabled, true);
+let cachedArchiveDragEnabled = readBool(STORAGE_KEYS.archiveDragEnabled, true);
 
 const keepListeners = new Set<() => void>();
 const archiveListeners = new Set<() => void>();
@@ -135,7 +119,7 @@ export function getKeepEnabled(): boolean {
 export function setKeepEnabled(enabled: boolean): void {
   if (enabled === cachedKeepEnabled) return;
   cachedKeepEnabled = enabled;
-  writeBool(KEEP_ENABLED_KEY, enabled);
+  writeBool(STORAGE_KEYS.keepEnabled, enabled);
   for (const listener of keepListeners) listener();
 }
 
@@ -165,7 +149,7 @@ export function getArchiveDragEnabled(): boolean {
 export function setArchiveDragEnabled(enabled: boolean): void {
   if (enabled === cachedArchiveDragEnabled) return;
   cachedArchiveDragEnabled = enabled;
-  writeBool(ARCHIVE_ENABLED_KEY, enabled);
+  writeBool(STORAGE_KEYS.archiveDragEnabled, enabled);
   for (const listener of archiveListeners) listener();
 }
 
@@ -249,9 +233,9 @@ function makeIdSetStore(key: string): IdSetStore {
   };
 }
 
-const keptStore = makeIdSetStore(KEPT_KEY);
-const dismissedStore = makeIdSetStore(DISMISSED_KEY);
-const seenStore = makeIdSetStore(SEEN_KEY);
+const keptStore = makeIdSetStore(STORAGE_KEYS.kept);
+const dismissedStore = makeIdSetStore(STORAGE_KEYS.dismissed);
+const seenStore = makeIdSetStore(STORAGE_KEYS.seen);
 
 // ---------------------------------------------------------------------------
 // kept 记账集合（单击保留）——薄委托至 keptStore

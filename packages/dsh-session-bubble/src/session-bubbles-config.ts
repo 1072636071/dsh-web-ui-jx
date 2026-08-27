@@ -10,10 +10,8 @@
  * @module dsh-web-ui-jx/client
  */
 
-import { createPersistentSetting } from "./state-machine/persistent-setting.ts";
-
-/** localStorage 键名（对齐 jx-skin / jx-fx / jx-overlay-pos 命名）. */
-const STORAGE_KEY = "jx-max-session-bubbles";
+import { createPersistentSetting } from "./persistent-setting.ts";
+import { STORAGE_KEYS } from "./storage-keys.ts";
 
 /** 默认上限（ADR-0007 决策 5，后调整为 10）. */
 export const DEFAULT_MAX_SESSION_BUBBLES = 10;
@@ -47,7 +45,9 @@ function parseMax(raw: string): number {
 }
 
 /** 上限设置实例（工厂承载持久化 / 订阅 / 跨标签页同步）. */
-const maxSessionBubbles = createPersistentSetting<number>(STORAGE_KEY, {
+const maxSessionBubbles = createPersistentSetting<number>(
+  STORAGE_KEYS.maxSessionBubbles,
+  {
   parse: parseMax,
   default: DEFAULT_MAX_SESSION_BUBBLES,
 });

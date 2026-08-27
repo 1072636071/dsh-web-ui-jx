@@ -42,7 +42,7 @@ import {
   MIN_MAX_SESSION_BUBBLES,
   getMaxSessionBubbles,
   setMaxSessionBubbles,
-} from "../session-bubbles-config.ts";
+} from "../../../packages/dsh-session-bubble/src/index.ts";
 import {
   getShowStateLabel,
   setShowStateLabel,
@@ -54,7 +54,7 @@ import {
   getKeepEnabled,
   setArchiveDragEnabled,
   setKeepEnabled,
-} from "../state-machine/session-bubble-keep-config.ts";
+} from "../../../packages/dsh-session-bubble/src/index.ts";
 import {
   getBackdropEnabled,
   getBubbleAlpha,

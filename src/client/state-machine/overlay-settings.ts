@@ -12,7 +12,7 @@
  * @module dsh-web-ui-jx/client
  */
 
-import { createPersistentSetting } from "./persistent-setting.ts";
+import { createPersistentSetting } from "../../../packages/dsh-session-bubble/src/index.ts";
 
 /** 布尔解析：仅接受 "true"/"false"，其余视为解析失败（回落默认值）. */
 function parseBool(raw: string): boolean | undefined {

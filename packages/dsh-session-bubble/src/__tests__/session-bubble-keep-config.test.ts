@@ -14,17 +14,14 @@
 
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { STORAGE_KEYS } from "../storage-keys.ts";
 
-const SEEN_KEY = "jx-bubble-keep-seen";
-
-type KeepConfigModule = typeof import("../../src/client/state-machine/session-bubble-keep-config.ts");
+type KeepConfigModule = typeof import("../session-bubble-keep-config.ts");
 
 /** 清空存储后重新加载受控初始化的模块实例。 */
 async function load(): Promise<KeepConfigModule> {
   vi.resetModules();
-  return await import(
-    "../../src/client/state-machine/session-bubble-keep-config.ts"
-  );
+  return await import("../session-bubble-keep-config.ts");
 }
 
 beforeEach(() => {
@@ -39,25 +36,25 @@ describe("完成见闻集存储：初始化读取", () => {
   });
 
   it("合法 JSON string[] ⇒ 成员读入快照", async () => {
-    window.localStorage.setItem(SEEN_KEY, JSON.stringify(["s1", "s2"]));
+    window.localStorage.setItem(STORAGE_KEYS.seen, JSON.stringify(["s1", "s2"]));
     const mod = await load();
     expect(mod.getSeenSnapshot()).toEqual(new Set(["s1", "s2"]));
   });
 
   it("解析失败（非法 JSON）⇒ 回落空集", async () => {
-    window.localStorage.setItem(SEEN_KEY, "{not json");
+    window.localStorage.setItem(STORAGE_KEYS.seen, "{not json");
     const mod = await load();
     expect(mod.getSeenSnapshot().size).toBe(0);
   });
 
   it("非数组 JSON（如对象）⇒ 回落空集", async () => {
-    window.localStorage.setItem(SEEN_KEY, JSON.stringify({ seen: true }));
+    window.localStorage.setItem(STORAGE_KEYS.seen, JSON.stringify({ seen: true }));
     const mod = await load();
     expect(mod.getSeenSnapshot().size).toBe(0);
   });
 
   it("数组内非字符串元素逐个忽略", async () => {
-    window.localStorage.setItem(SEEN_KEY, JSON.stringify(["s1", 7, null, "s2"]));
+    window.localStorage.setItem(STORAGE_KEYS.seen, JSON.stringify(["s1", 7, null, "s2"]));
     const mod = await load();
     expect(mod.getSeenSnapshot()).toEqual(new Set(["s1", "s2"]));
   });
@@ -74,7 +71,7 @@ describe("完成见闻集存储：addSeen 幂等与写穿", () => {
 
     expect(mod.getSeenSnapshot()).toEqual(new Set(["s1"]));
     expect(mod.getSeenSnapshot()).not.toBe(before); // 值变化必须换引用
-    expect(window.localStorage.getItem(SEEN_KEY)).toBe(JSON.stringify(["s1"]));
+    expect(window.localStorage.getItem(STORAGE_KEYS.seen)).toBe(JSON.stringify(["s1"]));
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
@@ -89,7 +86,7 @@ describe("完成见闻集存储：addSeen 幂等与写穿", () => {
 
     expect(mod.getSeenSnapshot()).toBe(snapshot); // 引用稳定
     expect(listener).not.toHaveBeenCalled();
-    expect(window.localStorage.getItem(SEEN_KEY)).toBe(JSON.stringify(["s1"]));
+    expect(window.localStorage.getItem(STORAGE_KEYS.seen)).toBe(JSON.stringify(["s1"]));
   });
 });
 
@@ -103,7 +100,7 @@ describe("完成见闻集存储：pruneSeen 惰性裁剪纪律", () => {
 
     expect(removed).toBe(true);
     expect(mod.getSeenSnapshot()).toEqual(new Set(["a"]));
-    expect(window.localStorage.getItem(SEEN_KEY)).toBe(JSON.stringify(["a"]));
+    expect(window.localStorage.getItem(STORAGE_KEYS.seen)).toBe(JSON.stringify(["a"]));
   });
 
   it("无删除时零副作用：不写盘、不通知、返回 false", async () => {
@@ -118,7 +115,7 @@ describe("完成见闻集存储：pruneSeen 惰性裁剪纪律", () => {
     expect(removed).toBe(false);
     expect(mod.getSeenSnapshot()).toBe(snapshot);
     expect(listener).not.toHaveBeenCalled();
-    expect(window.localStorage.getItem(SEEN_KEY)).toBe(JSON.stringify(["a"]));
+    expect(window.localStorage.getItem(STORAGE_KEYS.seen)).toBe(JSON.stringify(["a"]));
   });
 });
 

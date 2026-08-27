@@ -9,7 +9,7 @@
  * 按文件覆盖机制）；仓内其余纯逻辑测试维持 node 环境惯例不变。
  */
 import { describe, expect, it } from "vitest";
-import { isBubbleHandleHit } from "../../src/client/state-machine/session-bubbles.ts";
+import { isBubbleHandleHit } from "../session-bubbles.ts";
 
 describe("isBubbleHandleHit: 手柄命中判定（ADR-0026 遗留原语）", () => {
   /** 从 HTML 片段取首个元素的最小构造器。 */

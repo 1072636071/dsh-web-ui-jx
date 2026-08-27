@@ -14,7 +14,7 @@
 
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createPersistentSetting } from "../../src/client/state-machine/persistent-setting.ts";
+import { createPersistentSetting } from "../persistent-setting.ts";
 
 beforeEach(() => {
   window.localStorage.clear();
