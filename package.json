@@ -3,6 +3,9 @@
   "description": "姜晓角色素材 DSH Bundle 插件 — 为 deepseek-harness 宿主提供唐风角色浮层、管理 UI 与三层 token 设计系统（独立插件，不复用 dsh-web-ui 任何包）",
   "version": "0.1.0",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "engines": {
     "node": "^20.19.0 || >=22.0.0"
   },

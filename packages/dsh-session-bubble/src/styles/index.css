@@ -1,0 +1,5 @@
+/* dsh-session-bubble 占位样式 —— 验证 lib mode CSS 抽取链路可用（需含真实声明，
+   否则构建工具剔除空规则、产物为空）；真实气泡样式随组件迁移工单（04）迁入后替换。 */
+.dsh-session-bubble-placeholder {
+  display: none;
+}
