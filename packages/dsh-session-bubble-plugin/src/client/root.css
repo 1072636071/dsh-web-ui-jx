@@ -1,0 +1,17 @@
+/**
+ * dsh-session-bubble-plugin 薄壳容器样式 — 极简 fixed 定位，独立于宿主 UI。
+ *
+ * 气泡列内部布局/主题由 dsh-session-bubble 库样式负责（module + bubble-theme）。
+ * 容器 pointer-events: none 避免挡住宿主交互，气泡交互区域（列表/拖拽手柄）恢复。
+ */
+.dsh-bubble-shell {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2147483000;
+  pointer-events: none;
+}
+
+.dsh-bubble-shell * {
+  pointer-events: auto;
+}

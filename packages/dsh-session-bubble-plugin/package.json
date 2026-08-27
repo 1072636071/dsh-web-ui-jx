@@ -1,0 +1,37 @@
+{
+  "name": "dsh-session-bubble-plugin",
+  "description": "会话气泡薄壳插件——装完即用的 DSH bundle：极简 fixed 容器承载 dsh-session-bubble 气泡列，无浮层/素材/设置卡",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/host/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": "./dist/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml"
+  ],
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "vite build && vite build --mode client",
+    "typecheck": "tsc --noEmit"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "@deepseek-ai/dsh-client-runtime": "*"
+  }
+}
