@@ -1,6 +1,6 @@
 # 04 — 现有表情活化
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 02
 
@@ -20,3 +20,14 @@
 ## 评论
 
 （来源：PRD 实现决策 7；ADR-0009 决策 1。）
+
+### 关闭记录（2026-08-27 状态回填）
+
+本票按方案演进关闭（feature 10 四态收敛，commit ed0a0dd / a246967，ADR-0016 明文退役 6 个中间态表情）：
+
+- 「idle 随机点缀（6 表情池 / 30–60s）」作废——中间态表情不再是状态机端点；
+- permission 情绪化诉求保留为权限反馈表演：批准链 nod-smile→working、拒绝链 frown-wave→idle（diffTarget pending 下降沿启发式，session-follow.ts），语义等价；
+- 低频生动化诉求由摸鱼彩蛋池承接（EASTER_EGG_POOL = happy/angry/surprised，ADR-0010 D3）；
+- reduced-motion 关动效、动画不拦截指针两原则在四态体系全局成立。
+
+行为承诺由现行 tests/client/overlay-session-runtime.test.ts 与 display-arbiter.test.ts 覆盖；2026-08-27 复验全量 447 用例绿。

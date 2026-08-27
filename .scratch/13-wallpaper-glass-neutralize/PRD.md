@@ -1,7 +1,7 @@
 # PRD — 壁纸全层玻璃化 + 不透明表面中和
 
 - Feature: `13-wallpaper-glass-neutralize`
-- Status: `ready-for-agent`
+- Status: `resolved`
 - Source: memorial 013 `docs/memorial/013-wallpaper-obscured-research/`（决策 D1–D10）+ ADR-0027
 
 ## 问题陈述

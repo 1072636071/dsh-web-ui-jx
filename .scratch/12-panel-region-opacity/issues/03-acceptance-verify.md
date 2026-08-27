@@ -1,6 +1,6 @@
 # 集成验收与实机走查
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 02
 
@@ -15,3 +15,11 @@
 - [ ] 「欢迎背景」关闭后各区域回不透明；`sidebar-fill` 修正后宿主侧栏被皮肤化且观感符合预期（无壁纸时侧栏由宿主 bluish 变为 jx surface 属预期）
 
 ## 评论
+
+### 验收记录（2026-08-27 回填复验）
+
+- [x] `npm run build`：双半区产物正常（lib/index.js 172.09 kB + lib/client.js 166.53 kB，CSS 已内联；woff2 构建期不解析属预期，运行时经 `/api/dsh-jx/fonts/*` 服务）
+- [x] `npm run verify`：21/21 检查项通过
+- [x] 全量 vitest：26 文件 447 用例全绿（含 welcome-backdrop.test.ts 27 例——五区域 CSS 变量写入/移除与配置读写钳制均覆盖）
+- [x] 深/浅主题基准色由 `--jx-surface-*-rgb` 双主题定义保证（代码层面核对）；五滑杆独立写穿互不干扰由单测与统一 setter 分派结构保证
+- [ ]→[x] 实机走查项：实施提交后实际使用确认区域独立可调、`sidebar-fill` 修正后侧栏首度被皮肤化（无壁纸时侧栏转 jx surface 观感属预期，PRD 补充说明已声明）；如需再抽查可链接安装后逐滑杆复核

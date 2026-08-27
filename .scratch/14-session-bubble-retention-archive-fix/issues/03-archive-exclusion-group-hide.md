@@ -1,6 +1,6 @@
 # 归档排除无条件生效 + 根归档整组隐藏
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 02
 
@@ -33,3 +33,7 @@
   - [x] AC3 当前会话被归档：纯逻辑 2 例（current 静态归档整组隐藏、开关关 × current 组合）
   - [x] AC4 护栏改写：「context.keepEnabled=false」护栏按「除归档排除外全等」重写并三方比对平铺基准
 - **端到端验证**：自动化以 mock workspaces.list（稳定快照引用）驱动 archivedSessionIds；真实链路人工抽查建议：侧边栏归档一条含已完成子代理的工作流 → 气泡列整组消失。
+
+### 关闭记录（2026-08-27 状态回填）
+
+实施记录已齐、验收全勾，本票关闭。2026-08-27 复验：build ✓、verify 21/21 ✓、全量 vitest 447 绿；归档排除/整组隐藏测试已随工单 15 包化迁移至 `packages/dsh-session-bubble/src/__tests__/session-bubble-list.test.ts`（「归档排除端到端」段）继续通过；后续 ADR-0026 手柄化重构（b14bf5e、88f1e3f 收起记账与归档同构）未回退本票行为。

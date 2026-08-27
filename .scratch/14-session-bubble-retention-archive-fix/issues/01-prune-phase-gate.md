@@ -1,6 +1,6 @@
 # 记账裁剪相位门控（治挂载期误清记账）
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **构建内容：** 修复「每次刷新页面都清空气泡记账」的缺陷——用户点击保留的气泡、收起的记忆，刷新后得以幸存。这是见闻集功能的地基：不修它，任何新增的持久记账都会在挂载首帧被空列表裁剪清空，整个留存特性自我失效。
 
@@ -23,3 +23,7 @@
   - [x] 裁剪门控：组件测试 3 例（pending 空列表不清 / pending 带条目不清 / 就绪后惰性裁剪照常）—— tests/client/session-bubble-list.test.ts「记账裁剪相位门控」段
   - [x] 全量测试 + build/verify：443 测试通过；npm run typecheck ✓、npm run build ✓、npm run verify 21/21 ✓（2026-08-26 12:09 与 12:23 两轮）
 - **端到端验证**：自动化层以 jsdom 重挂载模拟刷新（mock sessions.list 快照存储），真实浏览器链路留待人工抽查：点击已完成气泡保留 → 刷新 → 气泡仍在；收起 → 刷新 → 保持隐藏。
+
+### 关闭记录（2026-08-27 状态回填）
+
+实施记录已齐、验收全勾，本票关闭。2026-08-27 复验：build ✓、verify 21/21 ✓、全量 vitest 447 绿；相关测试已随工单 15 包化迁移至 `packages/dsh-session-bubble/src/__tests__/session-bubble-list.test.ts`（含「记账裁剪相位门控」段）继续通过。

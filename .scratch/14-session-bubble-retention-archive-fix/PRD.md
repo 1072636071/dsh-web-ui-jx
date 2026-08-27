@@ -1,7 +1,7 @@
 # PRD — 会话气泡跨刷新留存 + 归档排除修正
 
 - Feature: `14-session-bubble-retention-archive-fix`
-- Status: `ready-for-agent`
+- Status: `resolved`
 - Source: memorial 014 `docs/memorial/archived/014-session-bubble-refresh-archive-bugs/`（Q1–Q3 用户拍板 + 自主定案 D-seen*/D-grp1/D-prune1）+ ADR-0028
 
 ## 问题陈述

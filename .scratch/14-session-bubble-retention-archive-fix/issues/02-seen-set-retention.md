@@ -1,6 +1,6 @@
 # 完成见闻集：未点开的完成气泡跨刷新留存
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -29,3 +29,7 @@
   - [x] 投影扩展与优先级：纯逻辑 7+2 例（seen 入选/dismissed>seen/archived>seen/开关关忽略 seen/ghost 惰性忽略/current×归档组合）
   - [x] 组件接线 5 例：完成态记账写穿、见闻集裁剪、重挂载留存（= 刷新近似）、收起优先于见闻、上升沿解除旧收起
 - **端到端验证**：自动化以重挂载模拟刷新；真实链路人工抽查建议：完成一个任务不点击 → 刷新页面 → 气泡仍在且可手柄收起。
+
+### 关闭记录（2026-08-27 状态回填）
+
+实施记录已齐、验收全勾，本票关闭。2026-08-27 复验：build ✓、verify 21/21 ✓、全量 vitest 447 绿；见闻集存储与列表投影测试已随工单 15 包化迁移至 `packages/dsh-session-bubble/src/__tests__/`（session-bubble-keep-config.test.ts、session-bubble-list.test.ts）继续通过。

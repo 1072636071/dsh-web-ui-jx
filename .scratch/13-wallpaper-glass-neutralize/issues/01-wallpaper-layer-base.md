@@ -1,6 +1,6 @@
 # 壁纸层基座：负 z-index + 激活标记 + 复挂 + 清扫
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 无——可立即开始
 
@@ -14,3 +14,11 @@
 - [ ] 卸层（皮肤关或背景关）与热重载后无残留层/标记（沿用 ADR-0017 可重入 + `sweepResidualBackdrops` 兜底）
 
 ## 评论
+
+### 实施记录（回填于 2026-08-27；实施提交 f92da4a，ADR-0027）
+
+- [x] 壁纸层负 z-index 垫底：容器 `BACKDROP_Z_INDEX = -3`（实底 base / 壁纸 img / 压纱 veil 为容器内子层，整体与宿主 app 根脱离互排）—— `src/client/welcome-backdrop.ts`
+- [x] 激活标记：`data-jx-wallpaper-active` 同时写 `documentElement` 与 `body`（`BACKDROP_ACTIVE_ATTR`）
+- [x] 复挂：连接感知守卫 `!backdropEl.isConnected` 即 `insertBefore(body.firstChild)` 回拼，切换对话/重建子树后壁纸不消失
+- [x] 清扫：卸层经 ctx.effect dispose；入口另提供 `sweepResidualBackdrops` 兜热重载残留（对齐 sweepResidualFxLayers / ADR-0017 先例）
+- [x] 2026-08-27 复验：build ✓、typecheck ✓、welcome-backdrop.test.ts 27 例全绿

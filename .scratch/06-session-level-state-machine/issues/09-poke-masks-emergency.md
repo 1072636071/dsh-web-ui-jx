@@ -1,6 +1,6 @@
 # 09 — poke 序列遮蔽紧急态约 8 秒
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 02
 
@@ -20,3 +20,7 @@
 （来源：2026-08 grill 会话「审批动画延迟」排查中发现的同族遮蔽路径；仿真场景 B 量化遮蔽 ≈ 8000ms。）
 
 2026-08-23 实施：`findEmergencySessionId` 不再跳过焦点会话——焦点会话自身的 permission/error 同样走紧急分支，poke 播放与回落段由 `reconcileFocus` 立即取消。回归测试：工单 09/10 describe ×4 用例（入场期打断、回落期打断、permission/error 各一）。附带修复：poke 定时器改按过渡段实测时长排程（入场过渡播完才开始 3s 惊吓驻留、回落过渡播完才交还），消除「惊吓循环从未完整展示」的截断缺陷（见 runtime 头注「显示层序列真实时长对齐」）。
+
+### 关闭记录（2026-08-27 状态回填）
+
+修复持续生效：`findEmergencySessionId` 含焦点会话自身（src/client/state-machine/overlay-session-runtime.ts），poke 播放/回落由 `reconcileFocus` 清除；显式回归用例「poke 入场期间焦点会话进入 permission → 立即取消惊吓并显示 permission（工单 09）」在 tests/client/overlay-session-runtime.test.ts 通过（现行测试集唯一保留的工单命名用例）。2026-08-27 全量复验：build ✓、verify 21/21 ✓、vitest 447 绿。本票关闭。
