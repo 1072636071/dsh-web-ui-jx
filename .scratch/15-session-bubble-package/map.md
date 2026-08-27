@@ -26,3 +26,4 @@
 - host 半区是否必需（已列入工单 05 实施调研）
 - 薄壳挂载位置/锚点细节（已列入工单 05）
 - 库包测试文件落点（vitest include 已扩展 `packages/**/*.test.ts`；加测试时需同步库 tsconfig include，见工单 02）
+- 工单 04 迁组件时：`SessionBubbleList.tsx` 与 `session-bubbles.module.css` 迁入库，`bubble-theme.css`（`--jx-*` 默认值）落地；组件测试 `session-bubble-list.test.ts` 届时随迁
