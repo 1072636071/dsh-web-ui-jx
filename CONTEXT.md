@@ -24,6 +24,10 @@
 | 焦点会话 | 焦点仲裁胜者（ADR-0008）：当前打开会话最优先；error/permission 可紧急抢焦、消退即交还，手动切焦则保留。 |
 | 智能体等待 | 审批等待的时间启发式判据（ADR-0014，**决策已定、待实施**）：每会话记 `blockedSince`，runningCalls 卡住 ≥10s 进 permission、≥30s 升级 angry，目标变化即清零；`snapshot.pending` 上升沿保留为即时快路径。 |
 | 会话气泡列 | 浮层左侧竖排常驻气泡列（ADR-0007）：标题 + 状态点的可点击气泡（入选范围 running/completed），点击经 `sessions.open(id)` 跳转，当前会话金描边；上限默认 10（1–10 可配），超出折叠「+N」。归组模型已实施（ADR-0018）：基本单元为**归组气泡**（根祖先 + 全部 subagent 后代），展开的子列表不占名额，详见「子代理归组」。 |
+| 会话气泡库（dsh-session-bubble） | 独立发布的 React 组件库（ADR-0029）：纯逻辑 `buildBubbleGroups` + 组件 `SessionBubbleList` + 配置/记账 + 样式 + `bubble-theme.css`（自带 `--jx-*` 默认值）；本插件与薄壳插件共同消费（单一事实源）。 |
+| 气泡薄壳插件（dsh-session-bubble-plugin） | 最小 DSH bundle 插件（ADR-0029）：极简 fixed 容器承载会话气泡列，`inject: sessions/workspaces`，朋友 `dsh plugin add` 装完即用。 |
+| 会话气泡详情窗 | hover 会话气泡展开的书页卡片（ADR-0030）：会话标题 + AI 动态标题 + 最后用户消息 + 最后模型消息，正文 3 行截断；数据经 `session.history` RPC 拉取 + 缓存，进气泡库 `dsh-session-bubble`。 |
+| AI 动态标题 | 大模型一句话动态描述（ADR-0030）：host 半区 Node 直连用户 endpoint（OpenAI 兼容），endpoint/model/频率存宿主 `settings` 分节、key 存 `credentials`；事件驱动失效 + 悬停时缓存过期才生成。 |
 | 子代理归组 | 气泡列归组折叠方案（ADR-0018，已实施）：以**根祖先**（沿 `parentId` 上溯至首个 `origin ≠ 'subagent'` 会话；孤儿回退自成顶层）锚定，后代并入一个**归组气泡** + **子代理徽标**（▸N/▾N 计后代总数，运行中后代带金呼吸点），点徽标原地展开子气泡（不占 maxVisible 名额）；current 在后代时描边传播并强制展开。 |
 | 保留模式 | 会话气泡列的可开关交互范式（ADR-0022）：单击气泡 = 跳转 + 本地 kept 集合计账保留——SDK 的 completed 位「打开即清」不可拦截，故由客户端记账直至显式移除；关闭 = **除归档排除外**回到「点击即跳转即消失」现状（ADR-0007 原契约经 ADR-0028 决策 4 收窄：归档是宿主级事实，不受显示开关否决）。 |
 | 完成见闻集 | 客户端持久记账的完成态集合 seen（localStorage `jx-bubble-keep-seen`，ADR-0028）：SDK 的 completed 位是连接内活事实、刷新即失忆，凡投影中观察到 `completed === true` 即记入，使完成气泡跨刷新留存；隐藏优先级低于 dismissed/archived，仅总开关①开时参与投影。 |
@@ -100,5 +104,6 @@
 | ADR-0023 | 移除 welcome 入场表演（彻底移除）：素材三件套、状态机节点与 idle↔welcome 边、`welcomeOnStart` 触发逻辑、台词标签全清（包体减约 15MB）；首次入场直接落待机无表演（否决复用现有表演顶替——业务语义稀释）；tools 历史脚本名单与 .scratch / memorial 历史记录不动。 |
 | ADR-0024 | 欢迎背景整页壁纸层（待实施）：fixed cover 视口背景，WebP 随包经 /api/dsh-jx 本机服务；开启时 --jx-surface-* 联动半透明；壁纸/面板双滑杆可调（默认 85% / 75%）+ 总开关归皮肤开关 section；深浅双主题显示（浅色白纱）；PNG 直录与仅深色生效两案否决。 |
 | ADR-0028 | 会话气泡跨刷新留存与归档排除修正（已实施）。四项决策（编号以 ADR 正文为准）：决策 1 完成见闻集 seen 持久记账——SDK completed 位是连接内活事实、刷新即失忆，跨刷新留存由客户端记账承担，投影中观察到 completed 即提交、与总开关无关；决策 2 裁剪相位门控——prune 仅在 `phase === "ready"` 后执行（根治挂载空列表误清 localStorage 记账）；决策 3 根归档 ⇒ 整组隐藏——running/pending 豁免成员暂留、全部静止后消失，收起记账同构适用（手柄收起根 = 收起整条工作流）；决策 4 归档排除脱离总开关——宿主级事实不被客户端显示开关否决，「开关关=完全现状」护栏改写为「除归档排除外全等」。 |
+| ADR-0029 | 会话气泡独立成子包（库 + 薄壳插件两层，monorepo 就地改造；待实施）：`dsh-session-bubble` 库（纯逻辑 `buildBubbleGroups` + 组件 + 配置/记账 + `bubble-theme.css` 自带 `--jx-*` 默认值）独立发布；`dsh-session-bubble-plugin` 薄壳装完即用；根插件改 import 库单一事实源；`--dsw-*` 由宿主提供不复制；localStorage key 保留 `jx-*` 前缀集中单点；数据契约 `ISessions`/`IWorkspaces` 不抽象。 |
 
 详见 `docs/adr/`。
