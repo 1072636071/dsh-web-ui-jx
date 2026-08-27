@@ -28,5 +28,6 @@
 - 库包测试文件落点（vitest include 已扩展 `packages/**/*.test.ts`；加测试时需同步库 tsconfig include，见工单 02）
 - 工单 04 已完成：组件/样式/主题层/组件测试已迁库，库 v1 完整（`SessionBubbleList` 公共导出 + `bubble-theme.css` 双层 fallback 覆盖机制）
 - 工单 05 已完成：薄壳插件双半区构建 + 单行挂载 + host 最小空实现（调研结论已记录）
-- 工单 06（构建/验收/发布）承接：三包构建验收适配 + 库/薄壳 npm publish（access public）；薄壳验收②⑥待真实宿主验证
-- 待宿主环境验证项：薄壳注入渲染、dsh plugin add link: 装完即用
+- 工单 06 已完成：发布清单修正 + pack/publish dry-run + 包名可用性确认，6 张工单全部 closed
+- 待执行操作（需用户）：①npm login 后 publish 库与薄壳；②真实 DSH 宿主验证薄壳注入渲染与 `dsh plugin add link:` 装完即用
+- 全部 6 张工单状态：01–06 resolved（03 项待外部环境验证：薄壳渲染/安装、两包实际 publish）
