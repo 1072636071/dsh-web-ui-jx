@@ -88,7 +88,7 @@ import {
 import { SpeechBubble, DEFAULT_BUBBLE_DURATION_MS } from "./SpeechBubble.tsx";
 import { createOverlayImgGuard } from "./overlay-img-guard.ts";
 import { loadWebpDurationMs } from "../webp-duration.ts";
-import { SessionBubbleList } from "./SessionBubbleList.tsx";
+import { SessionBubbleList } from "../../../packages/dsh-session-bubble/src/index.ts";
 import type {
   ISessions,
   IWorkspaces,

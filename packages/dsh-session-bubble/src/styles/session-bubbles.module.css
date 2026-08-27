@@ -112,11 +112,11 @@
 
 .bubble:hover {
   /* hover 金描边提视 */
-  border-color: var(--jx-gold);
+  border-color: var(--jx-gold, var(--dsh-bubble-jx-gold));
 }
 
 .bubble:focus-visible {
-  outline: 2px solid var(--jx-gold);
+  outline: 2px solid var(--jx-gold, var(--dsh-bubble-jx-gold));
   outline-offset: 2px;
 }
 
@@ -128,7 +128,7 @@
 
 /* 当前会话气泡：金描边常驻高亮 */
 .bubble.current {
-  border-color: var(--jx-gold);
+  border-color: var(--jx-gold, var(--dsh-bubble-jx-gold));
 }
 
 /* 标题：单行省略号 */
@@ -152,7 +152,7 @@
 
 /* 运行中：金色呼吸点 */
 .dotRunning {
-  background: var(--jx-gold);
+  background: var(--jx-gold, var(--dsh-bubble-jx-gold));
   animation: dot-breathe 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
@@ -190,7 +190,7 @@
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: var(--jx-gold);
+  background: var(--jx-gold, var(--dsh-bubble-jx-gold));
   animation: dot-breathe 1.6s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
 
@@ -218,7 +218,7 @@
   /* 承载 ::before 连接线的定位基准 */
   position: relative;
   margin-right: 12px;
-  background: var(--jx-surface-1);
+  background: var(--jx-surface-1, var(--dsh-bubble-jx-surface-1));
   color: var(--dsw-alias-label-tertiary);
   overflow: visible;
 }
@@ -253,7 +253,7 @@
 
 /* 朱砂描边（优先级高于当前金描边与 hover 金描边） */
 .bubble.pending {
-  border-color: var(--jx-seal);
+  border-color: var(--jx-seal, var(--dsh-bubble-jx-seal));
   /* 入场/转为等待交互时播放一次印章按压式强调（强震 350ms，DESIGN.md §6）；
    * 不动 opacity，中途叠加 class 不产生可见性闪烁 */
   animation: bubble-stamp 350ms cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -261,7 +261,7 @@
 
 /* 朱砂点 + 涟漪扩散环（transform+opacity，GPU 友好） */
 .dotPending {
-  background: var(--jx-seal);
+  background: var(--jx-seal, var(--dsh-bubble-jx-seal));
 }
 
 .dotPending::after {
@@ -269,7 +269,7 @@
   position: absolute;
   inset: -1px;
   border-radius: 50%;
-  border: 1px solid var(--jx-seal);
+  border: 1px solid var(--jx-seal, var(--dsh-bubble-jx-seal));
   opacity: 0;
   animation: dot-pending-ping 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
@@ -287,12 +287,12 @@
 }
 
 .more:hover {
-  border-color: var(--jx-gold);
+  border-color: var(--jx-gold, var(--dsh-bubble-jx-gold));
   color: var(--dsw-alias-label-primary);
 }
 
 .more:focus-visible {
-  outline: 2px solid var(--jx-gold);
+  outline: 2px solid var(--jx-gold, var(--dsh-bubble-jx-gold));
   outline-offset: 2px;
 }
 
@@ -468,6 +468,6 @@
 }
 
 .dragHandle:focus-visible {
-  outline: 2px solid var(--jx-gold);
+  outline: 2px solid var(--jx-gold, var(--dsh-bubble-jx-gold));
   outline-offset: 2px;
 }

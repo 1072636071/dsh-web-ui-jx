@@ -10,9 +10,9 @@
  *   - 持久化工厂：createPersistentSetting（配置操作的基础设施）
  *   - storage-keys：localStorage 键名单点
  *
- * 样式随组件迁移工单（04）迁入后经 `styles/` 随包分发；当前仅占位。
+ * 样式随组件迁移工单（04）迁入后经 `styles/` 随包分发（module + bubble-theme）。
  */
-import "./styles/index.css";
+
 
 export {
   buildBubbleGroups,
@@ -81,3 +81,5 @@ export {
 } from "./persistent-setting.ts";
 
 export { STORAGE_KEYS } from "./storage-keys.ts";
+
+export { SessionBubbleList, type SessionBubbleListProps } from "./SessionBubbleList.tsx";
