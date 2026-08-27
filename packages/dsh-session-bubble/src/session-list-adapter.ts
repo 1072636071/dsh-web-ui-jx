@@ -8,9 +8,9 @@
  *
  * 投影规则（与 ADR-0007 决策 1 / ADR-0018 / ADR-0020 一致）：
  *   - 保持 `ids` 顺序；
- *   - 每条取 sessionId / title / running / completed / pendingInteraction /
- *     parentId / origin；
- *   - `completed` 缺省视为 false；
+ *   - 每条取 sessionId / title / updatedAt / running / completed /
+ *     pendingInteraction / parentId / origin；
+ *   - `completed` 缺省视为 false；`updatedAt` 缺省视为 0；
  *   - `pendingInteraction` / `parentId` / `origin` 为 undefined 时不落键
  *     （顶层会话，ADR-0018 谱系；对齐 exactOptionalPropertyTypes 纪律）；
  *   - `byId` 缺失的 id 跳过（防御性）。
@@ -40,6 +40,8 @@ export function deriveSessionListEntries(
     items.push({
       sessionId: summary.id,
       title: summary.title,
+      // 工单 16-04：updatedAt 供 AI 动态标题缓存失效判据；缺省防 0。
+      updatedAt: summary.updatedAt ?? 0,
       running: summary.running,
       completed: summary.completed ?? false,
       // SDK PendingInteractionStatus 与纯逻辑层字面量联合同形状（ADR-0020）。

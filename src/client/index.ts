@@ -35,6 +35,14 @@ import type {
 } from "@deepseek-ai/dsh-client-runtime/client";
 import { createElement, Fragment } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  createDshDynamicTitleTransport,
+  createDshPreviewTransport,
+  createDynamicTitleStore,
+  createPreviewCache,
+  type DynamicTitleTransport,
+  type PreviewTransport,
+} from "../../packages/dsh-session-bubble/src/index.ts";
 import { CharacterOverlay } from "./components/CharacterOverlay.tsx";
 import { SidebarEntry } from "./components/SidebarEntry.tsx";
 import { applyFx, teardownFx } from "./fx/index.ts";
@@ -99,15 +107,25 @@ function RootApp({
   sessions,
   runtime,
   workspaces,
+  previewTransport,
+  dynamicTitleTransport,
 }: {
   sessions?: ISessions | undefined;
   runtime?: OverlaySessionRuntime | undefined;
   workspaces?: IWorkspaces | undefined;
+  previewTransport?: PreviewTransport | undefined;
+  dynamicTitleTransport?: DynamicTitleTransport | undefined;
 }) {
   return createElement(
     Fragment,
     null,
-    createElement(CharacterOverlay, { sessions, runtime, workspaces }),
+    createElement(CharacterOverlay, {
+      sessions,
+      runtime,
+      workspaces,
+      previewTransport,
+      dynamicTitleTransport,
+    }),
     createElement(SidebarEntry),
   );
 }
@@ -120,6 +138,11 @@ function RootApp({
  *     皮肤/特效/管理三个可折叠 section，ADR-0004）
  * 最后启动 FX 特效系统（applyFx 读取 localStorage + reduced-motion 判定，
  * 在 html 上增删 fx-* 类）。
+ *
+ * 详情窗数据链路（工单 16-02/16-04）：经 `ctx.connection.api` 构建预览
+ * transport（createPreviewCache 缓存包装）与 AI 动态标题 transport
+ * （createDynamicTitleStore 缓存/节流包装，host 半区 /api/dsh-jx/ai-title
+ * 路由，浏览器零 key 暴露）；connection 缺失时两者缺省，详情窗仅显示标题。
  *
  * ADR-0017 可重入约束：宿主存在运行期插件重载机制（client-hmr rebuilt 帧、
  * 动态包 runner invalidate+重建），本函数会在不刷新页面的情况下被再次执行。
@@ -170,7 +193,27 @@ export function apply(ctx: ClientContext): void {
           variantRotationEnabled: getVariantRotationEnabled,
         })
       : undefined;
-  root.render(createElement(RootApp, { sessions, runtime, workspaces }));
+  // 详情窗数据链路（工单 16-02/16-04）：经 connection.api 拉预览（缓存包装器），
+  // 动态标题走 host 半区 /api/dsh-jx/ai-title 路由（缓存/节流包装器）。
+  // connection 缺失时两者均为 undefined → 详情窗仅显示标题，完整可用。
+  const connection = ctx.get("connection");
+  const previewTransport =
+    connection !== undefined
+      ? createPreviewCache(createDshPreviewTransport(connection.api))
+      : undefined;
+  const dynamicTitleTransport =
+    connection !== undefined
+      ? createDynamicTitleStore(createDshDynamicTitleTransport())
+      : undefined;
+  root.render(
+    createElement(RootApp, {
+      sessions,
+      runtime,
+      workspaces,
+      previewTransport,
+      dynamicTitleTransport,
+    }),
+  );
 
   // 启动 FX 特效系统（随 fiber 走完整生命周期：ADR-0017 可重入约束——
   // fall/warp 的 body 直挂装饰层容器、window 指针监听、reduced-motion

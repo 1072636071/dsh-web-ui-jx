@@ -88,7 +88,11 @@ import {
 import { SpeechBubble, DEFAULT_BUBBLE_DURATION_MS } from "./SpeechBubble.tsx";
 import { createOverlayImgGuard } from "./overlay-img-guard.ts";
 import { loadWebpDurationMs } from "../webp-duration.ts";
-import { SessionBubbleList } from "../../../packages/dsh-session-bubble/src/index.ts";
+import {
+  SessionBubbleList,
+  type DynamicTitleTransport,
+  type PreviewTransport,
+} from "../../../packages/dsh-session-bubble/src/index.ts";
 import type {
   ISessions,
   IWorkspaces,
@@ -177,6 +181,16 @@ export interface CharacterOverlayProps {
   workspaces?: IWorkspaces | undefined;
   /** 会话级状态机 runtime（ADR-0008：焦点会话 playback 驱动浮层）. */
   runtime?: OverlaySessionRuntime | undefined;
+  /**
+   * 详情窗预览 transport（工单 16-02；可选）。悬停气泡时按需拉取预览；
+   * 缺失时详情窗仅显示标题。推荐 `createPreviewCache(createDshPreviewTransport(api))`。
+   */
+  previewTransport?: PreviewTransport | undefined;
+  /**
+   * AI 动态标题 transport（工单 16-04；可选）。详情窗书眉副题行；未配置
+   * API 时整行隐藏。推荐 `createDynamicTitleStore(createDshDynamicTitleTransport())`。
+   */
+  dynamicTitleTransport?: DynamicTitleTransport | undefined;
 }
 
 /**
@@ -195,6 +209,8 @@ export function CharacterOverlay({
   sessions,
   workspaces,
   runtime,
+  previewTransport,
+  dynamicTitleTransport,
 }: CharacterOverlayProps) {
   // ADR-0008：订阅会话级 runtime 快照（焦点会话 playback）。
   // runtime 为 undefined 时（如测试或未注入）回落到 idle 兜底快照。
@@ -544,7 +560,12 @@ export function CharacterOverlay({
         alt=""
         draggable={false}
       />
-      <SessionBubbleList sessions={sessions} workspaces={workspaces} />
+      <SessionBubbleList
+        sessions={sessions}
+        workspaces={workspaces}
+        previewTransport={previewTransport}
+        dynamicTitleTransport={dynamicTitleTransport}
+      />
       {stateLabel && (
         <div className={styles.stateLabel}>{stateLabel}</div>
       )}

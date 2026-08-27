@@ -32,6 +32,14 @@
  * data-jx-interactive 不触发整盒拖动（复用 ADR-0006 排除机制）；
  * 当前会话气泡点击无动作、不记账。
  *
+ * 悬停详情窗（工单 16-02/16-04）：气泡行挂 `data-hover-key`，`.bubbleList`
+ * 容器以 pointerover/out 事件委托实现进入/离开延迟（300ms/200ms）与触屏
+ * 长按（500ms）打开；书页卡片（SessionBubbleDetail）贴气泡展开、视口边缘
+ * 自动换侧 + 纵向对齐翻转，随盒整体移动；卡片 data-jx-interactive 不触发
+ * 整盒拖动，点击卡片打开会话。预览数据（previewTransport）悬停时按需拉取
+ * （骨架屏 + 失败静默）；AI 动态标题（dynamicTitleTransport，工单 16-04）
+ * 以书眉副题行呈现，未配置 API 时整行隐藏。
+ *
  * 子代理徽标（ADR-0018 D4/D5，工单03 按钮化）：▸N/▾N 计后代总数
  * （badge.total，收起 ▸ / 展开 ▾），置于标题右侧 flex-shrink:0 不换行
  * 不挤压；role=button + tabIndex 键盘可激活（Enter/Space），onClick /
@@ -131,11 +139,56 @@ import {
   subscribeKept,
   subscribeSeen,
 } from "./session-bubble-keep-config.ts";
+import type { PreviewTransport } from "./detail/detail-data.ts";
+import type { DynamicTitleTransport } from "./detail/dynamic-title.ts";
+import { SessionBubbleDetail, type SessionBubbleDetailEntry } from "./SessionBubbleDetail.tsx";
 import styles from "./styles/session-bubbles.module.css";
 import "./styles/bubble-theme.css";
 
 /** 气泡退出动画时长 ms（DESIGN.md §6 退出快于进入）. */
 const BUBBLE_EXIT_MS = 100;
+
+// ---------------------------------------------------------------------------
+// 悬停详情窗（工单 16-02 / 16-04）：进入/离开延迟 + 视口边缘换侧 + 触屏长按
+// ---------------------------------------------------------------------------
+
+/** 悬停进入延迟 ms（快速划过气泡列不弹详情窗）. */
+const HOVER_ENTER_MS = 300;
+
+/** 悬停离开延迟 ms（从气泡移到详情窗的过渡缓冲）. */
+const HOVER_LEAVE_MS = 200;
+
+/** 触屏长按进入详情 ms. */
+const LONG_PRESS_MS = 500;
+
+/** 详情窗固定宽度（与 session-bubble-detail.module.css 的 .detailCard width 一致）. */
+const DETAIL_CARD_WIDTH = 264;
+
+/** 详情窗与气泡列/视口边缘的间距. */
+const DETAIL_MARGIN = 8;
+
+/** 详情窗定位结果：显示侧（左/右）+ 纵向对齐（顶/底）+ 相对容器偏移. */
+interface DetailPlacement {
+  readonly side: "left" | "right";
+  readonly align: "top" | "bottom";
+  /** 相对气泡列容器的 top（align 'top' 时使用）. */
+  readonly top: number;
+  /** 相对气泡列容器的 bottom（align 'bottom' 时使用）. */
+  readonly bottom: number;
+}
+
+/** 悬停详情状态：条目投影 + 定位. */
+interface HoverDetailState extends DetailPlacement {
+  readonly entry: SessionBubbleDetailEntry;
+  readonly key: string;
+}
+
+/** 长按起点（用于移动超阈值取消长按）. */
+interface LongPressOrigin {
+  readonly key: string;
+  readonly x: number;
+  readonly y: number;
+}
 
 // ---------------------------------------------------------------------------
 // 空会话列表快照（sessions 缺省时 useSyncExternalStore 的占位）
@@ -171,6 +224,271 @@ function useActivationKey(onActivate: () => void) {
     },
     [onActivate],
   );
+}
+
+// ---------------------------------------------------------------------------
+// useHoverDetail — 悬停详情窗状态机（工单 16-02/16-04）
+//
+// 事件委托：气泡行挂 `data-hover-key`，`.bubbleList` 容器以 pointerover/out 委托
+// 识别进入/离开哪个气泡（不改动 GroupBubble/ChildBubble 内部 onClick）。
+// 进入延迟 300ms、离开延迟 200ms；触屏长按 500ms 打开；视口边缘自动换侧 +
+// 纵向对齐翻转，保证任何位置的气泡详情窗完整可见。
+// ---------------------------------------------------------------------------
+
+/**
+ * 悬停详情窗状态机 hook。
+ *
+ * @param containerRef - 气泡列容器 ref（定位基准）。
+ * @param entryFor - sessionId → 详情条目投影（列表层提供，含 displayTitle 回落）。
+ * @returns 详情状态 + 一组委托给容器的事件处理器。
+ */
+function useHoverDetail(
+  containerRef: React.RefObject<HTMLDivElement | null>,
+  entryFor: (sessionId: string) => SessionBubbleDetailEntry | undefined,
+): {
+  hoverDetail: HoverDetailState | null;
+  onPointerOver: React.PointerEventHandler<HTMLDivElement>;
+  onPointerOut: React.PointerEventHandler<HTMLDivElement>;
+  onPointerDown: React.PointerEventHandler<HTMLDivElement>;
+  onPointerMove: React.PointerEventHandler<HTMLDivElement>;
+  onPointerUp: React.PointerEventHandler<HTMLDivElement>;
+  onPointerCancel: React.PointerEventHandler<HTMLDivElement>;
+  onClickCapture: React.MouseEventHandler<HTMLDivElement>;
+  onCardPointerEnter: React.PointerEventHandler<HTMLDivElement>;
+  onCardPointerLeave: React.PointerEventHandler<HTMLDivElement>;
+} {
+  const [hoverDetail, setHoverDetail] = useState<HoverDetailState | null>(null);
+  const enterTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 长按已触发标志：抑制紧随的合成 click + 触屏上不因指针离开即关详情. */
+  const longPressedRef = useRef(false);
+  /** 当前悬停行元素（pointerover 去重 + 定位基准）. */
+  const hoverRowRef = useRef<HTMLElement | null>(null);
+  /** 长按起点（移动超阈值取消）. */
+  const longPressOriginRef = useRef<LongPressOrigin | null>(null);
+
+  const clearEnter = useCallback(() => {
+    if (enterTimerRef.current !== null) clearTimeout(enterTimerRef.current);
+    enterTimerRef.current = null;
+  }, []);
+  const clearLeave = useCallback(() => {
+    if (leaveTimerRef.current !== null) clearTimeout(leaveTimerRef.current);
+    leaveTimerRef.current = null;
+  }, []);
+  const clearLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+    longPressOriginRef.current = null;
+  }, []);
+
+  /** 计算详情窗定位：视口边缘换侧 + 纵向对齐翻转. */
+  const buildPlacement = useCallback(
+    (bubbleEl: HTMLElement, containerEl: HTMLElement): DetailPlacement => {
+      const containerRect = containerEl.getBoundingClientRect();
+      const bubbleRect = bubbleEl.getBoundingClientRect();
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+      // 水平侧：默认开向左侧（远离角色）；右侧空间不足/左侧更宽时换侧。
+      const leftSpace = bubbleRect.left - DETAIL_MARGIN;
+      const rightSpace = viewportW - (bubbleRect.right + DETAIL_MARGIN);
+      let side: "left" | "right";
+      if (leftSpace < DETAIL_CARD_WIDTH && rightSpace >= DETAIL_CARD_WIDTH) {
+        side = "right";
+      } else if (rightSpace < DETAIL_CARD_WIDTH && leftSpace >= DETAIL_CARD_WIDTH) {
+        side = "left";
+      } else {
+        side = leftSpace >= rightSpace ? "left" : "right";
+      }
+      // 纵向：气泡在上半屏 → 卡片向下生长（top 对齐）；下半屏 → 向上（bottom 对齐）。
+      const vpMid = viewportH / 2;
+      const align: "top" | "bottom" =
+        bubbleRect.top + bubbleRect.height / 2 < vpMid ? "top" : "bottom";
+      return {
+        side,
+        align,
+        top: bubbleRect.top - containerRect.top,
+        bottom: containerRect.bottom - bubbleRect.bottom,
+      };
+    },
+    [],
+  );
+
+  /** 立即展示某气泡的详情窗（定位基准 = 行元素 + 容器）. */
+  const showDetail = useCallback(
+    (key: string, bubbleEl: HTMLElement) => {
+      const containerEl = containerRef.current;
+      const entry = entryFor(key);
+      if (!containerEl || !entry) return;
+      setHoverDetail({ entry, key, ...buildPlacement(bubbleEl, containerEl) });
+    },
+    [containerRef, entryFor, buildPlacement],
+  );
+
+  /** 进入某气泡：清离开计时 → 进入延迟后展示. */
+  const startHover = useCallback(
+    (key: string, bubbleEl: HTMLElement) => {
+      clearLeave();
+      clearEnter();
+      longPressedRef.current = false;
+      enterTimerRef.current = setTimeout(() => {
+        showDetail(key, bubbleEl);
+      }, HOVER_ENTER_MS);
+    },
+    [clearLeave, clearEnter, showDetail],
+  );
+
+  /** 离开气泡列：清进入/长按计时 → 离开延迟后关闭. */
+  const endHover = useCallback(() => {
+    clearEnter();
+    clearLongPress();
+    // 触屏长按打开后不因指针离开即关（等下次点击外区关闭）。
+    if (longPressedRef.current) return;
+    clearLeave();
+    leaveTimerRef.current = setTimeout(() => {
+      setHoverDetail(null);
+      hoverRowRef.current = null;
+    }, HOVER_LEAVE_MS);
+  }, [clearEnter, clearLongPress, clearLeave]);
+
+  /** 详情窗获得指针：取消离开计时（保活）. */
+  const onCardPointerEnter = useCallback(() => {
+    clearLeave();
+  }, [clearLeave]);
+
+  /** 详情窗失去指针：启动离开计时. */
+  const onCardPointerLeave = useCallback(() => {
+    clearEnter();
+    if (longPressedRef.current) return;
+    clearLeave();
+    leaveTimerRef.current = setTimeout(() => {
+      setHoverDetail(null);
+      hoverRowRef.current = null;
+    }, HOVER_LEAVE_MS);
+  }, [clearEnter, clearLeave]);
+
+  /** 委托 pointerover：识别进入哪个气泡行（closest 命中 data-hover-key）. */
+  const onPointerOver = useCallback<React.PointerEventHandler<HTMLDivElement>>(
+    (e) => {
+      const rowEl = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-hover-key]") : null;
+      if (!rowEl) return;
+      const key = rowEl.dataset.hoverKey;
+      if (!key) return;
+      if (hoverRowRef.current === rowEl) return;
+      hoverRowRef.current = rowEl;
+      startHover(key, rowEl);
+    },
+    [startHover],
+  );
+
+  /** 委托 pointerout：离开气泡行时按 relatedTarget 决定是否启动离开计时. */
+  const onPointerOut = useCallback<React.PointerEventHandler<HTMLDivElement>>(
+    (e) => {
+      const rowEl = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-hover-key]") : null;
+      if (!rowEl) return;
+      const related = e.relatedTarget;
+      // 移到详情窗/另一气泡行：各自的 enter 处理器接管（保活或重定悬停）。
+      if (related instanceof Node && containerRef.current?.contains(related)) return;
+      // 离开整个气泡列：启动离开计时。
+      hoverRowRef.current = null;
+      endHover();
+    },
+    [containerRef, endHover],
+  );
+
+  /** 委托 pointerdown：触屏长按进入详情. */
+  const onPointerDown = useCallback<React.PointerEventHandler<HTMLDivElement>>(
+    (e) => {
+      if (e.pointerType === "mouse") return;
+      const rowEl = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-hover-key]") : null;
+      if (!rowEl) return;
+      // 徽标/拖拽手柄等交互子元素上不长按开详情（避免与按钮激活/收起冲突）：
+      // 命中最近 data-jx-interactive 不是气泡行本身即视为交互子元素。
+      if (
+        e.target instanceof Element &&
+        e.target.closest<HTMLElement>("[data-jx-interactive]") !== rowEl
+      ) {
+        return;
+      }
+      const key = rowEl.dataset.hoverKey;
+      if (!key) return;
+      clearLongPress();
+      longPressOriginRef.current = { key, x: e.clientX, y: e.clientY };
+      longPressTimerRef.current = setTimeout(() => {
+        longPressedRef.current = true;
+        clearEnter();
+        showDetail(key, rowEl);
+      }, LONG_PRESS_MS);
+    },
+    [clearLongPress, clearEnter, showDetail],
+  );
+
+  /** 委托 pointermove：长按期间移动超阈值则取消. */
+  const onPointerMove = useCallback<React.PointerEventHandler<HTMLDivElement>>(
+    (e) => {
+      const origin = longPressOriginRef.current;
+      if (!origin) return;
+      if (Math.hypot(e.clientX - origin.x, e.clientY - origin.y) > 10) {
+        clearLongPress();
+      }
+    },
+    [clearLongPress],
+  );
+
+  /** 委托 pointerup/pointercancel：结束长按计时. */
+  const onPointerUp = useCallback<React.PointerEventHandler<HTMLDivElement>>(() => {
+    clearLongPress();
+  }, [clearLongPress]);
+  const onPointerCancel = onPointerUp;
+
+  /** 捕获阶段点击：长按触发的合成 click 吞掉（不跳转会话）. */
+  const onClickCapture = useCallback<React.MouseEventHandler<HTMLDivElement>>(
+    (e) => {
+      if (longPressedRef.current) {
+        longPressedRef.current = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    [],
+  );
+
+  // 详情打开期间：任意 pointerdown（含长按后停留态的再次触击、点气泡列内其他
+  // 气泡、点详情卡、点列外）关闭详情并复位长按标志——触屏长按后的点击由捕获
+  // 阶段 onClickCapture 抑制，此处负责把 stale 的长按标志清掉，保证下一次
+  // 正常点击不被误吞；详情卡/气泡的打开动作由各自 onClick 负责。
+  useEffect(() => {
+    if (hoverDetail === null) return;
+    const onDocPointerDown = (): void => {
+      setHoverDetail(null);
+      hoverRowRef.current = null;
+      longPressedRef.current = false;
+    };
+    document.addEventListener("pointerdown", onDocPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown, true);
+  }, [hoverDetail]);
+
+  // 组件卸载：清全部计时器。
+  useEffect(() => {
+    return () => {
+      if (enterTimerRef.current !== null) clearTimeout(enterTimerRef.current);
+      if (leaveTimerRef.current !== null) clearTimeout(leaveTimerRef.current);
+      if (longPressTimerRef.current !== null) clearTimeout(longPressTimerRef.current);
+    };
+  }, []);
+
+  return {
+    hoverDetail,
+    onPointerOver,
+    onPointerOut,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+    onClickCapture,
+    onCardPointerEnter,
+    onCardPointerLeave,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +625,7 @@ function GroupBubble({
       }${dismissible ? "，点击左侧手柄收起，或按 Delete 收起" : ""}`}
       aria-current={root.isCurrent ? "true" : undefined}
       data-jx-interactive=""
+      data-hover-key={root.sessionId}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
     >
@@ -455,6 +774,7 @@ function ChildBubble({
       }${dismissible ? "，点击左侧手柄收起，或按 Delete 收起" : ""}`}
       aria-current={entry.isCurrent ? "true" : undefined}
       data-jx-interactive=""
+      data-hover-key={entry.sessionId}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
     >
@@ -566,6 +886,18 @@ export interface SessionBubbleListProps {
    * 缺省时归档区不渲染、归档排除为空集（收起区不受影响）.
    */
   workspaces?: IWorkspaces | undefined;
+  /**
+   * 详情窗预览 transport（工单 16-02；可选）。提供时悬停气泡按需拉取
+   * 预览（骨架屏 + 失败静默）；缺失时详情窗仅显示标题，完整可用。
+   * 推荐传入 `createPreviewCache(createDshPreviewTransport(api))`。
+   */
+  previewTransport?: PreviewTransport | undefined;
+  /**
+   * AI 动态标题 transport（工单 16-04；可选）。提供时详情窗书眉显示动态
+   * 标题副题行（未配置 API 时整行隐藏）；缺失时副题行不渲染。
+   * 推荐传入 `createDynamicTitleStore(createDshDynamicTitleTransport())`。
+   */
+  dynamicTitleTransport?: DynamicTitleTransport | undefined;
 }
 
 /**
@@ -579,7 +911,12 @@ export interface SessionBubbleListProps {
  * @param props.workspaces - 工作区数据源（归档权威在 SDK，ADR-0022 D8）。
  * @returns 会话气泡列（+ 投放区），或 null。
  */
-export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListProps) {
+export function SessionBubbleList({
+  sessions,
+  workspaces,
+  previewTransport,
+  dynamicTitleTransport,
+}: SessionBubbleListProps) {
   // 订阅 sessions.list 原始快照（SDK store 保证稳定引用，避免无限重渲染）。
   // sessions 缺省时订阅 noop、getSnapshot 返回 undefined。
   const rawState: SessionListState | undefined = useSyncExternalStore(
@@ -649,6 +986,53 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
     [rawState],
   );
   const current = rawState?.current;
+
+  // ---- 悬停详情窗（工单 16-02/16-04）------------------------------------
+  // 气泡列容器 ref：详情窗定位基准（absolute 相对容器，随盒整体移动）。
+  const bubbleListRef = useRef<HTMLDivElement | null>(null);
+
+  // sessionId → 详情条目投影（含 displayTitle 回落）。
+  const entryFor = useCallback(
+    (sessionId: string): SessionBubbleDetailEntry | undefined => {
+      const item = items.find((it) => it.sessionId === sessionId);
+      if (item === undefined) return undefined;
+      return {
+        sessionId: item.sessionId,
+        title: displayTitle(item),
+        updatedAt: item.updatedAt,
+        running: item.running,
+        completed: item.completed,
+        isCurrent: item.sessionId === current,
+      };
+    },
+    [items, current],
+  );
+  const {
+    hoverDetail,
+    onPointerOver,
+    onPointerOut,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+    onClickCapture,
+    onCardPointerEnter,
+    onCardPointerLeave,
+  } = useHoverDetail(bubbleListRef, entryFor);
+
+  // 详情窗定位样式（换侧 + 纵向对齐）。
+  const detailStyle: React.CSSProperties | undefined = hoverDetail
+    ? {
+        position: "absolute",
+        ...(hoverDetail.align === "top"
+          ? { top: hoverDetail.top }
+          : { bottom: hoverDetail.bottom }),
+        ...(hoverDetail.side === "left"
+          ? { right: "calc(100% + 12px)" }
+          : { left: "calc(100% + 12px)" }),
+        zIndex: 40,
+      }
+    : undefined;
 
   // 惰性裁剪（ADR-0022 D1，工单 01；ADR-0028 决策 2 相位门控）：宿主列表
   // 基线就绪（phase === "ready"）后才允许裁剪。SDK sessions.list 的初始快照
@@ -911,7 +1295,17 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
 
   return (
     <Fragment>
-      <div className={`${styles.bubbleList} dsh-session-bubble-root`}>
+      <div
+        className={`${styles.bubbleList} dsh-session-bubble-root`}
+        ref={bubbleListRef}
+        onPointerOver={onPointerOver}
+        onPointerOut={onPointerOut}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onClickCapture={onClickCapture}
+      >
       {visibleGroups.map((group) => {
         const groupEffectiveExpanded = isEffectivelyExpanded(group);
         // 该组仍在退出中的成员（父组仍可见 → 紧随其活成员之后渲染淡出）。
@@ -998,6 +1392,18 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
           expanded={expanded}
           moreCount={folded.moreCount}
           onToggle={handleToggleExpand}
+        />
+      )}
+      {/* 悬停详情窗（工单 16-02/16-04）：书页卡片，随盒整体移动。 */}
+      {hoverDetail !== null && (
+        <SessionBubbleDetail
+          entry={hoverDetail.entry}
+          onOpen={() => handleOpen(hoverDetail.entry.sessionId)}
+          previewTransport={previewTransport}
+          dynamicTitleTransport={dynamicTitleTransport}
+          onPointerEnter={onCardPointerEnter}
+          onPointerLeave={onCardPointerLeave}
+          style={detailStyle}
         />
       )}
       </div>

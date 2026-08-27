@@ -38,6 +38,11 @@ body[data-dsh-jiangxiao] {
   /* 实底基色（欢迎背景壁纸层 base 专用，不吃面板 alpha，ADR-0024 D2） */
   --jx-surface-0-solid: #0b090d;
 
+  /* 纸感轨（工单 16-02：气泡悬停详情窗书页卡片）：
+   * 纸底比墨阶 surface-1 略提一档以浮起，纸缘取淡金/淡褐描边（装饰通道） */
+  --jx-paper-bg: rgb(26 24 31);
+  --jx-paper-edge: rgb(76 70 84);
+
   /* --- Text --- */
   --jx-text-strong: #f2ead8;
   --jx-text-base: #f2ead8;
@@ -251,6 +256,10 @@ body[data-dsh-jiangxiao]:not([data-ds-dark-theme]) {
 
   /* 实底基色（欢迎背景壁纸层 base 专用，不吃面板 alpha，ADR-0024 D2） */
   --jx-surface-0-solid: #faf5ee;
+
+  /* 纸感轨浅色（工单 16-02）：宣纸底 + 淡金纸缘 */
+  --jx-paper-bg: rgb(251 246 235);
+  --jx-paper-edge: rgb(214 178 122);
 
   /* --- Text --- */
   --jx-text-strong: #2a241a;

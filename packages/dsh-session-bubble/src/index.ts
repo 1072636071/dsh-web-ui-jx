@@ -83,3 +83,43 @@ export {
 export { STORAGE_KEYS } from "./storage-keys.ts";
 
 export { SessionBubbleList, type SessionBubbleListProps } from "./SessionBubbleList.tsx";
+
+// 详情窗书页卡片（工单 16-02）：悬停详情窗组件 + 字符护栏纯函数。
+export {
+  SessionBubbleDetail,
+  clampText,
+  type SessionBubbleDetailEntry,
+  type SessionBubbleDetailProps,
+} from "./SessionBubbleDetail.tsx";
+
+// 详情窗数据层（工单 16-01）：预览提取纯函数 + transport 抽象 + DSH 默认实现 + 缓存包装器。
+export {
+  createDshPreviewTransport,
+  createPreviewCache,
+  extractPreview,
+  type DshPreviewTransportOptions,
+  type PreviewCacheOptions,
+  type PreviewTransport,
+  type SessionPreview,
+} from "./detail/detail-data.ts";
+
+// AI 动态标题（工单 16-03/16-04）：transport 抽象 + DSH 默认实现 + 提示词/响应解析 +
+// 刷新判定纯逻辑 + 缓存/节流包装器。
+export {
+  buildDynamicTitlePrompt,
+  createDshDynamicTitleTransport,
+  createDynamicTitleStore,
+  decideTitleRefresh,
+  parseDynamicTitleResponse,
+  type DshDynamicTitleTransportOptions,
+  type DynamicTitleInput,
+  type DynamicTitlePromptInput,
+  type DynamicTitlePromptOptions,
+  type DynamicTitleParseOptions,
+  type DynamicTitleResult,
+  type DynamicTitleStoreOptions,
+  type DynamicTitleTransport,
+  type ParsedDynamicTitle,
+  type TitleRefreshDecision,
+  type TitleRefreshInput,
+} from "./detail/dynamic-title.ts";

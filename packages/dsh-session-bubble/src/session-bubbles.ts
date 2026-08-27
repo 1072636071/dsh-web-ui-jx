@@ -58,6 +58,8 @@ export interface SessionListEntry {
   readonly sessionId: SessionId;
   /** 会话标题（无 title 时为 undefined，气泡回落 sessionId 截断）. */
   readonly title: string | undefined;
+  /** 会话更新时间戳（工单 16-04：AI 动态标题缓存失效判据）. */
+  readonly updatedAt: number;
   /** 是否运行中（running === true）. */
   readonly running: boolean;
   /** 是否已结束未查看（completed === true）. */
@@ -102,7 +104,7 @@ export const SID_FALLBACK_MAX_LEN = 12;
  * @param entry - 气泡条目。
  * @returns 显示标题。
  */
-export function displayTitle(entry: BubbleEntry): string {
+export function displayTitle(entry: Pick<BubbleEntry, "title" | "sessionId">): string {
   if (entry.title !== undefined && entry.title.length > 0) return entry.title;
   return entry.sessionId.length > SID_FALLBACK_MAX_LEN
     ? entry.sessionId.slice(0, SID_FALLBACK_MAX_LEN)
@@ -571,6 +573,7 @@ function toGroupBubbleEntry(
   return {
     sessionId: item.sessionId,
     title: item.title,
+    updatedAt: item.updatedAt,
     running: item.running,
     completed: item.completed,
     ...(item.pendingInteraction !== undefined

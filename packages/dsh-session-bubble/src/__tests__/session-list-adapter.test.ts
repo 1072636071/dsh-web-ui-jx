@@ -22,6 +22,7 @@ import { deriveSessionListEntries } from "../session-list-adapter.ts";
 interface FakeSummary {
   id: string;
   title?: string;
+  updatedAt?: number;
   running: boolean;
   completed?: boolean;
   parentId?: string;
@@ -64,6 +65,7 @@ describe("session-list-adapter: 投影", () => {
       {
         sessionId: "s1",
         title: "会话一",
+        updatedAt: 0,
         running: true,
         completed: false,
         parentId: undefined,
@@ -72,6 +74,7 @@ describe("session-list-adapter: 投影", () => {
       {
         sessionId: "s2",
         title: "会话二",
+        updatedAt: 0,
         running: false,
         completed: true,
         parentId: "s1",
