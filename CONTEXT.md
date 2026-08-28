@@ -29,6 +29,8 @@
 | 投放区 | 保留模式开启时气泡列旁的两个拖拽落点统称（ADR-0022）：收起区 + 归档区；拖拽是移除的唯一手势（双击判定方案已否决）；仅 completed 类气泡可拖，running/pending 禁止。 |
 | 收起区 | 投放区之一（近放，气泡列正下方）：拖入 = 记入本地 dismissed 集合（localStorage `jx-bubble-keep-*` 持久化），气泡隐藏、不动 SDK、完全可逆——管「暂时不想看」。 |
 | 归档区 | 投放区之一（远放，角色脚边，警示视觉 + hover 提示）：拖入 = 调 `workspaces.archiveSession` 真归档（侧边栏同步隐藏、日志保留），**不可逆**（契约层无 unarchive）；拒绝当前会话气泡（规避归档当前会话清空选择的副作用）；由配置②「拖拽归档」独立开关控制。 |
+| 气泡内容弹框 | 鼠标 hover 会话气泡浮现的内容浮层（ADR-0028）：会话标题 + 一排问话胶囊 + 问话详情区；默认展开最后一个胶囊（显示最后一条问话完整内容），hover 切胶囊；点击胶囊 `sessions.open(id)` 跳转该会话（会话内精确定位留待官方开放接口）。数据源走 host 半区 `sessionController.inspect`（无副作用，兼容冷会话）。 |
+| 问话胶囊 | 气泡内容弹框里、每条用户问话对应的文字胶囊（显示该条问话截断摘要）：弹框展示该会话**全部**直接用户问话，超长折叠「+N」；胶囊始终紧凑，当前选中/hover 胶囊的完整问话显示在下方的问话详情区。 |
 | 变体动作 | 长驻态多动作轮换（ADR-0013）：形状「中性姿态→动作→中性姿态」（**中性帧** = 主素材首帧，各变体首尾对齐），只播一遍、随机不重复串成无限列表，段间停 ~400ms；命名 `{state}-vN.webp`（主素材 v1 入池）；首批 idle/working 各 v2–v4；SettingsCard「角色」section 开关默认开。 |
 | 播放计划结构等价 | UI 播放推进契约（ADR-0016）：新旧 playback 长度相同且各项 kind/url 逐项相同 ⇒ 同一计划沿用进度，否则归零重播。必须结构比较而非裸引用——poke/彩蛋/并行驻留分支每次重建数组（新引用同内容），runtime 又无条件 emit（**快照引用抖动**）。落地于播放游标（`playback-cursor.ts`）。 |
 | 状态身份倒挂 | 反模式现象名（issue 08 症状）：某状态造型仅在离开该状态的过渡首帧可见（permission 因过渡链被打断，批准后退场才被看到）。 |
@@ -98,5 +100,6 @@
 | ADR-0022 | 会话气泡单击保留 + 拖拽收纳双投放区（收起 = 本地 dismissed 可逆 / 归档 = archiveSession 不可逆）；双击方案否决；两开关：①查看后保留气泡（总开关，默认开）②拖拽归档（默认开）；仅 completed 类可拖；归档区拒当前泡；派生层排除 archivedSessionIds 防复活。 |
 | ADR-0023 | 移除 welcome 入场表演（彻底移除）：素材三件套、状态机节点与 idle↔welcome 边、`welcomeOnStart` 触发逻辑、台词标签全清（包体减约 15MB）；首次入场直接落待机无表演（否决复用现有表演顶替——业务语义稀释）；tools 历史脚本名单与 .scratch / memorial 历史记录不动。 |
 | ADR-0024 | 欢迎背景整页壁纸层（待实施）：fixed cover 视口背景，WebP 随包经 /api/dsh-jx 本机服务；开启时 --jx-surface-* 联动半透明；壁纸/面板双滑杆可调（默认 85% / 75%）+ 总开关归皮肤开关 section；深浅双主题显示（浅色白纱）；PNG 直录与仅深色生效两案否决。 |
+| ADR-0028 | 气泡内容弹框数据源取宿主服务端 `sessionController.inspect`（已实施）：host 半区注入 `sessionController`，`inspect(sessionId)` 无副作用读会话日志（兼容冷会话），顺序提取全部直接用户问话（时序正序，末条恒为最新）（`user/message` + `source.kind==='user'`），经 `/api/dsh-jx` 路由下发；client hover 气泡浮现内容弹框（标题 + 问话胶囊 + 详情区）；否决 client 临时 open 切回 / sessions.search / 仅已 open 会话降级。 |
 
 详见 `docs/adr/`。

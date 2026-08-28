@@ -81,6 +81,14 @@
  *
  * 样式只消费语义别名 + --jx-* 专属轨，无颜色字面量、无主题选择器。
  *
+ * 气泡内容弹框（ADR-0028，PRD 14 工单 02/03）：hover 会话气泡防抖浮现
+ * tooltip 浮层（标题 + 问话胶囊 + 详情区，默认展开最后胶囊），数据经 host
+ * `/api/dsh-jx/session/<id>/messages` 无副作用读取；胶囊 hover 切详情、
+ * 点击走与气泡一致的跳转路径。hover 生命周期与弹框呈现拆在
+ * SessionBubblePreview.tsx（hook + portal 组件）与
+ * state-machine/session-bubble-preview.ts（纯逻辑 seam）；本组件只做旁路
+ * 接线（pointerenter/leave），既有点击/记账/收起交互零改动。
+ *
  * @module dsh-web-ui-jx/client
  */
 
@@ -110,6 +118,11 @@ import {
   type SessionListEntry,
 } from "../state-machine/session-bubbles.ts";
 import { deriveSessionListEntries } from "../state-machine/session-list-adapter.ts";
+import {
+  useBubblePreview,
+  SessionBubblePopup,
+  type PreviewRequest,
+} from "./SessionBubblePreview.tsx";
 import {
   subscribeMaxSessionBubbles,
   getMaxSessionBubblesSnapshot,
@@ -194,6 +207,14 @@ interface GroupBubbleProps {
   dragEnabled: boolean;
   /** 点击左侧手柄直接收起该会话；仅保留模式 && 该条目可移除时由父层提供. */
   onDismiss?: (() => void) | undefined;
+  /**
+   * hover 内容弹框旁路（ADR-0028，PRD 14 工单 02）：pointerenter 上报
+   * PreviewRequest（sessionId + 显示标题 + 视口矩形）触发弹框防抖浮现；
+   * pointerleave 走宽限隐藏。leaving 态气泡不接（淡出中不交互）。与点击
+   * 跳转/手柄收起正交。接线经 previewBypassProps 单点派生（审查去重项）。
+   */
+  onPreviewEnter?: (request: PreviewRequest) => void;
+  onPreviewLeave?: (() => void) | undefined;
 }
 
 /**
@@ -225,6 +246,8 @@ function GroupBubble({
   leaving,
   dragEnabled,
   onDismiss,
+  onPreviewEnter,
+  onPreviewLeave,
 }: GroupBubbleProps) {
   const root = group.root;
   const handleClick = useCallback(() => {
@@ -304,6 +327,13 @@ function GroupBubble({
       data-jx-interactive=""
       onClick={handleClick}
       onKeyDown={handleKeyDown}
+      {...previewBypassProps({
+        leaving,
+        sessionId: root.sessionId,
+        title,
+        onPreviewEnter,
+        onPreviewLeave,
+      })}
     >
       {/* 左侧手柄：气泡外部，点击直接收起（ADR-0026 改型）。 */}
       {dismissible && (
@@ -373,6 +403,14 @@ interface ChildBubbleProps {
   groupRunningMembers: number;
   /** 点击左侧手柄直接收起该会话；仅保留模式 && 该条目可移除时由父层提供. */
   onDismiss?: (() => void) | undefined;
+  /**
+   * hover 内容弹框旁路（ADR-0028，PRD 14 工单 02）：pointerenter 上报
+   * PreviewRequest（sessionId + 显示标题 + 视口矩形）触发弹框防抖浮现；
+   * pointerleave 走宽限隐藏。leaving 态气泡不接（淡出中不交互）。与点击
+   * 跳转/手柄收起正交。接线经 previewBypassProps 单点派生（审查去重项）。
+   */
+  onPreviewEnter?: (request: PreviewRequest) => void;
+  onPreviewLeave?: (() => void) | undefined;
 }
 
 /**
@@ -396,6 +434,8 @@ function ChildBubble({
   dragEnabled,
   groupRunningMembers,
   onDismiss,
+  onPreviewEnter,
+  onPreviewLeave,
 }: ChildBubbleProps) {
   const handleClick = useCallback(() => {
     if (entry.isCurrent || leaving) return;
@@ -452,6 +492,13 @@ function ChildBubble({
       data-jx-interactive=""
       onClick={handleClick}
       onKeyDown={handleKeyDown}
+      {...previewBypassProps({
+        leaving,
+        sessionId: entry.sessionId,
+        title,
+        onPreviewEnter,
+        onPreviewLeave,
+      })}
     >
       {/* 左侧手柄：气泡外部，点击直接收起。 */}
       {dismissible && (
@@ -526,6 +573,35 @@ function toDragFlags(entry: BubbleEntry): DragEntryFlags {
     running: entry.running,
     pendingInteraction: entry.pendingInteraction,
     isCurrent: entry.isCurrent,
+  };
+}
+
+/**
+ * 预览旁路 pointer 处理器单点派生（审查 Duplicated Code 项）：GroupBubble
+ * 与 ChildBubble 的同构接线收敛于此——leaving 态或未接 onPreviewEnter 时
+ * 返回空对象（淡出中不交互）；enter 上报气泡自持的 (sessionId, title,
+ * 视口矩形)，leave 透传宽限隐藏。
+ */
+function previewBypassProps(args: {
+  leaving?: boolean;
+  sessionId: string;
+  title: string;
+  onPreviewEnter?: (request: PreviewRequest) => void;
+  onPreviewLeave?: (() => void) | undefined;
+}): Pick<
+  React.DOMAttributes<HTMLDivElement>,
+  "onPointerEnter" | "onPointerLeave"
+> {
+  const { leaving, sessionId, title, onPreviewEnter, onPreviewLeave } = args;
+  if (leaving || onPreviewEnter === undefined) return {};
+  return {
+    onPointerEnter: (e: React.PointerEvent<HTMLDivElement>) =>
+      onPreviewEnter({
+        sessionId,
+        title,
+        rect: e.currentTarget.getBoundingClientRect(),
+      }),
+    onPointerLeave: onPreviewLeave,
   };
 }
 
@@ -726,6 +802,31 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
     [keepEnabled],
   );
 
+  // ---- 气泡内容弹框（ADR-0028，PRD 14 工单 02/03）------------------------
+  // hover 旁路状态机（防抖浮现/宽限隐藏/即时切泡）与 fetch 缓存都在
+  // SessionBubblePreview 模块；列表层只做原料注入——从 rawState 取该会话
+  // updatedAt（缓存键原料，新活动自动失效）与 isCurrent（当前会话点击
+  // 跳转是 no-op，与点击气泡语义一致）。
+  const preview = useBubblePreview();
+  const handlePreviewEnter = useCallback(
+    (request: PreviewRequest) => {
+      const summary = rawState?.byId[request.sessionId as SessionId];
+      preview.onBubbleEnter({
+        ...request,
+        updatedAt: summary?.updatedAt ?? 0,
+        isCurrent: request.sessionId === current,
+      });
+    },
+    [rawState, current, preview.onBubbleEnter],
+  );
+  // 胶囊点击 = 与点击气泡同一跳转路径（sessions.open + kept 记账，ADR-0022 D1
+  // 语义统一），跳转后收起弹框；当前会话 no-op（仅收起）。
+  const handlePreviewOpen = useCallback(() => {
+    const t = preview.target;
+    preview.close();
+    if (t !== null && !t.isCurrent) handleOpen(t.sessionId);
+  }, [preview.target, preview.close, handleOpen]);
+
   // 计算可见顶层组：折叠态按 maxVisible 截取，展开态显示全部。
   // 始终计算折叠结果以驱动 MoreBubble 显示（折叠时「+N」/ 展开时「收起」）。
   // 两处调用共用保留上下文（ADR-0022 D1：kept/dismissed 过滤在纯逻辑层）。
@@ -911,6 +1012,8 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
               onDismiss={
                 rootDraggable ? () => handleDismiss(group.rootId) : undefined
               }
+              onPreviewEnter={handlePreviewEnter}
+              onPreviewLeave={preview.onBubbleLeave}
             />
             {groupEffectiveExpanded &&
               group.members.map((member) => {
@@ -930,6 +1033,8 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
                         ? () => handleDismiss(member.sessionId)
                         : undefined
                     }
+                    onPreviewEnter={handlePreviewEnter}
+                    onPreviewLeave={preview.onBubbleLeave}
                   />
                 );
               })}
@@ -977,6 +1082,21 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
         />
       )}
       </div>
+      {/* 气泡内容弹框（ADR-0028）：portal 挂 body 的瞬态浮层，hover 命中才挂载 */}
+      {preview.target !== null && (
+        <SessionBubblePopup
+          target={preview.target}
+          data={preview.data}
+          failed={preview.failed}
+          hoveredIndex={preview.hoveredIndex}
+          capsulesExpanded={preview.capsulesExpanded}
+          onPopupEnter={preview.onPopupEnter}
+          onPopupLeave={preview.onPopupLeave}
+          onCapsuleHover={preview.onCapsuleHover}
+          onToggleCapsules={preview.onToggleCapsules}
+          onOpenSession={handlePreviewOpen}
+        />
+      )}
     </Fragment>
   );
 }

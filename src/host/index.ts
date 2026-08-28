@@ -16,20 +16,24 @@
 import type { Context } from "@deepseek-ai/cordis";
 import { registerAssetRoutes } from "./asset-routes.ts";
 import { registerImportApi } from "./import-api.ts";
+import { registerSessionMessagesRoute } from "./session-messages.ts";
 
 /** Stable cordis plugin name（匹配 cordis.patch.yml 的 insert id）. */
 export const name = "dsh-jx";
 
-/** 激活前所需的宿主服务：webServer 提供路由注册，storageDomain 提供 KV 元数据存储. */
-export const inject = ["webServer", "storageDomain"];
+/** 激活前所需的宿主服务：webServer 提供路由注册，storageDomain 提供 KV 元数据存储，
+ * sessionController 提供无副作用会话读面（气泡内容弹框数据源，ADR-0028）。 */
+export const inject = ["webServer", "storageDomain", "sessionController"];
 
 /**
- * Host plugin body. 注册素材路由（工单 02）与导入 API（工单 07）；路由通过 `ctx.effect`
- * 托管，fiber 卸载时自动清理。导入 API 打开 KV domain（async），故 apply 为 async。
+ * Host plugin body. 注册素材路由（工单 02）、导入 API（工单 07）与会话问话路由
+ * （PRD 14 工单 01）；路由通过 `ctx.effect` 托管，fiber 卸载时自动清理。
+ * 导入 API 打开 KV domain（async），故 apply 为 async。
  *
  * @param ctx - cordis host root context（含 ctx.webServer.register 与 ctx.storageDomain）。
  */
 export async function apply(ctx: Context): Promise<void> {
   registerAssetRoutes(ctx);
+  registerSessionMessagesRoute(ctx);
   await registerImportApi(ctx);
 }

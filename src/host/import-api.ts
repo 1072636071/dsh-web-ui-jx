@@ -39,6 +39,7 @@ import {
   type AssetType,
   type ImportSource,
 } from "./storage-domain.ts";
+import { writeJson } from "./json-response.ts";
 import { resolveAssetsRoot } from "./paths.ts";
 
 /** 导入 API 路由前缀（比素材路由 `/api/dsh-jx` 更长，longest-prefix-wins 优先匹配）。 */
@@ -91,16 +92,6 @@ function readBody(
       if (!rejected) reject(err);
     });
   });
-}
-
-/** 写 JSON 响应。 */
-function writeJson(res: ServerResponse, status: number, body: unknown): void {
-  const data = Buffer.from(JSON.stringify(body), "utf8");
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "content-length": String(data.length),
-  });
-  res.end(data);
 }
 
 /** 当前 ISO-8601 时间戳。 */
