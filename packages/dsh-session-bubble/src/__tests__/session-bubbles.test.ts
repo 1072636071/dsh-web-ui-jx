@@ -76,6 +76,7 @@ function entry(
   return {
     sessionId,
     title: opts.title,
+    updatedAt: 0,
     running: opts.running ?? false,
     completed: opts.completed ?? false,
     ...(opts.pendingInteraction !== undefined
@@ -107,6 +108,7 @@ function legacyFlatSelect(
     filtered.push({
       sessionId: item.sessionId,
       title: item.title,
+      updatedAt: item.updatedAt,
       running: item.running,
       completed: item.completed,
       pendingInteraction: item.pendingInteraction,
@@ -151,6 +153,7 @@ function gentry(
   return {
     sessionId,
     title: opts.title,
+    updatedAt: 0,
     running: opts.running ?? false,
     completed: opts.completed ?? false,
     ...(opts.pendingInteraction !== undefined

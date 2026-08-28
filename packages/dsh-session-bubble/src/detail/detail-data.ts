@@ -16,8 +16,7 @@
 import type { ContentBlock, HistoryEntry, IApiClient } from "@deepseek-ai/dsh-client-connection/client";
 import type { SessionEvent, SessionId } from "@deepseek-ai/dsh-session/types";
 import {
-  deriveEventMessage,
-  isSurfaceEvent,
+  isSurfaceEligibleType,
 } from "@deepseek-ai/dsh-session/surface";
 
 // ---------------------------------------------------------------------------
@@ -76,13 +75,42 @@ function extractVisibleText(content: readonly ContentBlock[] | undefined): strin
 /**
  * 从单个 surface 事件提取可见文本；空内容 / usage-only assistant 返回空字符串。
  *
- * 使用 deriveEventMessage（与 Session.deriveMessages 同规则）保证角色与内容
- * 解读和宿主一致。
+ * 直接访问 event.data 字段（与 dsh-session-title 的 collectSessionTitleMessages
+ * 同策略），不经过 deriveEventMessage——后者要求完整的 Message 结构，
+ * session.history 返回的持久化事件可能不满足该假设。
  */
 function textFromEvent(event: SessionEvent): string {
-  const message = deriveEventMessage(event);
-  if (!message) return "";
-  return extractVisibleText(message.content);
+  switch (event.type) {
+    case "user/message": {
+      // 直接访问 event.data.content（官方实现方式）
+      const data = event.data as Record<string, unknown>;
+      const content = data.content;
+      if (Array.isArray(content)) {
+        return extractVisibleText(content as ContentBlock[]);
+      }
+      return "";
+    }
+    case "assistant/message": {
+      // assistant/message 的 data 是 { turn, step, message: AssistantMessage, usage? }
+      const data = event.data as Record<string, unknown>;
+      const message = data.message as Record<string, unknown> | undefined;
+      if (message && Array.isArray(message.content)) {
+        return extractVisibleText(message.content as ContentBlock[]);
+      }
+      return "";
+    }
+    case "tool/result": {
+      // tool/result 的 data 是 { turn, step, message: ToolResultMessage, error?, meta? }
+      const data = event.data as Record<string, unknown>;
+      const message = data.message as Record<string, unknown> | undefined;
+      if (message && Array.isArray(message.content)) {
+        return extractVisibleText(message.content as ContentBlock[]);
+      }
+      return "";
+    }
+    default:
+      return "";
+  }
 }
 
 /**
@@ -124,7 +152,7 @@ export function extractPreview({
       hasChunk = true;
       continue;
     }
-    if (!isSurfaceEvent(event)) continue;
+    if (!isSurfaceEligibleType(event.type)) continue;
 
     const text = textFromEvent(event);
     if (event.type === "user/message") {

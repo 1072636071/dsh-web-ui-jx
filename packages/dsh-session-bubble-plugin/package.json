@@ -20,7 +20,8 @@
   "license": "Apache-2.0",
   "scripts": {
     "build": "vite build && vite build --mode client",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dsh": {
     "bundle": {

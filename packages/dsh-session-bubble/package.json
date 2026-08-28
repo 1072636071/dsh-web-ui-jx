@@ -14,12 +14,13 @@
   "files": [
     "dist",
     "src",
-    "!src/__tests__"
+    "!src/**/__tests__"
   ],
   "license": "Apache-2.0",
   "scripts": {
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
     "react": "^18.2.0",

@@ -919,9 +919,21 @@ export function SessionBubbleList({
 }: SessionBubbleListProps) {
   // 订阅 sessions.list 原始快照（SDK store 保证稳定引用，避免无限重渲染）。
   // sessions 缺省时订阅 noop、getSnapshot 返回 undefined。
+  // 宿主 store 的 subscribe/getSnapshot 是新版类方法、依赖 this；useSyncExternalStore
+  // 是以无 this 的裸引用调用它们（DSH 更新后 workspaces.list 即为该形态），故先绑定为稳定引用。
+  const sessionsSource = useMemo(
+    () =>
+      sessions
+        ? {
+            subscribe: sessions.list.subscribe.bind(sessions.list),
+            getSnapshot: sessions.list.getSnapshot.bind(sessions.list),
+          }
+        : undefined,
+    [sessions],
+  );
   const rawState: SessionListState | undefined = useSyncExternalStore(
-    sessions ? sessions.list.subscribe : noopSubscribe,
-    sessions ? sessions.list.getSnapshot : undefinedGetSnapshot,
+    sessionsSource ? sessionsSource.subscribe : noopSubscribe,
+    sessionsSource ? sessionsSource.getSnapshot : undefinedGetSnapshot,
   );
 
   // 订阅上限配置（即时生效）。
@@ -952,9 +964,22 @@ export function SessionBubbleList({
   // 订阅 workspaces.list 快照（ADR-0022 D8，工单03）：归档权威在 SDK——
   // archivedSessionIds 每次从宿主快照派生，本地不重复记账归档态。workspaces
   // 缺省时订阅 noop、快照 undefined ⇒ 排除集为空（收起区不受影响）。
+  // 与 sessionsSource 同理：宿主 workspaces.list 是依赖 this 的类实例
+  // （WorkspaceControllerModel），useSyncExternalStore 裸引用调用会以
+  // this=undefined 触发 getSnapshot → refreshSnapshot 抛错，故绑定为稳定引用。
+  const workspacesSource = useMemo(
+    () =>
+      workspaces
+        ? {
+            subscribe: workspaces.list.subscribe.bind(workspaces.list),
+            getSnapshot: workspaces.list.getSnapshot.bind(workspaces.list),
+          }
+        : undefined,
+    [workspaces],
+  );
   const rawWorkspaceState = useSyncExternalStore(
-    workspaces ? workspaces.list.subscribe : noopSubscribe,
-    workspaces ? workspaces.list.getSnapshot : undefinedGetSnapshot,
+    workspacesSource ? workspacesSource.subscribe : noopSubscribe,
+    workspacesSource ? workspacesSource.getSnapshot : undefinedGetSnapshot,
   );
 
   // 组装投影上下文：两处 buildBubbleGroups 调用共用。恒传 context——开关关
