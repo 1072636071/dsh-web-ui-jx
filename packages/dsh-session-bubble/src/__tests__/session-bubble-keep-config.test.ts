@@ -139,3 +139,65 @@ describe("完成见闻集存储：写失败静默降级（工单 02 AC1 / 故事
     setItem.mockRestore();
   });
 });
+
+describe("记账集合：跨标签页同步（17-02 新能力）", () => {
+  it("storage 事件改 kept 集 ⇒ 快照更新 + 订阅通知", async () => {
+    const mod = await load();
+    const listener = vi.fn();
+    mod.subscribeKept(listener);
+
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: STORAGE_KEYS.kept,
+        newValue: JSON.stringify(["k1", "k2"]),
+      }),
+    );
+    expect(mod.getKeptSnapshot()).toEqual(new Set(["k1", "k2"]));
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("非法值 / 同值 ⇒ 不生效", async () => {
+    const mod = await load();
+    const listener = vi.fn();
+    mod.subscribeKept(listener);
+
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: STORAGE_KEYS.kept, newValue: "garbage" }),
+    );
+    expect(mod.getKeptSnapshot().size).toBe(0);
+    expect(listener).not.toHaveBeenCalled();
+
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: STORAGE_KEYS.kept,
+        newValue: JSON.stringify(["a"]),
+      }),
+    );
+    expect(mod.getKeptSnapshot()).toEqual(new Set(["a"]));
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // 同值事件不重复通知
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: STORAGE_KEYS.kept,
+        newValue: JSON.stringify(["a"]),
+      }),
+    );
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("其他键的 storage 事件不影响本实例", async () => {
+    const mod = await load();
+    const listener = vi.fn();
+    mod.subscribeSeen(listener);
+
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "jx-unrelated",
+        newValue: JSON.stringify(["x"]),
+      }),
+    );
+    expect(mod.getSeenSnapshot().size).toBe(0);
+    expect(listener).not.toHaveBeenCalled();
+  });
+});

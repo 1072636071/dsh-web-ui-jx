@@ -79,36 +79,24 @@ export function setMaxSessionBubbles(value: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// 轻量 store（供 SessionBubbleList useSyncExternalStore 订阅，即时生效）
+// 订阅 / 快照（直接桥接工厂：number 原始值天然稳定，无第二层 store）
 // ---------------------------------------------------------------------------
 
-let cachedMax = maxSessionBubbles.get();
-const maxListeners = new Set<() => void>();
-
-maxSessionBubbles.subscribe((value) => {
-  if (value === cachedMax) return;
-  cachedMax = value;
-  for (const listener of maxListeners) listener();
-});
-
 /**
- * 订阅上限变化（供 useSyncExternalStore）。
+ * 订阅上限变化（供 useSyncExternalStore；工厂值参订阅桥接为零参）。
  *
  * @param listener - 变化回调。
  * @returns 取消订阅函数。
  */
 export function subscribeMaxSessionBubbles(listener: () => void): () => void {
-  maxListeners.add(listener);
-  return () => {
-    maxListeners.delete(listener);
-  };
+  return maxSessionBubbles.subscribe(() => listener());
 }
 
 /**
- * 取当前上限快照（供 useSyncExternalStore，稳定值语义）。
+ * 取当前上限快照（供 useSyncExternalStore，number 原始值稳定语义）。
  *
  * @returns 钳制到 [1,10] 的上限值。
  */
 export function getMaxSessionBubblesSnapshot(): number {
-  return cachedMax;
+  return maxSessionBubbles.get();
 }

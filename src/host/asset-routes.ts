@@ -16,9 +16,10 @@
  */
 
 import { readFile, stat } from "node:fs/promises";
-import { extname, isAbsolute, join, normalize, relative } from "node:path";
+import { extname, join } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Context } from "@deepseek-ai/cordis";
+import { parseUrlPathname, resolveSafeSubpath } from "./http-shared.ts";
 import { resolveAssetsRoot } from "./paths.ts";
 
 /** 路由前缀（无 trailing slash，符合 webServer.register 的 path 约定）。 */
@@ -33,36 +34,6 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = Object.freeze({
 
 /** 固化的素材根目录（模块加载时探测一次）。 */
 const ASSETS_ROOT = resolveAssetsRoot();
-
-/**
- * 解析并校验子路径，返回相对 ASSETS_ROOT 的安全相对路径；非法则返回 null。
- *
- * 校验顺序：decode → null 字节 → `..` 段 → 边界检查（normalize 后仍在 ASSETS_ROOT 内）。
- * 任一失败返回 null，由调用方决定状态码（路径穿越类统一 400）。
- *
- * 与 `import-api.ts#isSafeRelativePath` 的关系：两者都做路径穿越防御但语义不同。
- * 本函数更严格（`subpath.includes('..')` 拒绝任何字面 `..`，含 `foo..bar`），
- * 用于素材路由的纵深防御；`isSafeRelativePath` 更精确（只拒绝 `..` 段），用于
- * zip entry 与目录遍历。差异是有意的，详见 `src/host/paths.ts` 注释。
- */
-function resolveSafeSubpath(pathname: string): string | null {
-  // pathname 已是 URL.pathname（不含 query）；slice 掉前缀与斜杠得到子路径编码段。
-  const encodedSub = pathname.slice(ASSET_ROUTE_PREFIX.length + 1);
-  let subpath: string;
-  try {
-    subpath = decodeURIComponent(encodedSub);
-  } catch {
-    // malformed %-escape
-    return null;
-  }
-  // null 字节与 `..` 段一律拒绝（路径穿越防御）。`..` 字面检查覆盖 %2e%2e 解码后的形态。
-  if (subpath.includes("\0") || subpath.includes("..")) return null;
-  // normalize 后再次确认仍在 ASSETS_ROOT 内（纵深防御，覆盖 Windows 盘符 / 绝对路径等边界）。
-  const resolved = normalize(join(ASSETS_ROOT, subpath));
-  const rel = relative(ASSETS_ROOT, resolved);
-  if (rel.startsWith("..") || isAbsolute(rel)) return null;
-  return rel;
-}
 
 /**
  * 素材路由 handler。读取本地文件并返回字节流；非法路径 / 缺失 / 未知类型分别回 400 / 404 / 404。
@@ -81,10 +52,8 @@ async function handleAssetRequest(
   }
 
   // 解析 pathname（webServer 已做过，但 handler 收到原始 req，这里独立解析以拿 query 之外的纯路径）。
-  let pathname: string;
-  try {
-    pathname = new URL(req.url ?? "/", "http://x").pathname;
-  } catch {
+  const pathname = parseUrlPathname(req.url);
+  if (pathname === null) {
     res.writeHead(400);
     res.end();
     return;
@@ -97,7 +66,7 @@ async function handleAssetRequest(
     return;
   }
 
-  const subpath = resolveSafeSubpath(pathname);
+  const subpath = resolveSafeSubpath(pathname, ASSET_ROUTE_PREFIX, ASSETS_ROOT);
   if (subpath === null) {
     res.writeHead(400);
     res.end();

@@ -1,12 +1,19 @@
 /**
  * welcome-backdrop-config — 欢迎背景配置（ADR-0024 D3）。
  *
- * 四个持久化项，均读写 localStorage('jx-*')，容错对齐 skin.ts /
- * session-bubbles-config.ts：读失败回落默认、写失败静默忽略。
+ * 架构优化（17-03）起：持久化 / 订阅 / 跨标签页同步统一由
+ * `persistent-setting.ts` 工厂承载（此前 9 项配置各自裸触 localStorage，缺失
+ * 跨标签页同步，与 skin / overlay-settings 不一致）。本模块退化为声明层：9 个
+ * 工厂实例（总开关 1 + 不透明度 3 + 区域 alpha 5）+ subscribeBackdrop 桥接
+ * （任一实例变化即通知共享订阅者）。
+ *
+ * 存储格式（既有契约，零迁移）：
  *   - 总开关：'jx-backdrop'（'on'/'off'，默认 on）
  *   - 壁纸不透明度：'jx-backdrop-wall'（0–100 整数，默认 100）
  *   - 面板不透明度：'jx-backdrop-panel'（0–100 整数，默认 50）
- *   - 压暗浓度：'jx-backdrop-veil'（0–100 整数，默认 25；深色叠暗纱/浅色叠白纱）
+ *   - 压暗浓度：'jx-backdrop-veil'（0–100 整数，默认 25）
+ *   - 五区域 alpha：'jx-backdrop-sidebar/input/bubble/tip/selector'
+ *     （0–100 整数，默认 50）
  *
  * 面板不透明度驱动 L2 的 --jx-panel-alpha（jiangxiao.css 中 --jx-surface-*
  * 以 rgb(R G B / var(--jx-panel-alpha)) 形态消费）；壁纸不透明度驱动背景层
@@ -15,6 +22,8 @@
  *
  * @module dsh-web-ui-jx/client
  */
+
+import { createPersistentSetting } from "../../packages/dsh-session-bubble/src/index.ts";
 
 /** 总开关 localStorage 键名（对齐 jx-skin 命名）。 */
 const ENABLED_KEY = "jx-backdrop";
@@ -83,220 +92,186 @@ export function clampBackdropOpacity(
   );
 }
 
-/**
- * 读取欢迎背景总开关（默认开）。
- *
- * @returns true = 开启。
- */
+/** 不透明度 parse（工厂语义：非法/非有限数返回 undefined 回落默认）。 */
+function parseOpacity(fallback: number): (raw: string) => number | undefined {
+  return (raw) => {
+    const n = Number(raw);
+    return Number.isFinite(n) ? clampBackdropOpacity(n, fallback) : undefined;
+  };
+}
+
+/** 总开关设置实例（"on"/"off" 格式，默认开，ADR-0024 D3）。 */
+const backdropEnabled = createPersistentSetting<boolean>(ENABLED_KEY, {
+  parse: (raw) => {
+    if (raw === "on") return true;
+    if (raw === "off") return false;
+    return undefined;
+  },
+  default: DEFAULT_BACKDROP_ENABLED,
+});
+
+/** 壁纸不透明度设置实例（%）。 */
+const wallOpacity = createPersistentSetting<number>(WALL_OPACITY_KEY, {
+  parse: parseOpacity(DEFAULT_WALL_OPACITY),
+  default: DEFAULT_WALL_OPACITY,
+});
+
+/** 面板不透明度设置实例（%）。 */
+const panelOpacity = createPersistentSetting<number>(PANEL_OPACITY_KEY, {
+  parse: parseOpacity(DEFAULT_PANEL_OPACITY),
+  default: DEFAULT_PANEL_OPACITY,
+});
+
+/** 压暗浓度设置实例（%）。 */
+const veilOpacity = createPersistentSetting<number>(VEIL_OPACITY_KEY, {
+  parse: parseOpacity(DEFAULT_VEIL_OPACITY),
+  default: DEFAULT_VEIL_OPACITY,
+});
+
+/** 区域 alpha 设置工厂（ADR-0025 D1：五区域共用读写/钳制/通知模式）。 */
+function createRegionSetting(key: string) {
+  return createPersistentSetting<number>(key, {
+    parse: parseOpacity(DEFAULT_REGION_ALPHA),
+    default: DEFAULT_REGION_ALPHA,
+  });
+}
+
+const sidebarAlpha = createRegionSetting(SIDEBAR_ALPHA_KEY);
+const inputAlpha = createRegionSetting(INPUT_ALPHA_KEY);
+const bubbleAlpha = createRegionSetting(BUBBLE_ALPHA_KEY);
+const tipAlpha = createRegionSetting(TIP_ALPHA_KEY);
+const selectorAlpha = createRegionSetting(SELECTOR_ALPHA_KEY);
+
+/** 全部设置实例（桥接订阅 / 重读共用）。 */
+const ALL_SETTINGS = [
+  backdropEnabled,
+  wallOpacity,
+  panelOpacity,
+  veilOpacity,
+  sidebarAlpha,
+  inputAlpha,
+  bubbleAlpha,
+  tipAlpha,
+  selectorAlpha,
+];
+
+// ---------------------------------------------------------------------------
+// 配置读写（薄委托至工厂实例；setXxx 保持返回钳制后实际值的既有契约）
+// ---------------------------------------------------------------------------
+
+/** 读取欢迎背景总开关（默认开）。 */
 export function getBackdropEnabled(): boolean {
-  try {
-    const stored = localStorage.getItem(ENABLED_KEY);
-    if (stored === "off") return false;
-    if (stored === "on") return true;
-  } catch {
-    // localStorage 不可用，回退默认。
-  }
-  return DEFAULT_BACKDROP_ENABLED;
+  return backdropEnabled.get();
 }
 
-/**
- * 写入欢迎背景总开关并持久化。
- *
- * @param enabled - 开/关。
- */
+/** 写入欢迎背景总开关并持久化（"on"/"off"）。 */
 export function setBackdropEnabled(enabled: boolean): void {
-  try {
-    localStorage.setItem(ENABLED_KEY, enabled ? "on" : "off");
-  } catch {
-    // localStorage 不可用，静默忽略（仅本次会话生效）。
-  }
-  notifyBackdropListeners();
+  backdropEnabled.set(enabled);
 }
 
-/**
- * 读取壁纸不透明度（%，钳制 0–100，默认 85）。
- *
- * @returns 0–100 整数。
- */
+/** 读取壁纸不透明度（%，钳制 0–100，默认 100）。 */
 export function getWallOpacity(): number {
-  try {
-    const raw = localStorage.getItem(WALL_OPACITY_KEY);
-    if (raw === null) return DEFAULT_WALL_OPACITY;
-    return clampBackdropOpacity(Number(raw), DEFAULT_WALL_OPACITY);
-  } catch {
-    return DEFAULT_WALL_OPACITY;
-  }
+  return wallOpacity.get();
 }
 
 /**
  * 写入壁纸不透明度（越界自动钳制）并持久化。
  *
- * @param value - 待写入值（%）。
  * @returns 钳制后实际写入的值（供调用方即时更新视图状态）。
  */
 export function setWallOpacity(value: number): number {
   const clamped = clampBackdropOpacity(value, DEFAULT_WALL_OPACITY);
-  try {
-    localStorage.setItem(WALL_OPACITY_KEY, String(clamped));
-  } catch {
-    // localStorage 不可用，静默忽略（仅本次会话生效）。
-  }
-  notifyBackdropListeners();
+  wallOpacity.set(clamped);
   return clamped;
 }
 
-/**
- * 读取面板不透明度（%，钳制 0–100，默认 75）。
- *
- * @returns 0–100 整数。
- */
+/** 读取面板不透明度（%，钳制 0–100，默认 50）。 */
 export function getPanelOpacity(): number {
-  try {
-    const raw = localStorage.getItem(PANEL_OPACITY_KEY);
-    if (raw === null) return DEFAULT_PANEL_OPACITY;
-    return clampBackdropOpacity(Number(raw), DEFAULT_PANEL_OPACITY);
-  } catch {
-    return DEFAULT_PANEL_OPACITY;
-  }
+  return panelOpacity.get();
 }
 
-/**
- * 写入面板不透明度（越界自动钳制）并持久化。
- *
- * @param value - 待写入值（%）。
- * @returns 钳制后实际写入的值（供调用方即时更新视图状态）。
- */
+/** 写入面板不透明度（越界自动钳制）并持久化，返回实际写入值。 */
 export function setPanelOpacity(value: number): number {
   const clamped = clampBackdropOpacity(value, DEFAULT_PANEL_OPACITY);
-  try {
-    localStorage.setItem(PANEL_OPACITY_KEY, String(clamped));
-  } catch {
-    // localStorage 不可用，静默忽略（仅本次会话生效）。
-  }
-  notifyBackdropListeners();
+  panelOpacity.set(clamped);
   return clamped;
 }
 
+/** 读取压暗浓度（%，钳制 0–100，默认 25）。 */
+export function getVeilOpacity(): number {
+  return veilOpacity.get();
+}
+
 /**
- * 读取压暗浓度（%，钳制 0–100，默认 25）。
+ * 写入压暗浓度（越界自动钳制）并持久化，返回实际写入值。
  *
  * 该值驱动压纱层（veil）的 alpha：深色主题叠暗纱、浅色主题叠白纱，
  * 浓度越高纱越厚、文字对比越强、壁纸越被压暗。
- *
- * @returns 0–100 整数。
- */
-export function getVeilOpacity(): number {
-  try {
-    const raw = localStorage.getItem(VEIL_OPACITY_KEY);
-    if (raw === null) return DEFAULT_VEIL_OPACITY;
-    return clampBackdropOpacity(Number(raw), DEFAULT_VEIL_OPACITY);
-  } catch {
-    return DEFAULT_VEIL_OPACITY;
-  }
-}
-
-/**
- * 写入压暗浓度（越界自动钳制）并持久化。
- *
- * @param value - 待写入值（%）。
- * @returns 钳制后实际写入的值（供调用方即时更新视图状态）。
  */
 export function setVeilOpacity(value: number): number {
   const clamped = clampBackdropOpacity(value, DEFAULT_VEIL_OPACITY);
-  try {
-    localStorage.setItem(VEIL_OPACITY_KEY, String(clamped));
-  } catch {
-    // localStorage 不可用，静默忽略（仅本次会话生效）。
-  }
-  notifyBackdropListeners();
+  veilOpacity.set(clamped);
   return clamped;
 }
 
-/**
- * 区域 alpha 存储工厂（ADR-0025 D1）：五区域共用同一读写/钳制/通知模式，
- * 消除十函数同构重复（审查意见 Duplicated Code）。
- *
- * @param key - localStorage 键名。
- * @returns `[read, write]`：读回钳制后的 0–100 整数；写持久化并通知订阅者，
- *   返回实际写入值。
- */
-function createRegionAlphaStore(key: string): [() => number, (value: number) => number] {
-  const read = (): number => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw === null) return DEFAULT_REGION_ALPHA;
-      return clampBackdropOpacity(Number(raw), DEFAULT_REGION_ALPHA);
-    } catch {
-      return DEFAULT_REGION_ALPHA;
-    }
-  };
-  const write = (value: number): number => {
-    const clamped = clampBackdropOpacity(value, DEFAULT_REGION_ALPHA);
-    try {
-      localStorage.setItem(key, String(clamped));
-    } catch {
-      // localStorage 不可用，静默忽略（仅本次会话生效）。
-    }
-    notifyBackdropListeners();
-    return clamped;
-  };
-  return [read, write];
-}
-
-const [readSidebarAlpha, writeSidebarAlpha] = createRegionAlphaStore(SIDEBAR_ALPHA_KEY);
-const [readInputAlpha, writeInputAlpha] = createRegionAlphaStore(INPUT_ALPHA_KEY);
-const [readBubbleAlpha, writeBubbleAlpha] = createRegionAlphaStore(BUBBLE_ALPHA_KEY);
-const [readTipAlpha, writeTipAlpha] = createRegionAlphaStore(TIP_ALPHA_KEY);
-const [readSelectorAlpha, writeSelectorAlpha] = createRegionAlphaStore(SELECTOR_ALPHA_KEY);
-
 /** 读取侧栏区域 alpha（%，钳制 0–100，默认 50）。 */
 export function getSidebarAlpha(): number {
-  return readSidebarAlpha();
+  return sidebarAlpha.get();
 }
 
 /** 写入侧栏区域 alpha（越界钳制）并持久化，返回实际写入值。 */
 export function setSidebarAlpha(value: number): number {
-  return writeSidebarAlpha(value);
+  const clamped = clampBackdropOpacity(value, DEFAULT_REGION_ALPHA);
+  sidebarAlpha.set(clamped);
+  return clamped;
 }
 
 /** 读取输入栏区域 alpha（%，钳制 0–100，默认 50）。 */
 export function getInputAlpha(): number {
-  return readInputAlpha();
+  return inputAlpha.get();
 }
 
 /** 写入输入栏区域 alpha（越界钳制）并持久化，返回实际写入值。 */
 export function setInputAlpha(value: number): number {
-  return writeInputAlpha(value);
+  const clamped = clampBackdropOpacity(value, DEFAULT_REGION_ALPHA);
+  inputAlpha.set(clamped);
+  return clamped;
 }
 
 /** 读取用户气泡区域 alpha（%，钳制 0–100，默认 50）。 */
 export function getBubbleAlpha(): number {
-  return readBubbleAlpha();
+  return bubbleAlpha.get();
 }
 
 /** 写入用户气泡区域 alpha（越界钳制）并持久化，返回实际写入值。 */
 export function setBubbleAlpha(value: number): number {
-  return writeBubbleAlpha(value);
+  const clamped = clampBackdropOpacity(value, DEFAULT_REGION_ALPHA);
+  bubbleAlpha.set(clamped);
+  return clamped;
 }
 
 /** 读取目标/Todo/Queue 卡区域 alpha（%，钳制 0–100，默认 50）。 */
 export function getTipAlpha(): number {
-  return readTipAlpha();
+  return tipAlpha.get();
 }
 
 /** 写入目标/Todo/Queue 卡区域 alpha（越界钳制）并持久化，返回实际写入值。 */
 export function setTipAlpha(value: number): number {
-  return writeTipAlpha(value);
+  const clamped = clampBackdropOpacity(value, DEFAULT_REGION_ALPHA);
+  tipAlpha.set(clamped);
+  return clamped;
 }
 
 /** 读取附件钮区域 alpha（%，钳制 0–100，默认 50）。 */
 export function getSelectorAlpha(): number {
-  return readSelectorAlpha();
+  return selectorAlpha.get();
 }
 
 /** 写入附件钮区域 alpha（越界钳制）并持久化，返回实际写入值。 */
 export function setSelectorAlpha(value: number): number {
-  return writeSelectorAlpha(value);
+  const clamped = clampBackdropOpacity(value, DEFAULT_REGION_ALPHA);
+  selectorAlpha.set(clamped);
+  return clamped;
 }
 
 // ---------------------------------------------------------------------------
@@ -305,9 +280,14 @@ export function setSelectorAlpha(value: number): number {
 
 const backdropListeners = new Set<() => void>();
 
-/** 通知所有订阅者（配置写入后调用；订阅方自行重读快照）。 */
+/** 通知所有订阅者（任一设置实例变化后调用；订阅方自行重读快照）。 */
 function notifyBackdropListeners(): void {
   for (const listener of backdropListeners) listener();
+}
+
+/** 桥接：任一设置实例变化即转发共享订阅者（含跨标签页同步触发的变化）。 */
+for (const setting of ALL_SETTINGS) {
+  setting.subscribe(notifyBackdropListeners);
 }
 
 /**
@@ -321,4 +301,16 @@ export function subscribeBackdrop(listener: () => void): () => void {
   return () => {
     backdropListeners.delete(listener);
   };
+}
+
+/**
+ * 从持久化重读全部设置（初始化/恢复语义，对齐 initSkin）。
+ *
+ * 工厂实例是内存缓存，初始化一次后经 get() 读缓存；本函数供 apply 入口或
+ * 测试（清 localStorage 后）重置缓存以对齐持久化状态。
+ */
+export function reloadBackdropConfig(): void {
+  for (const setting of ALL_SETTINGS) {
+    setting.reload();
+  }
 }
