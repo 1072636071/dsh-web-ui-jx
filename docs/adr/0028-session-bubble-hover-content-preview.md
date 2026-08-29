@@ -35,6 +35,6 @@
 - 点击胶囊跳转 `sessions.open(id)`；会话内**精确定位到某条问话**官方 API 暂无能力，作为已知限制记录（见「附注」），seq 先随胶囊数据下发留待官方开放后补定位；
 - 弹框为纯新增 UI（胶囊列 + 详情区），与既有气泡点击/拖拽/保留模式正交；hover 弹框与整盒拖动经 `data-jx-interactive` 分流。
 
-## 附注：定位能力已知限制（调查工单 003）
+## 附注：定位能力已知限制（调查工单 003 + 004 深挖）
 
-官方内部 UI 数据层有锚点（`chat-nodes.ts` anchorSeq、`data-chat-anchor-key`），但 `ui-chat` 无「外部指定目标消息后滚动到它」的初始化路径；URL/hash 消息锚点在独立前端仓库；`ctx.sessions.open(id)` 只接受 id。插件**无法**通过现有官方 API 实现「打开会话并滚动到指定问话」。需官方后续开放（如 `ISessions.open` 携带 focus、ui-chat 消费 `viewRequest.focus`、或前端 URL 消息锚点）。本 ADR 先将每条问话的 seq 随胶囊下发，留待定位能力就绪后接线。
+官方内部 UI 数据层有锚点（`chat-nodes.ts` anchorSeq、`data-chat-anchor-key`），但 2026-08-28 调研工单 004 钉死：该锚点机制是**视口稳定**（重开还原/loadOlder 防跳/TurnNavigator），非「外部指定消息跳过去」的功能；查询只在已渲染 DOM 行内进行，锚 key 含消息 id 非 seq；`chatScroll` 为闭包私有纯内存。**官方产品自身亦无消息级定位**——搜索点击仅 `sessions.open(id)`，源码注释明示 "does not address an event inside the conversation"（`Rows.tsx:303-304`）。`ctx.sessions.open(id)` 只接受 id；现成的 `viewRequest` focus 管线仅 TrajectoryView 消费，ChatView 不接。插件侧曾评估 `conversation.chat.turnTail` 零改动暗道，因与官方滚动补偿竞争、精度仅到 Turn 尾部而**明确不采用**。官方最小开口：ChatView 消费 `viewRequest('chat')`（~10 行）或 `open(id, {focusSeq})`。本 ADR 先将每条问话的 seq 随胶囊下发，留待定位能力就绪后接线。证据与结论：`docs/memorial/014-bubble-hover-preview-last-message/sub-task/004-official-locate-internals.md`、`.scratch/14-session-bubble-content-preview/research-official-locate.md`。
