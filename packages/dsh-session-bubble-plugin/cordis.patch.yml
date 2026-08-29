@@ -1,0 +1,14 @@
+# dsh-session-bubble-plugin bundle patch: 将会话气泡薄壳插件插入 web profile roster。
+# 作为 profile bundle 层应用（package.json 的 dsh.bundle.patch 字段指向本文件）；
+# 安装方式：`dsh plugin --profile web add link:<repo>/dsh-session-bubble-plugin` 或 npm publish 后 add。
+#
+# 单行挂载：
+#   - host 半区（exports "."）在宿主进程加载：薄壳为最小空实现（cordis 加载
+#     bundle 插件需要 exports "." 入口），不注册任何路由/API。
+#   - browser 半区（exports "./client"，经 package.json 的 dsh.client 声明，
+#     经 /plugins/dsh-session-bubble-plugin/client.js 服务）在 web GUI 加载：
+#     极简 fixed 容器承载 dsh-session-bubble 气泡列（归组/保留/拖拽/跨刷新留存
+#     全部由库提供）。
+- insert:
+    - id: dsh-session-bubble-plugin
+      name: "dsh-session-bubble-plugin"

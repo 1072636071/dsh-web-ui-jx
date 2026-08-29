@@ -74,17 +74,17 @@ function inlineClientCss(): Plugin {
  * dsh-web-ui-jx 构建配置：产出 host/client 双半区产物。
  *
  * - host 半区：src/host/index.ts → lib/index.js（Node ESM，对应 exports "."）
- * - client 半区：src/client/index.ts → lib/client.js（浏览器 ESM，对应 exports "./client"）
+ * - client 半区：src/client/index.ts → lib/client.js（浏览器 CJS，对应 exports "./client"）
  *
- * 两半区均 external react 与 @deepseek-ai/* 宿主包 —— 这些在运行时由宿主
- * 进程/浏览器壳提供，不打包进插件产物。
+ * host 半区 external react 与 @deepseek-ai/* 宿主包 —— 这些在运行时由宿主
+ * 进程提供，不打包进插件产物。
  *
  * `vite build` 一次只接受单配置对象，故用 `--mode` 切换半区：
  *   - 默认（mode=production）：构建 host 半区，emptyOutDir 清空 lib/
  *   - `--mode client`：构建 client 半区，emptyOutDir: false 追加写入
  * package.json 的 build 脚本串联两次调用产出双半区。
  *
- * external 列表包含三类：
+ * host external 列表包含三类：
  *   - react / react-dom：peerDependencies，由宿主浏览器壳提供
  *   - @deepseek-ai/*：宿主 cordis / dsh-* 运行时，由宿主进程提供
  *   - node:* / node 内置模块：host 半区用 fs/path/url/crypto 等 Node API，
@@ -107,6 +107,28 @@ const external = [
   "buffer",
   "events",
 ];
+
+/**
+ * Inline-safe host wire layers the client build must BUNDLE rather than
+ * externalize. The runtime module table seeds exactly the platform words in
+ * `@deepseek-ai/dsh-client-web`'s seed (react family, @deepseek-ai/cordis,
+ * ui-slots, ui-primitives); any other `@deepseek-ai/*` left as a runtime
+ * `require` misses that table and throws "missed the module table". The host's
+ * own builds inline these subpaths (its client-bundle purity gate calls the
+ * family "inline-safe wire layer" — browser-safe, only type-level imports) —
+ * a third-party plugin externalizing all of `@deepseek-ai/*` must do the same
+ * for the ones it actually imports.
+ */
+const INLINE_SAFE = [
+  // Browser-safe surface projection consumed by dsh-session-bubble's detail.
+  "@deepseek-ai/dsh-session/surface",
+];
+
+/** Client-side external predicate: every rule, except the inline-safe set. */
+function clientExternal(specifier: string): boolean {
+  if (INLINE_SAFE.includes(specifier)) return false;
+  return external.some((rule) => (typeof rule === "string" ? specifier === rule : rule.test(specifier)));
+}
 
 const hostConfig: UserConfig = {
   build: {
@@ -138,7 +160,7 @@ const clientConfig: UserConfig = {
     // `exports` 变量名保持确定。包裹与 CSS 内联均由 inlineClientCss 插件完成。
     minify: false,
     rollupOptions: {
-      external,
+      external: clientExternal,
       output: {
         // 固定产物名：宿主从 /plugins/<id>/client.js 拉取并执行。
         entryFileNames: "client.js",

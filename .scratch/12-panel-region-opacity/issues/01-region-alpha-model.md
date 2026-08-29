@@ -1,6 +1,6 @@
 # 区域 alpha 模型（token + 配置 + 运行时 + remap 修正）
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 无——可立即开始
 
@@ -16,3 +16,12 @@
 - [ ] `npm run build` + `npm run typecheck` 通过
 
 ## 评论
+
+### 实施记录（回填于 2026-08-27；实施提交 e34ec89，ADR-0025）
+
+- [x] 五区域 alpha 配置项：`get/set{Sidebar,Input,Bubble,Tip,Selector}Alpha` ×5（localStorage `jx-backdrop-{sidebar,input,bubble,tip,selector}`，默认 50、钳制 0–100、写穿通知），五区共用同一存储工厂—— `src/client/welcome-backdrop-config.ts`
+- [x] 深/浅两主题各定义 `--jx-panel-{sidebar,input,bubble,tip,selector}-alpha` + 对应基准 RGB—— `src/client/styles/jiangxiao.css`（深色/浅色两组）
+- [x] remap 修正：`--dsw-specific-sidebar-fill`（宿主真名，替换捏造的 sidebar-bg）；无效 `assistant-bubble` 映射已删除
+- [x] 运行时「欢迎背景」开时把五区域 alpha 写为 body CSS 变量、关时移除回不透明—— `welcome-backdrop.ts` 区域 alpha 写入表
+- [x] 单测沿用 welcome-backdrop 先例：config 读写/钳制/订阅、开关时五变量写/移—— tests/client/welcome-backdrop.test.ts
+- [x] 2026-08-27 复验：`npm run build` ✓、`npm run typecheck` ✓、全量 vitest 447 绿

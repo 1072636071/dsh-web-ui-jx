@@ -1,6 +1,6 @@
 # 05 — 生活化表情意图
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 03, 04
 
@@ -21,3 +21,13 @@
 ## 评论
 
 （来源：PRD 实现决策 7/8；ADR-0009 决策 2/3。素材规格见 `docs/animation-inventory.md`，素材本身由 06 接收入库。）
+
+### 关闭记录（2026-08-27 状态回填）
+
+本票按方案演进关闭——三个生活化表情已入库并各得其所（素材 commit cb9173e 入库、ADR-0012 倒放烘焙修循环、ADR-0016 收敛触发语义）：
+
+- done 开心 → done 收工表演（running 下降沿触发、工作整圈边界切出、播完回位）；台词「大人笑了，姜晓也欢喜」在 STATE_SPEECH；
+- angry 10s 计时线弃用独立调度：angry 归入摸鱼彩蛋池随机触发；10s 升级线语义仅存于 ADR-0014 缓议；
+- 点击惊吓一次 → poke 局部态机（<5px 且 ≤300ms 判点击，入场/驻留/回落按过渡实测时长排程）；拖动因位移判定天然不触发，「拖动不重复」满足；
+- 三素材齐备随包发布（TRANSITION_EDGE_MS 含 idle±happy/angry/surprised 六边时长）；
+- 「素材未就绪降级不中断」由显示层 url 驱动 + overlay-img-guard 健康守卫兜底承担。

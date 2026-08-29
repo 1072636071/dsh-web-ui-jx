@@ -27,10 +27,15 @@ import {
   rm,
   cp,
 } from "node:fs/promises";
-import { join, posix, isAbsolute, dirname } from "node:path";
+import { join, posix, dirname } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Context } from "@deepseek-ai/cordis";
 import AdmZip from "adm-zip";
+import {
+  isSafeRelativePath,
+  parseUrlPathname,
+  writeJson,
+} from "./http-shared.ts";
 import {
   openImportStore,
   type ImportStore,
@@ -97,25 +102,6 @@ function readBody(
 /** 当前 ISO-8601 时间戳。 */
 function now(): string {
   return new Date().toISOString();
-}
-
-/**
- * 校验 zip 内 / 目录内的相对路径安全（路径穿越防御）。
- * 拒绝：绝对路径、含 `..` 段、含 null 字节、以 `/` 开头。
- *
- * 与 `asset-routes.ts#resolveSafeSubpath` 的关系：两者都做路径穿越防御但语义不同。
- * 本函数更精确（`segments.some(s => s === '..')` 只拒绝 `..` 段，允许 `foo..bar`），
- * 用于 zip entry 与目录遍历；`resolveSafeSubpath` 更严格（拒绝任何字面 `..`），
- * 用于素材路由的纵深防御。差异是有意的，详见 `src/host/paths.ts` 注释。
- */
-function isSafeRelativePath(p: string): boolean {
-  if (p.includes("\0")) return false;
-  if (isAbsolute(p)) return false;
-  const normalized = p.replace(/\\/g, "/");
-  if (normalized.startsWith("/")) return false;
-  const segments = normalized.split("/");
-  if (segments.some((s) => s === "..")) return false;
-  return true;
 }
 
 /** 从扩展名推断素材类型；非白名单返回 undefined。 */
@@ -474,10 +460,8 @@ async function handleImportRequest(
   res: ServerResponse,
   store: ImportStore,
 ): Promise<void> {
-  let pathname: string;
-  try {
-    pathname = new URL(req.url ?? "/", "http://x").pathname;
-  } catch {
+  const pathname = parseUrlPathname(req.url);
+  if (pathname === null) {
     res.writeHead(400);
     res.end();
     return;

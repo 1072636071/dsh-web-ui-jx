@@ -9,7 +9,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "packages/**/*.test.ts"],
     // 路由 handler 用 node:http / node:fs/promises，Node 内置即可，无需额外 polyfill。
     globals: false,
   },

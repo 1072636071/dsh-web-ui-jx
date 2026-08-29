@@ -1,6 +1,6 @@
 # 表面探测器 + 中和规则（方案 A）
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -14,3 +14,11 @@
 - [ ] 不污染未激活状态：皮肤/插件样式在壁纸未激活时不受影响
 
 ## 评论
+
+### 实施记录（回填于 2026-08-27；实施提交 f92da4a，ADR-0027）
+
+- [x] 表面判定：`fillsViewport ≥ 0.9`（`MIN_VIEWPORT_SURFACE_HEIGHT = 0.9`，取 documentElement 高度）+ 非透明底（background 有可见色/图）+ 非 excluded（modal/plugin 容器、zIndex > 100 自营层）—— `welcome-backdrop.ts`
+- [x] 命中表面打 `data-jx-backdrop-surface`（`SURFACE_ATTR`）；中和规则在 `body[data-jx-wallpaper-active]` 作用域内 `background: transparent!important; background-image: none!important`
+- [x] `surfaceObserver`（body subtree MutationObserver）：导航重建后对新子树增量重标、移除即清标；dispose/清扫时停观察
+- [x] 未激活不污染：全部规则 gate 在 `data-jx-wallpaper-active` 作用域，卸层即随标记消失；未命中 surface 判定的元素一律不打标
+- [x] 2026-08-27 复验：build ✓、typecheck ✓、welcome-backdrop.test.ts 27 例全绿

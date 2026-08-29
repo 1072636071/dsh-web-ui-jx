@@ -52,6 +52,7 @@ L3 组件       : 只消费 --dsw-alias-* / --dsw-specific-*，禁止写颜色�
 | Gold | bright/gold/gold-deep/gold-dim/ginkgo | `#f6d365 #d6b34a #b8860b #996515 #dfb793` | `#9c7a1e #b8860b #8a6508 #6f5306 #b8860b` |
 | Seal | seal/seal-deep/seal-bright/seal-ink | `#c7493a #a8382b #d85444 #fff8ef` | `#8e3a49 #7a2a39 #d97a8e #fff8f6` |
 | 状态 | success/warn/error | `#86b08a #d9a05b #d06552` | `#3d7a3d #9c6b1e #a83a3a` |
+| 纸感 | paper-bg / paper-edge | `rgb(26 24 31) / rgb(76 70 84)` | `rgb(251 246 235) / rgb(214 178 122)` |
 | 装饰 | border-deco / selection / scroll | `#3d3218 / rgba(184,134,11,.3) / track #2a2210 thumb #b8860b` | `#d9c9b5 / rgba(178,74,92,.14) / #ece0d0 #d97a8e` |
 
 氛围族 `--jx-mist/mountain/water/cloud/moon/hair/wisteria`（`#b5a8b2 #827686 #767687 #e7d3d2 #ecd8d8 #d1beca #b89aac`）**仅用于渐变/特效/插画层，不进正文文字**。

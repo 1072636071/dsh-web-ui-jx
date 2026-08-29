@@ -28,6 +28,7 @@ import {
   getTipAlpha,
   getVeilOpacity,
   getWallOpacity,
+  reloadBackdropConfig,
   setBackdropEnabled,
   setBubbleAlpha,
   setInputAlpha,
@@ -64,6 +65,9 @@ beforeEach(() => {
   // 实例（内存缓存），localStorage.clear 后须 reload 重同步缓存（initSkin）。
   document.body.setAttribute(SKIN_ATTR, "");
   initSkin();
+  // 17-03 起欢迎背景配置同样收敛为工厂实例（内存缓存）；清空后须 reload
+  // 重同步缓存，保证用例间默认值断言与顺序无关。
+  reloadBackdropConfig();
 });
 
 // ---------------------------------------------------------------------------
@@ -142,6 +146,33 @@ describe("welcome-backdrop-config", () => {
     unsub();
     setBackdropEnabled(true);
     expect(calls).toBe(4); // 退订后不再触发
+  });
+
+  it("跨标签页 storage 事件同步：不透明度 / 区域 alpha 更新并触发订阅", () => {
+    let calls = 0;
+    const unsub = subscribeBackdrop(() => {
+      calls += 1;
+    });
+
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: "jx-backdrop-wall", newValue: "30" }),
+    );
+    expect(getWallOpacity()).toBe(30);
+    expect(calls).toBe(1);
+
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: "jx-backdrop-sidebar", newValue: "80" }),
+    );
+    expect(getSidebarAlpha()).toBe(80);
+    expect(calls).toBe(2);
+
+    // 同值事件不触发
+    window.dispatchEvent(
+      new StorageEvent("storage", { key: "jx-backdrop-wall", newValue: "30" }),
+    );
+    expect(calls).toBe(2);
+
+    unsub();
   });
 });
 

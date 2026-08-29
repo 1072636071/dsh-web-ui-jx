@@ -1,0 +1,49 @@
+/**
+ * bubble-theme — 会话气泡库自带唐风令牌默认值（ADR-0029 决策 3 / D4）。
+ *
+ * 气泡样式消费宿主语义变量 `--jx-gold`（金）/ `--jx-seal`（朱砂）/
+ * `--jx-surface-1`（墨阶）。本插件的定义挂在 `body[data-dsh-jiangxiao]`
+ * 下，朋友环境缺失会导致气泡颜色全崩——故库自带默认值兜底。
+ *
+ * 覆盖机制（关键）：默认值必须**不遮蔽宿主变量**。若把默认值直接钉在
+ * `.dsh-session-bubble-root` 的 `--jx-*` 上，元素自身声明会遮蔽宿主
+ * `body` 上的继承值，宿主覆盖即失效。因此采用双层变量：
+ *
+ *   1. 本层声明内部命名空间变量 `--dsh-bubble-jx-*`（不叫 `--jx-*`，
+ *      与宿主同名变量零冲突），随宿主官方信号 `data-ds-dark-theme`
+ *      切换深浅双值（存在 = 深色，默认深色；`body:not([data-ds-dark-theme])`
+ *      = 浅色宣纸梅花）；
+ *   2. 组件样式消费点统一写成 `var(--jx-gold, var(--dsh-bubble-jx-gold))`
+ *      ——宿主定义了 `--jx-gold` 时经继承链取宿主值（自然覆盖），
+ *      未定义时回落到本层深浅默认值。
+ *
+ * 令牌值来自 `jiangxiao.css` 快照（深色 #d6b34a/#c7493a/rgb(18 16 22)，
+ * 浅色 #b8860b/#8e3a49/rgb(245 237 223)）；日后 jiangxiao 调色须双侧同步。
+ * 纸感轨（工单 16-02，`--dsh-bubble-jx-paper-bg/-edge`）：深色纸底
+ * rgb(26 24 31) / 纸缘 rgb(76 70 84)，浅色宣纸 rgb(251 246 235) /
+ * 淡金纸缘 rgb(214 178 122)；组件消费点统一写
+ * `var(--jx-paper-bg, var(--dsh-bubble-jx-paper-bg))`，宿主定义
+ * `--jx-paper-*` 时自然覆盖，缺省回落本层深浅双值。
+ *
+ * `--dsw-*` 为 DSH 官方 token，由宿主提供，库不复制。
+ */
+.dsh-session-bubble-root {
+  /* 深色（墨金卷轴）默认值 */
+  --dsh-bubble-jx-gold: #d6b34a;
+  --dsh-bubble-jx-seal: #c7493a;
+  --dsh-bubble-jx-surface-1: rgb(18 16 22);
+  /* 详情窗纸感轨（工单 16-02）：纸底比墨阶 surface-1 略提一档以浮起，
+   * 纸缘取淡金描边（朱砂/状态色不占装饰通道） */
+  --dsh-bubble-jx-paper-bg: rgb(26 24 31);
+  --dsh-bubble-jx-paper-edge: rgb(76 70 84);
+}
+
+/* 浅色（宣纸梅花）：宿主官方信号 body[data-ds-dark-theme] 缺失 */
+body:not([data-ds-dark-theme]) .dsh-session-bubble-root {
+  --dsh-bubble-jx-gold: #b8860b;
+  --dsh-bubble-jx-seal: #8e3a49;
+  --dsh-bubble-jx-surface-1: rgb(245 237 223);
+  /* 浅色纸感轨：宣纸底 + 淡金纸缘 */
+  --dsh-bubble-jx-paper-bg: rgb(251 246 235);
+  --dsh-bubble-jx-paper-edge: rgb(214 178 122);
+}

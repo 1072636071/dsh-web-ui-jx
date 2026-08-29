@@ -24,12 +24,17 @@
 | 焦点会话 | 焦点仲裁胜者（ADR-0008）：当前打开会话最优先；error/permission 可紧急抢焦、消退即交还，手动切焦则保留。 |
 | 智能体等待 | 审批等待的时间启发式判据（ADR-0014，**决策已定、待实施**）：每会话记 `blockedSince`，runningCalls 卡住 ≥10s 进 permission、≥30s 升级 angry，目标变化即清零；`snapshot.pending` 上升沿保留为即时快路径。 |
 | 会话气泡列 | 浮层左侧竖排常驻气泡列（ADR-0007）：标题 + 状态点的可点击气泡（入选范围 running/completed），点击经 `sessions.open(id)` 跳转，当前会话金描边；上限默认 10（1–10 可配），超出折叠「+N」。归组模型已实施（ADR-0018）：基本单元为**归组气泡**（根祖先 + 全部 subagent 后代），展开的子列表不占名额，详见「子代理归组」。 |
+| 会话气泡库（dsh-session-bubble） | 独立发布的 React 组件库（ADR-0029）：纯逻辑 `buildBubbleGroups` + 组件 `SessionBubbleList` + 配置/记账 + 样式 + `bubble-theme.css`（自带 `--jx-*` 默认值）；本插件与薄壳插件共同消费（单一事实源）。 |
+| 气泡薄壳插件（dsh-session-bubble-plugin） | 最小 DSH bundle 插件（ADR-0029）：极简 fixed 容器承载会话气泡列，`inject: sessions/workspaces`，朋友 `dsh plugin add` 装完即用。 |
+| 会话气泡详情窗 | hover 会话气泡展开的书页卡片（ADR-0030）：会话标题 + AI 动态标题 + 最后用户消息 + 最后模型消息，正文 3 行截断；数据经 `session.history` RPC 拉取 + 缓存，进气泡库 `dsh-session-bubble`。 |
+| AI 动态标题 | 大模型一句话动态描述（ADR-0030）：host 半区 Node 直连用户 endpoint（OpenAI 兼容），endpoint/model/频率存宿主 `settings` 分节、key 存 `credentials`；事件驱动失效 + 悬停时缓存过期才生成。 |
 | 子代理归组 | 气泡列归组折叠方案（ADR-0018，已实施）：以**根祖先**（沿 `parentId` 上溯至首个 `origin ≠ 'subagent'` 会话；孤儿回退自成顶层）锚定，后代并入一个**归组气泡** + **子代理徽标**（▸N/▾N 计后代总数，运行中后代带金呼吸点），点徽标原地展开子气泡（不占 maxVisible 名额）；current 在后代时描边传播并强制展开。 |
-| 保留模式 | 会话气泡列的可开关交互范式（ADR-0022）：单击气泡 = 跳转 + 本地 kept 集合计账保留——SDK 的 completed 位「打开即清」不可拦截，故由客户端记账直至显式移除；关闭 = 回到「点击即跳转即消失」现状（ADR-0007 原契约）。 |
+| 保留模式 | 会话气泡列的可开关交互范式（ADR-0022）：单击气泡 = 跳转 + 本地 kept 集合计账保留——SDK 的 completed 位「打开即清」不可拦截，故由客户端记账直至显式移除；关闭 = **除归档排除外**回到「点击即跳转即消失」现状（ADR-0007 原契约经 ADR-0028 决策 4 收窄：归档是宿主级事实，不受显示开关否决）。 |
+| 完成见闻集 | 客户端持久记账的完成态集合 seen（localStorage `jx-bubble-keep-seen`，ADR-0028）：SDK 的 completed 位是连接内活事实、刷新即失忆，凡投影中观察到 `completed === true` 即记入，使完成气泡跨刷新留存；隐藏优先级低于 dismissed/archived，仅总开关①开时参与投影。 |
 | 投放区 | 保留模式开启时气泡列旁的两个拖拽落点统称（ADR-0022）：收起区 + 归档区；拖拽是移除的唯一手势（双击判定方案已否决）；仅 completed 类气泡可拖，running/pending 禁止。 |
 | 收起区 | 投放区之一（近放，气泡列正下方）：拖入 = 记入本地 dismissed 集合（localStorage `jx-bubble-keep-*` 持久化），气泡隐藏、不动 SDK、完全可逆——管「暂时不想看」。 |
 | 归档区 | 投放区之一（远放，角色脚边，警示视觉 + hover 提示）：拖入 = 调 `workspaces.archiveSession` 真归档（侧边栏同步隐藏、日志保留），**不可逆**（契约层无 unarchive）；拒绝当前会话气泡（规避归档当前会话清空选择的副作用）；由配置②「拖拽归档」独立开关控制。 |
-| 气泡内容弹框 | 鼠标 hover 会话气泡浮现的内容浮层（ADR-0028）：会话标题 + 一排问话胶囊 + 问话详情区；默认展开最后一个胶囊（显示最后一条问话完整内容），hover 切胶囊；点击胶囊 `sessions.open(id)` 跳转该会话（会话内精确定位留待官方开放接口）。数据源走 host 半区 `sessionController.inspect`（无副作用，兼容冷会话）。 |
+| 气泡内容弹框 | 鼠标 hover 会话气泡浮现的内容浮层（ADR-0031）：会话标题 + 一排问话胶囊 + 问话详情区；默认展开最后一个胶囊（显示最后一条问话完整内容），hover 切胶囊；点击胶囊 `sessions.open(id)` 跳转该会话（会话内精确定位留待官方开放接口）。数据源走 host 半区 `sessionController.inspect`（无副作用，兼容冷会话）。 |
 | 问话胶囊 | 气泡内容弹框里、每条用户问话对应的文字胶囊（显示该条问话截断摘要）：弹框展示该会话**全部**直接用户问话，超长折叠「+N」；胶囊始终紧凑，当前选中/hover 胶囊的完整问话显示在下方的问话详情区。 |
 | 变体动作 | 长驻态多动作轮换（ADR-0013）：形状「中性姿态→动作→中性姿态」（**中性帧** = 主素材首帧，各变体首尾对齐），只播一遍、随机不重复串成无限列表，段间停 ~400ms；命名 `{state}-vN.webp`（主素材 v1 入池）；首批 idle/working 各 v2–v4；SettingsCard「角色」section 开关默认开。 |
 | 播放计划结构等价 | UI 播放推进契约（ADR-0016）：新旧 playback 长度相同且各项 kind/url 逐项相同 ⇒ 同一计划沿用进度，否则归零重播。必须结构比较而非裸引用——poke/彩蛋/并行驻留分支每次重建数组（新引用同内容），runtime 又无条件 emit（**快照引用抖动**）。落地于播放游标（`playback-cursor.ts`）。 |
@@ -38,6 +43,7 @@
 | 设置卡 | `SidebarEntry` 展开后的内容卡（`SettingsCard`），四个独立可折叠 section：皮肤开关 / 特效开关 / 管理界面 / 角色（ADR-0004 建三 section，ADR-0007 增角色 section）。 |
 | 管理界面 | 素材管理面板（`ImportPanel` + `AssetList`），内嵌设置卡第三个 section（ADR-0004），不再是右上角浮层。 |
 | 角色 section | 设置卡第四 section（ADR-0007 起）：会话气泡上限（`localStorage('jx-max-session-bubbles')`）、动作轮换开关（`jx-variant-rotation`）、状态标签开关等角色相关设置的归属地。 |
+| 悬停详情窗 | 会话气泡 hover 弹出的书页卡片（`SessionBubbleDetail`，工单 16）：书眉标题 + AI 动态标题副题行（未配置隐藏）+ 最后用户/助手消息 3 行截断；数据经 `session.history` 尾页 transport（缓存 TTL 15s + updatedAt 失效 + in-flight 去重），AI 标题经 host `/api/dsh-jx/ai-title` 路由（settings/credentials 配置）；hover 300ms/200ms、触屏长按 500ms、视口边缘换侧、点击跳转。 |
 | 插件重载 | 宿主运行期热替换（ADR-0017）：client-hmr 收到 `rebuilt` 帧 → 作废模块 → 重拉 bundle → 排空 disposers → 重跑 `apply()`，全程不刷新页面。**apply 可重入是 client 半区存活硬约束**（挂载物必须纳入 ctx.effect 清理 + 入口清扫残留）。 |
 | 孤儿浮层 | 旧 apply 挂载、fiber 已死但 DOM 滞留的 React 树，表现为多只姜晓重叠。清扫覆盖两类（ADR-0017/0019）：带 `data-dsh-jx-root` 标记的规范容器 + 无标记但内含 `[data-jx-character]` 的逃逸容器（旧版 bundle 产物），先经暂存的 `__jxRoot` unmount 再移除。 |
 | 姜晓（角色设定） | 浮层角色人设（`docs/character-profile.md`）：古风贵族少女剑士，冷冽聪明；异时间线赛博大明的智能助手。台词场景表见 `docs/character-lines.md`。 |
@@ -100,6 +106,9 @@
 | ADR-0022 | 会话气泡单击保留 + 拖拽收纳双投放区（收起 = 本地 dismissed 可逆 / 归档 = archiveSession 不可逆）；双击方案否决；两开关：①查看后保留气泡（总开关，默认开）②拖拽归档（默认开）；仅 completed 类可拖；归档区拒当前泡；派生层排除 archivedSessionIds 防复活。 |
 | ADR-0023 | 移除 welcome 入场表演（彻底移除）：素材三件套、状态机节点与 idle↔welcome 边、`welcomeOnStart` 触发逻辑、台词标签全清（包体减约 15MB）；首次入场直接落待机无表演（否决复用现有表演顶替——业务语义稀释）；tools 历史脚本名单与 .scratch / memorial 历史记录不动。 |
 | ADR-0024 | 欢迎背景整页壁纸层（待实施）：fixed cover 视口背景，WebP 随包经 /api/dsh-jx 本机服务；开启时 --jx-surface-* 联动半透明；壁纸/面板双滑杆可调（默认 85% / 75%）+ 总开关归皮肤开关 section；深浅双主题显示（浅色白纱）；PNG 直录与仅深色生效两案否决。 |
-| ADR-0028 | 气泡内容弹框数据源取宿主服务端 `sessionController.inspect`（已实施）：host 半区注入 `sessionController`，`inspect(sessionId)` 无副作用读会话日志（兼容冷会话），顺序提取全部直接用户问话（时序正序，末条恒为最新）（`user/message` + `source.kind==='user'`），经 `/api/dsh-jx` 路由下发；client hover 气泡浮现内容弹框（标题 + 问话胶囊 + 详情区）；否决 client 临时 open 切回 / sessions.search / 仅已 open 会话降级。 |
+| ADR-0028 | 会话气泡跨刷新留存与归档排除修正（已实施）。四项决策（编号以 ADR 正文为准）：决策 1 完成见闻集 seen 持久记账——SDK completed 位是连接内活事实、刷新即失忆，跨刷新留存由客户端记账承担，投影中观察到 completed 即提交、与总开关无关；决策 2 裁剪相位门控——prune 仅在 `phase === "ready"` 后执行（根治挂载空列表误清 localStorage 记账）；决策 3 根归档 ⇒ 整组隐藏——running/pending 豁免成员暂留、全部静止后消失，收起记账同构适用（手柄收起根 = 收起整条工作流）；决策 4 归档排除脱离总开关——宿主级事实不被客户端显示开关否决，「开关关=完全现状」护栏改写为「除归档排除外全等」。 |
+| ADR-0029 | 会话气泡独立成子包（库 + 薄壳插件两层，monorepo 就地改造；已实施）：`dsh-session-bubble` 库（纯逻辑 `buildBubbleGroups` + 组件 + 配置/记账 + `bubble-theme.css` 自带 `--jx-*` 默认值）独立发布；`dsh-session-bubble-plugin` 薄壳装完即用；根插件改 import 库单一事实源；`--dsw-*` 由宿主提供不复制；localStorage key 保留 `jx-*` 前缀集中单点；数据契约 `ISessions`/`IWorkspaces` 不抽象。 |
+| ADR-0030 | 详情窗 AI 动态标题走 host 半区 Node 直连 + transport 抽象（已实施）：库 `DynamicTitleTransport` 接口 + host `/api/dsh-jx/ai-title` 路由（OpenAI 兼容协议）+ settings 分节 `dsh-jx.aiTitle`（endpoint/model/频率）+ credentials 存取 API key（每操作 resolve、换 key 零重启）；客户端只传消息上下文、浏览器零 key 暴露；触发重刷 = 事件失效 + 悬停时缓存过期才生成 + 节流；否决注册 LLM adapter。 |
+| ADR-0031 | 气泡内容弹框数据源取宿主服务端 `sessionController.inspect`（已实施）：host 半区注入 `sessionController`，`inspect(sessionId)` 无副作用读会话日志（兼容冷会话），顺序提取全部直接用户问话（时序正序，末条恒为最新）（`user/message` + `source.kind==='user'`），经 `/api/dsh-jx` 路由下发；client hover 气泡浮现内容弹框（标题 + 问话胶囊 + 详情区）；否决 client 临时 open 切回 / sessions.search / 仅已 open 会话降级。 |
 
 详见 `docs/adr/`。

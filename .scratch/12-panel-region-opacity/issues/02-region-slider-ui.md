@@ -1,6 +1,6 @@
 # 设置卡区域滑杆 UI
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 **Blocked by:** 01
 
@@ -15,3 +15,11 @@
 - [ ] `npm run build` + `npm run typecheck` 通过
 
 ## 评论
+
+### 实施记录（回填于 2026-08-27；实施提交 e34ec89，ADR-0025）
+
+- [x] 设置卡皮肤 section「面板不透明度」分组：数据驱动 `REGION_ALPHA_UI`（压暗/侧栏/输入栏/用户气泡/目标·Todo·Queue 卡/附件钮）+「其余面板不透明度」全局滑杆—— `src/client/components/SettingsCard.tsx`
+- [x] 统一写入 `handleRegionAlphaChange`：按 key 分派对应 setter，钳制 + localStorage 持久化 + 即时生效
+- [x] 总开关关闭时组内滑杆全部 `disabled={!backdropOn}` 置灰（与壁纸/压暗滑杆行为一致）
+- [x] 深/浅主题生效：区域基准色随 `--jx-surface-*-rgb` 双主题定义，滑杆透明度改写即生效
+- [x] 2026-08-27 复验：`npm run build` ✓、`npm run typecheck` ✓

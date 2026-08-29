@@ -1,12 +1,12 @@
 ---
-Status: ready-for-agent
+Status: resolved
 Blocked by:
 Type: task
 ---
 
 # PRD — 面板区域独立不透明度滑块
 
-**Status**: ready-for-agent
+**Status**: resolved
 **来源**: memorial `011-panel-opacity-per-part`（grill 定案，ADR-0025 已回写）；欢迎背景壁纸层延续（ADR-0024）
 **创建**: 2026-08-25
 

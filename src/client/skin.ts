@@ -13,7 +13,7 @@
  * @module dsh-web-ui-jx/client
  */
 
-import { createPersistentSetting } from "./state-machine/persistent-setting.ts";
+import { createPersistentSetting } from "../../packages/dsh-session-bubble/src/index.ts";
 
 /** body 上启用唐风皮肤的作用域属性名。 */
 export const SKIN_ATTR = "data-dsh-jiangxiao";
