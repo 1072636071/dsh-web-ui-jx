@@ -64,6 +64,9 @@ const HOVER_SHOW_DELAY_MS = 180;
 /** 指针离开气泡/弹框后的宽限期 ms（允许穿越 8px 间隙进入弹框）. */
 const HIDE_GRACE_MS = 160;
 
+/** 弹框退出动画时长 ms（DESIGN.md §6 退出快于进入；对齐气泡列 BUBBLE_EXIT_MS）. */
+const PREVIEW_EXIT_MS = 100;
+
 /** 结果缓存条目上限（超限逐出最早写入，防无界增长）. */
 const PREVIEW_CACHE_MAX = 64;
 
@@ -162,12 +165,14 @@ export interface BubblePreviewState {
   onPopupEnter: () => void;
   /** 弹框 pointerleave（宽限期隐藏）. */
   onPopupLeave: () => void;
-  /** hover 某胶囊 → 详情区切换. */
-  onCapsuleHover: (index: number | undefined) => void;
+  /** hover 某胶囊 → 详情区切换（latch：选中保持到下次 hover/换目标，移开不回弹——审查动画轮修复①）. */
+  onCapsuleHover: (index: number) => void;
   /** 切换弹框内胶囊展开全部/收起. */
   onToggleCapsules: () => void;
-  /** 关闭弹框（胶囊点击跳转后调用）. */
+  /** 关闭弹框（胶囊点击跳转后调用；立即进入退出动画相）. */
   close: () => void;
+  /** 弹框处于退出动画相（父层据此渲染 .closing class，100ms 后卸载）. */
+  readonly closing: boolean;
 }
 
 /**
@@ -182,9 +187,16 @@ export function useBubblePreview(): BubblePreviewState {
     undefined,
   );
   const [capsulesExpanded, setCapsulesExpanded] = useState(false);
+  // 退出动画相（审查动画轮修复②）：隐藏先挂 .closing 淡出 100ms 再卸载——
+  // 与气泡列 .leaving 同一模式；宽限期与退出相是两段独立计时。
+  const [closing, setClosing] = useState(false);
 
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // closing 的 ref 镜像：定时器调度只在 ref 判定的分支里发生
+  // （StrictMode 双调用 state updater 不得有副作用）。
+  const closingRef = useRef(false);
   // 当前展示目标镜像（异步回包时判定「还预览着谁」，防串会话回写）。
   const targetRef = useRef<PreviewTarget | null>(null);
 
@@ -198,6 +210,12 @@ export function useBubblePreview(): BubblePreviewState {
     if (hideTimerRef.current !== null) {
       clearTimeout(hideTimerRef.current);
       hideTimerRef.current = null;
+    }
+  }, []);
+  const clearExitTimer = useCallback(() => {
+    if (exitTimerRef.current !== null) {
+      clearTimeout(exitTimerRef.current);
+      exitTimerRef.current = null;
     }
   }, []);
 
@@ -231,31 +249,57 @@ export function useBubblePreview(): BubblePreviewState {
     });
   }, []);
 
-  /** 切换预览目标：重置选中/展开态 + 装载数据。 */
-  const present = useCallback(
-    (next: PreviewTarget) => {
-      targetRef.current = next;
-      setTarget(next);
-      setHoveredIndex(undefined);
-      setCapsulesExpanded(false);
-      loadInto(next);
-    },
-    [loadInto],
-  );
-
-  const hide = useCallback(() => {
+  /** 真正卸载：清全部展示态（退出动画播完或无动画路径的终点）。 */
+  const finishClose = useCallback(() => {
+    clearExitTimer();
+    closingRef.current = false;
+    setClosing(false);
     targetRef.current = null;
     setTarget(null);
     setData(null);
     setFailed(false);
     setHoveredIndex(undefined);
     setCapsulesExpanded(false);
-  }, []);
+  }, [clearExitTimer]);
+
+  /** 撤销退出相（淡出未完即被重进）：取消卸载计时、恢复展示。 */
+  const cancelClose = useCallback(() => {
+    if (!closingRef.current) return;
+    clearExitTimer();
+    closingRef.current = false;
+    setClosing(false);
+  }, [clearExitTimer]);
+
+  /** 进入退出动画相：先淡出 PREVIEW_EXIT_MS 再卸载（重复调度幂等）。 */
+  const beginClose = useCallback(() => {
+    if (targetRef.current === null || closingRef.current) return;
+    clearHideTimer();
+    closingRef.current = true;
+    setClosing(true);
+    exitTimerRef.current = setTimeout(() => {
+      exitTimerRef.current = null;
+      finishClose();
+    }, PREVIEW_EXIT_MS);
+  }, [clearHideTimer, finishClose]);
+
+  /** 切换预览目标：重置选中/展开态 + 装载数据（退出相中被重进则取消卸载）。 */
+  const present = useCallback(
+    (next: PreviewTarget) => {
+      cancelClose();
+      targetRef.current = next;
+      setTarget(next);
+      setHoveredIndex(undefined);
+      setCapsulesExpanded(false);
+      loadInto(next);
+    },
+    [loadInto, cancelClose],
+  );
 
   const onBubbleEnter = useCallback(
     (next: PreviewTarget) => {
       clearHideTimer();
       clearShowTimer();
+      cancelClose();
       if (targetRef.current !== null) {
         // 同一会话往返（气泡 ↔ 弹框穿越间隙）：保留展开/选中态，但刷新
         // 视口矩形与缓存键原料（审查 S2：气泡列重排后旧 rect 定位过期、
@@ -277,24 +321,25 @@ export function useBubblePreview(): BubblePreviewState {
         present(next);
       }, HOVER_SHOW_DELAY_MS);
     },
-    [clearHideTimer, clearShowTimer, present, loadInto],
+    [clearHideTimer, clearShowTimer, cancelClose, present, loadInto],
   );
 
-  /** 宽限期隐藏调度（气泡离开与弹框离开同一语义，审查去重项）。 */
+  /** 宽限期隐藏调度（气泡离开与弹框离开同一语义）：到期进入退出动画相。 */
   const scheduleHide = useCallback(() => {
     clearShowTimer();
     clearHideTimer();
     hideTimerRef.current = setTimeout(() => {
       hideTimerRef.current = null;
-      hide();
+      beginClose();
     }, HIDE_GRACE_MS);
-  }, [clearShowTimer, clearHideTimer, hide]);
+  }, [clearShowTimer, clearHideTimer, beginClose]);
 
   const onBubbleLeave = scheduleHide;
 
   const onPopupEnter = useCallback(() => {
     clearHideTimer();
-  }, [clearHideTimer]);
+    cancelClose();
+  }, [clearHideTimer, cancelClose]);
 
   const onPopupLeave = scheduleHide;
 
@@ -302,17 +347,19 @@ export function useBubblePreview(): BubblePreviewState {
     setCapsulesExpanded((e) => !e);
   }, []);
 
+  /** 显式关闭（胶囊点击跳转后）：跳过宽限期，直接进退出动画相。 */
   const close = useCallback(() => {
     clearShowTimer();
     clearHideTimer();
-    hide();
-  }, [clearShowTimer, clearHideTimer, hide]);
+    beginClose();
+  }, [clearShowTimer, clearHideTimer, beginClose]);
 
   // 卸载清理：弹框随组件消亡，定时器不残留（热重载可重入）。
   useEffect(() => {
     return () => {
       if (showTimerRef.current !== null) clearTimeout(showTimerRef.current);
       if (hideTimerRef.current !== null) clearTimeout(hideTimerRef.current);
+      if (exitTimerRef.current !== null) clearTimeout(exitTimerRef.current);
     };
   }, []);
 
@@ -322,6 +369,7 @@ export function useBubblePreview(): BubblePreviewState {
     failed,
     hoveredIndex,
     capsulesExpanded,
+    closing,
     onBubbleEnter,
     onBubbleLeave,
     onPopupEnter,
@@ -348,11 +396,13 @@ export interface SessionBubblePopupProps {
   hoveredIndex: number | undefined;
   /** 胶囊区是否展开全部. */
   capsulesExpanded: boolean;
+  /** 退出动画相：挂 .closing 播 100ms 淡出，动画播完由 hook 卸载. */
+  closing: boolean;
   /** 弹框 pointerenter/leave（维持存活）. */
   onPopupEnter: () => void;
   onPopupLeave: () => void;
-  /** 胶囊 hover 回调（undefined = 离开胶囊行，选中回落最后）. */
-  onCapsuleHover: (index: number | undefined) => void;
+  /** 胶囊 hover 回调（latch 语义：选中保持到下次 hover 或换目标，不回弹）. */
+  onCapsuleHover: (index: number) => void;
   /** 「+N」/「收起」chip 切换. */
   onToggleCapsules: () => void;
   /** 点击胶囊 → 跳转该会话（父层复用 handleOpen，语义与点击气泡一致）. */
@@ -374,6 +424,7 @@ export function SessionBubblePopup({
   failed,
   hoveredIndex,
   capsulesExpanded,
+  closing,
   onPopupEnter,
   onPopupLeave,
   onCapsuleHover,
@@ -412,13 +463,17 @@ export function SessionBubblePopup({
 
   return createPortal(
     <div
-      className={styles.preview}
+      className={`${styles.preview} ${closing ? styles.closing : ""}`}
       /* 几何单源（审查去重项）：宽/最大高由定位常量注入 inline style，
        * CSS 不再重复字面量——computePopupPlacement 的钳制输入与实际尺寸
-       * 永不漂移 */
+       * 永不漂移。底缘锚定（审查动画轮修复③）：placement.top 是最坏高度
+       * 盒的顶缘，top+maxHeight 配 CSS translate:0 -100% 让实际底缘精确
+       * 落在钳制后的目标线——内容高矮不再造成「悬空上浮」；translate 是
+       * 独立属性，与淡入/淡出 keyframes 的 transform 正交组合，reduced-
+       * motion 关动画时锚定不受影响 */
       style={{
         left: placement.left,
-        top: placement.top,
+        top: placement.top + POPUP_MAX_HEIGHT_PX,
         width: POPUP_WIDTH_PX,
         maxHeight: POPUP_MAX_HEIGHT_PX,
       }}
@@ -431,10 +486,10 @@ export function SessionBubblePopup({
       <div className={styles.header} title={title}>
         {title}
       </div>
-      <div
-        className={styles.capsuleRow}
-        onPointerLeave={() => onCapsuleHover(undefined)}
-      >
+      {/* 选中 latch（审查动画轮修复①）：不在行 pointerleave 回弹最后——
+          否则鼠标移到详情区读旧问话全文的瞬间内容被切走，「划过→阅读」
+          动线断裂。选中保持到下次 hover 胶囊 / 换预览目标 / 弹框重开。 */}
+      <div className={styles.capsuleRow}>
         {folded.moreCount > 0 && (
           <span
             className={`${styles.capsule} ${styles.foldChip}`}

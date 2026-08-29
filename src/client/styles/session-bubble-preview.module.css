@@ -23,6 +23,11 @@
   position: fixed;
   z-index: 2147483647;
   pointer-events: auto;
+  /* 底缘锚定（审查动画轮修复③）：组件注入 top = 钳制后的最坏高度盒底缘，
+   * translate:0 -100% 把实际底缘精确落回该线——内容高矮不再「悬空上浮」。
+   * translate 独立于 transform，与 enter/exit keyframes 正交组合，
+   * reduced-motion 关动画时锚定不受影响 */
+  translate: 0 -100%;
   /* 宽/最大高由组件 inline style 注入（POPUP_WIDTH_PX / POPUP_MAX_HEIGHT_PX
    * 单源——定位纯函数的钳制输入与实际尺寸不漂移），此处不再重复字面量 */
   box-sizing: border-box;
@@ -143,9 +148,32 @@
   }
 }
 
-/* prefers-reduced-motion：动画全关（instant 切换，用户故事 15） */
+/* 退出动画相（审查动画轮修复②）：组件在 hook 的 closing 相挂此类，
+ * 100ms 淡出后由 JS 卸载——退出快于进入（DESIGN.md §6），与气泡列
+ * .leaving 同一模式；transform 与 .preview 的 translate 锚定正交 */
+.preview.closing {
+  animation: preview-exit 100ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* 淡出中不可再交互（对齐气泡列 .leaving 的 pointer-events:none 纪律） */
+  pointer-events: none;
+}
+
+@keyframes preview-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* prefers-reduced-motion：动画全关（instant 切换，用户故事 15）。
+ * 注意只关 animation/transition，不关 .preview 的 translate（那是定位锚，
+ * 不是动效）；closing 相的 100ms 计时照旧，只是淡出不可见。 */
 @media (prefers-reduced-motion: reduce) {
-  .preview {
+  .preview,
+  .preview.closing {
     animation: none;
   }
   .capsule {

@@ -10,8 +10,8 @@
  * 语义钉死（PRD D3/D4 + 用户故事 5/6/7/8）：
  *   - 弹框默认选中最后一个胶囊 = 最新问话——折叠策略「保尾丢头」（foldCapsules
  *     折叠最旧的、可见尾部恒含最新问话），「默认展开最后一个胶囊」恒成立；
- *   - hover 某胶囊 → 选中切换（resolveSelectedIndex）；hover 离开/越界回落
- *     最后一个；
+ *   - hover 某胶囊 → 选中切换（resolveSelectedIndex）；latch 语义——选中
+ *     保持到下次 hover 或换预览目标（组件不再上报），越界输入回落最后兜底；
  *   - 胶囊显示截断摘要（truncateSummary：空白折叠单行 + 超长省略号），完整
  *     问话显示在详情区；
  *   - 弹框几何纯函数化（computePopupPlacement）：默认挂气泡左侧，左缘放不下

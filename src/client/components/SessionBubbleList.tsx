@@ -1090,6 +1090,7 @@ export function SessionBubbleList({ sessions, workspaces }: SessionBubbleListPro
           failed={preview.failed}
           hoveredIndex={preview.hoveredIndex}
           capsulesExpanded={preview.capsulesExpanded}
+          closing={preview.closing}
           onPopupEnter={preview.onPopupEnter}
           onPopupLeave={preview.onPopupLeave}
           onCapsuleHover={preview.onCapsuleHover}
