@@ -1,13 +1,13 @@
 /**
  * SessionBubblePopup（气泡内容弹框）组件局部样式（CSS Module）。
  *
- * ADR-0028 / PRD 14 工单 02/03：hover 会话气泡浮现的 tooltip 浮层——
+ * ADR-0031 / PRD 14 工单 02/03：hover 会话气泡浮现的 tooltip 浮层——
  * 会话标题 + 一排问话胶囊 + 问话详情区。
  *
  * 设计约束：
  *   - 只消费语义别名 + --jx-* 专属轨，无颜色字面量、无主题选择器；深浅双
  *     主题由 L2 remap 自动处理（用户故事 16）。
- *   - 几何单源：宽/最大高由 state-machine/session-bubble-preview.ts 的
+ *   - 几何单源：宽/最大高由 session-bubble-preview.ts 的
  *     POPUP_WIDTH_PX / POPUP_MAX_HEIGHT_PX 经组件 inline style 注入——
  *     视口钳制纯函数的输入与实际尺寸同源，改几何只改 TS 一处。
  *   - position: fixed：组件经 createPortal 挂 document.body（浮层祖先带

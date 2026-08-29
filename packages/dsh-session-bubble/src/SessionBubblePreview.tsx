@@ -1,5 +1,5 @@
 /**
- * SessionBubblePreview — 气泡内容弹框（hover 预览会话问话，ADR-0028 / PRD 14 工单 02/03）。
+ * SessionBubblePreview — 气泡内容弹框（hover 预览会话问话，ADR-0031 / PRD 14 工单 02/03）。
  *
  * 鼠标 hover 会话气泡浮现的 tooltip 浮层：会话标题 + 一排问话胶囊 + 问话详情区。
  * 默认展开最后一个胶囊（详情区显示最新问话完整内容）；hover 某胶囊 → 详情区
@@ -30,7 +30,7 @@
  * 深浅双主题可读、无颜色字面量；prefers-reduced-motion 下动画全关
  * （instant 切换）。
  *
- * @module dsh-web-ui-jx/client
+ * @module dsh-session-bubble
  */
 
 import {
@@ -51,8 +51,8 @@ import {
   POPUP_WIDTH_PX,
   type AnchorRect,
   type SessionPreviewData,
-} from "../state-machine/session-bubble-preview.ts";
-import styles from "../styles/session-bubble-preview.module.css";
+} from "./session-bubble-preview.ts";
+import styles from "./styles/session-bubble-preview.module.css";
 
 // ---------------------------------------------------------------------------
 // hover 节奏常量

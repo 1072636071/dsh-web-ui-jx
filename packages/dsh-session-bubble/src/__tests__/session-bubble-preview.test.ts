@@ -28,7 +28,7 @@ import {
   truncateSummary,
   POPUP_MARGIN_PX,
   type PromptLike,
-} from "../../src/client/state-machine/session-bubble-preview.ts";
+} from "../session-bubble-preview.ts";
 
 // ---------------------------------------------------------------------------
 // 辅助

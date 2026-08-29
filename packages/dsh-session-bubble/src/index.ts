@@ -84,6 +84,39 @@ export { STORAGE_KEYS } from "./storage-keys.ts";
 
 export { SessionBubbleList, type SessionBubbleListProps } from "./SessionBubbleList.tsx";
 
+// 气泡内容弹框（ADR-0031）：hover 内容预览组件 + 状态机（鼠标车道）。
+export {
+  useBubblePreview,
+  SessionBubblePopup,
+  type BubblePreviewState,
+  type PreviewRequest,
+  type PreviewTarget,
+  type SessionBubblePopupProps,
+} from "./SessionBubblePreview.tsx";
+
+// 气泡内容弹框纯逻辑：路由 JSON 解析 / 胶囊折叠选中摘要 / 视口钳制。
+export {
+  CAPSULE_SUMMARY_MAX_CHARS,
+  MAX_VISIBLE_CAPSULES,
+  POPUP_GAP_PX,
+  POPUP_MARGIN_PX,
+  POPUP_MAX_HEIGHT_PX,
+  POPUP_WIDTH_PX,
+  capsuleLayout,
+  computePopupPlacement,
+  foldCapsules,
+  parsePreviewResponse,
+  resolveSelectedIndex,
+  truncateSummary,
+  type AnchorRect,
+  type FoldedCapsules,
+  type PopupPlacement,
+  type PreviewCapsule,
+  type PromptLike,
+  type SessionPreviewData,
+  type Size,
+} from "./session-bubble-preview.ts";
+
 // 详情窗书页卡片（工单 16-02）：悬停详情窗组件 + 字符护栏纯函数。
 export {
   SessionBubbleDetail,
