@@ -37,6 +37,7 @@ pip install Pillow numpy imageio-ffmpeg
 | 把绿幕视频转成 webp（**现行管线**） | `openmm_chroma_convert.py` | 用户交付新动作视频（变体或循环体），openCodeMM 方式转码入库（ADR-0021） |
 | 变体白点重定靶（对齐状态主素材） | `variant_color_match.py` | **换生成批次**导致变体与经典态并排可见冷暖差时（同源生成不需要） |
 | 判断现有素材是真循环还是单向动作 | `diag_classic_motion.py` | 决定是否要烘焙倒放 |
+| **>6MB 素材全量瘦身（有损重编码）** | `slim_assets_reencode.py` | 素材体积治理：30fps 反应态抽帧到 15fps + q72，15fps 循环/过渡态仅 q72；保留时长/loop/分辨率（工单 20-05） |
 | （留档）自研 despill 管线转码 | `variant_video_convert.py` | 已被 openmm_chroma_convert 取代（偏红第四案，ADR-0021）；QC 门与水印擦除仍被复用 |
 
 **典型新素材入库流程**：
@@ -418,7 +419,9 @@ idle       75  4.22 11.08  26.8   1.4 循环型（末尾回归起点）
 |------|------|-----------|
 | `assets/character/` | 入库素材 | ✅ 入 |
 | `bak/` | 修复前的原件备份 | ❌ 不入（.gitignore） |
+| `bak/slim-reencode/` | 20-05 瘦身治理前的原件备份 | ❌ 不入（.gitignore `bak/`） |
 | `.temp/output/openmm-reconvert/` | openCodeMM 方式转码浅底目检条 | ❌ 不入 |
+| `.temp/output/slim-gov/` | 20-05 瘦身治理目检条（暗/亮）与展示尺寸对比 | ❌ 不入 |
 | `.temp/output/variant-convert/` | 转码目检条、水印/溢色检查图 | ❌ 不入（.temp/ 整体忽略） |
 | `.temp/output/variant-probe/` | 视频摸底预览条 | ❌ 不入 |
 | `.temp/output/seam-probe/` | 循环缝诊断图 | ❌ 不入 |

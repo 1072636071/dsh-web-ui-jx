@@ -155,10 +155,14 @@ const clientConfig: UserConfig = {
     emptyOutDir: false,
     target: "esnext",
     sourcemap: false,
-    // 关闭压缩：语言层最小编译（TS/JSX），不做变量重命名，保证 generateBundle
-    // 里对产物文本的整体包裹（window.__ModuleLoader__.load）引用到的 `module`
-    // `exports` 变量名保持确定。包裹与 CSS 内联均由 inlineClientCss 插件完成。
-    minify: false,
+    // 压缩（esbuild）：工单 20-06 验证可行——01-14 的「关闭压缩」前提已不成立。
+    //   早先担心 esbuild 重命名破坏 generateBundle 的整体包裹（window.__ModuleLoader__
+    //   .load 引用的 module/exports），但该包裹与 CSS 内联都在 generateBundle/closeBundle
+    //   里做、作用于已压缩的最终文本，属"压缩后拼接"，不参与压缩、变量名确定；
+    //   实测开启后 lib/client.js 磁盘体积 315KB → 143KB（gzip 49→34KB），
+    //   wrapper（module/exports/require）与 data-plugin-css 注入标识均完整。
+    //   交由 verify-release.mjs 的双半区体积基线做回归护栏。
+    minify: true,
     rollupOptions: {
       external: clientExternal,
       output: {

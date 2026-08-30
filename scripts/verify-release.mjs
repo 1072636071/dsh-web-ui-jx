@@ -11,6 +11,7 @@
  *   4. assets：character/ 下有 webp，fonts/ 下有 woff2，preview/ 下有 png
  *   5. npm pack --dry-run：关键文件全部出现在打包清单中
  *   6. 素材大小报告：assets/ 总大小，异常（0 或 >500MB）告警
+ *   7. 双半区体积基线：lib/index.js / lib/client.js 显著增长（>512KB）判体积回归
  *
  * 用法：`node scripts/verify-release.mjs`
  * 退出码：0=全部通过，1=至少一项失败
@@ -256,6 +257,29 @@ check(`assets/ 总大小 ${formatBytes(totalAssetsBytes)}`, () => {
   }
   return true;
 });
+
+// ─── 7. 双半区体积基线（工单 20-07：体积回归发布前可感知） ─────────
+console.log("\n[7] 双半区产物体积基线");
+// 基线（M4 治理后实测，2026-08-30）：
+//   lib/index.js   ≈ 178 KB        —— host 半区（库纯逻辑，无 React）
+//   lib/client.js  ≈ 139 KB（含内联 CSS，minify=true）—— client 半区
+// 阈值取基线约 3× 的宽裕上限（index 178→512、client 139→512 均按磁盘字节，
+// 覆盖正常演进 + 未来小幅内联，只拦「倍增量级」的显著回归），不因正常小幅
+// 波动作废；超限即失败、阻断发布，提示人工复核是否失手引入大依赖。
+const HOST_SIZE_CAP = 512 * 1024;   // lib/index.js：178KB 基线，超 512KB 判回归
+const CLIENT_SIZE_CAP = 512 * 1024; // lib/client.js：139KB 基线，超 512KB 判回归
+function sizeCapCheck(label, cap, baseLabel) {
+  return check(label, () => {
+    const path = label.includes("index") ? libIndex : libClient;
+    if (!nonEmptyFile(path)) return false;
+    const sz = statSync(path).size;
+    return sz <= cap
+      ? `${formatBytes(sz)}（阈值 ${formatBytes(cap)}，基线 ${baseLabel}）`
+      : false;
+  });
+}
+sizeCapCheck("lib/index.js 体积未回归（≤512KB）", HOST_SIZE_CAP, "≈178KB");
+sizeCapCheck("lib/client.js 体积未回归（≤512KB）", CLIENT_SIZE_CAP, "≈139KB");
 
 // ─── 汇总 ─────────────────────────────────────────────────────
 console.log("\n" + "=".repeat(60));

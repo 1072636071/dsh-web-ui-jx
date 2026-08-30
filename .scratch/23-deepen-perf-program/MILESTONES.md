@@ -85,25 +85,25 @@
 
 ## M4
 
-**状态：** pending
+**状态：** shipped
 
 **工单：** 20-05, 20-06, 20-07
 
 **组内顺序：** 无依赖，可并行（20-05 先单文件试压后全量；20-06 可行性驱动）
 
-**用户视角交付：** 插件体积显著减小（assets ≈187 MB 治理全部 >6 MB 的 13 个文件；中文字体子集化单独立项）；client 产物压缩（若验证可行）；双半区体积回归在发布前可感知。
+**用户视角交付：** 插件体积显著减小（assets ≈187 MB 治理全部 >6 MB 的 14 个文件；中文字体子集化单独立项）；client 产物压缩；双半区体积回归在发布前可感知。
 
 **可独立上线判据：** 素材重编码经单文件试压确认视觉与循环自然三原则无损后全量治理，`build/verify` 全绿；20-06 压缩验证不可行则关单不硬上；20-07 以当前产物为基线、回归即失败。
 
-**回滚方式：** H2 重编码不可逆 → 按 ADR-0012 先例保留原件备份（`bak/`，不入 git）可还原；L3/L4 直接 revert。
+**回滚方式：** H2 重编码不可逆 → 按 ADR-0012 先例保留原件备份（`bak/slim-reencode/`，不入 git）可还原；L3/L4 直接 revert。
 
 **验收信号：**
 
-- [ ] `happy.webp` 单文件试压确认视觉与循环三原则无损（四态素材重验）
-- [ ] assets 总体积显著下降（记录治理前后数值）
-- [ ] 素材视觉回归通过（暗/亮两主题）
-- [ ] `verify-release.mjs` 含双半区体积断言且当前产物通过
-- [ ] `npm run build && npm run verify` 全绿
+- [x] `happy.webp` 单文件试压确认视觉与循环三原则无损（四态素材重验）
+- [x] assets 总体积显著下降（记录治理前后数值：183MB → 142.2MB，-22%）
+- [x] 素材视觉回归通过（暗/亮两主题）
+- [x] `verify-release.mjs` 含双半区体积断言且当前产物通过
+- [x] `npm run build && npm run verify` 全绿
 
 ## M5
 
@@ -138,6 +138,7 @@
 
 （交付过程中的阻塞、决策、偏差记录于此，新内容置于最前。）
 
+- 2026-08-30：M4（20-05~20-07）上线门禁通过——三工单全部 `done`（`/jxx-code-review` 两轮标准/spec 双维度：首轮发现「pending-review 非注册标签」「slim 脚本未登记 tools/README」「verify 体积 check 重复 + 基线注释矛盾」「视觉回归/ADR 复核无书面落点、keep_names 方案字面未用」，按用户选择 A 修复——补 tools/README 登记（工具表+输出目录表）、verify 抽 `sizeCapCheck` 并更正基线注释（307→139KB 残留）、slim 脚本具名化（f/sz→fname/size、b/o→bytes_buf/offset）、工单 05/06/07 补实施评论+验收勾选；次轮发现项仅剩「pending-review 标签」与「slim 脚本命名」两项酌情异味，已修复并置 done）、全量测试 36 文件 596 项全绿、`build`+`verify` 24 项全绿（verify 新增 [7] 双半区体积基线）、回滚方式验证（`bak/slim-reencode/` 14 原件齐全 + L3/L4 直接 revert）；M4 置 `shipped` 并提交。**偏差记录**：① 20-05 治理范围实为 **14** 个 >6MB 文件（spec 写 13 系低估，实测含 6.3-6.4MB 边界）；② 30fps 反应态（happy/angry/surprised）抽帧到 15fps + q72，15fps 循环/过渡态仅 q72——总动画时长逐文件精确不变（逐帧时长 ×2 / 含 536ms 定格尾保留）、loop 标志保留；③ quality 90→72 偏离 ADR-0021 定稿值，以全帧 PSNR≥32.5 + 140×249 展示尺寸目检不可辨自证，记录为已披露取舍；④ transition-idle-error / transition-error-idle 两过渡态仅 q72 后仍 6.08/6.07MB（「总体积显著下降」达标、「单文件 <6MB」未全达标）；⑤ 20-06 未字面用 keep_names/reservedNames，改走「generateBundle 压缩后拼接」论证（wrapper 与 data-plugin-css 实测完整），client.js 314.9→142.6KB（-55%）；⑥ `pending-review` 标签为 jxx-implement 流程瞬态、非 triage-labels 注册角色，审查通过后即置 done；⑦ 视觉回归以「.temp/output/slim-gov/ 目检条 + 6 关键状态展示尺寸放大对比」验证，非完整宿主截图。**另注**：`npm run typecheck` 仍存在 pre-existing 错误（`packages/dsh-session-bubble/src/detail/detail-data.ts:86`，未改动文件，非本里程碑引入；M4 其余代码 typecheck 干净）。
 - 2026-08-30：M3（20-01~20-04）上线门禁通过——四工单全部 `done`（`/jxx-code-review` 两轮标准/spec 双维度：首轮发现「host 缓存无界 + TTL+in-flight 三处重复」与「20-02 归档失效窗口」，按用户选择 A 修复——抽共享 `ttl-inflight-cache.ts`（短 TTL + in-flight 去重 + LRU 上限）供 host 两缓存复用、host 缓存补 maxEntries、session-messages TTL 5s→1s 收敛归档窗口、ai-title 生成分支合并、webp-duration manifest 命中不再写缓存；次轮无硬性违规，仅 import 置顶与测试注释过期等已修，余为已记录偏差/酌情异味）、全量测试 36 文件 596 项全绿、`build`+`verify` 22 项全绿、回滚方式为直接 revert 已验证；M3 置 `shipped` 并提交。**偏差记录**：① 20-02「随 archived/retention 失效」因 host 无归档订阅 seam 以两层自足护栏落地——短 TTL（1s）压归档后陈旧窗口 + inspect 抛错即弃缓存不返回陈旧数据，非订阅式联动失效；② `ttl-inflight-cache.ts` 载荷类型用 `string | undefined`（undefined 兼任 miss/失败哨兵）、`scripts/generate-duration-manifest.mjs` 与 `webp-duration.ts` 各一份 ANMF 解析（跨 .mjs 构建脚本与 client 模块无法共享，靠测试锁定一致）、`clearSessionMessagesCache(sessionId?)` 单参形态生产无调用方——均为酌情取舍非阻断。**另注**：`npm run typecheck` 存在与 M3 无关的 pre-existing 错误（`packages/dsh-session-bubble/src/detail/detail-data.ts:86`，未改动文件，非本里程碑引入；M3 其余代码 typecheck 干净）。
 - 2026-08-30：M2（19-01~19-05）上线门禁通过——五工单全部 `done`（`/jxx-code-review` 两轮标准/spec 双维度零发现项；修复两项审查发现：WarpConfig/getConfig 死配置整体删除、GLASS_DEGRADED_SELECTORS 导出由测试消费）、全量测试 36 文件 576 项全绿、`build`+`verify` 22 项全绿、回滚方式为直接 revert 已验证；M2 置 `shipped` 并提交。**偏差记录**：① 19-03 选②「无淡出」，`visible` 保留为「已接合」门控（非死代码，PRD U2 措辞已同步）；② H1/M2 视觉回归以「playwright 独立复刻页暗/亮双主题截图」验证 CSS 契约（中和/玻璃/降级均成立），非完整宿主截图——建议宿主实机上线前补一张整体观感截图复核；③ 19-02「Profiler 实测」以 memorial 017 证据代偿（本环境无宿主实机 Profiler），已披露。
 - 2026-08-30：M1（18-01~18-04）上线门禁通过——四工单全部 `done`（`/jxx-code-review` 两轮无发现项）、全量测试 36 文件 577 项全绿、`build`+`verify` 22 项全绿、回滚方式为直接 revert 已验证；M1 置 `shipped` 并提交。18-04 复核发现并修复 tree-shaking 失效（库包加 `sideEffects:false`，host 产物 221.78 KB → 179.79 KB、无 React）。

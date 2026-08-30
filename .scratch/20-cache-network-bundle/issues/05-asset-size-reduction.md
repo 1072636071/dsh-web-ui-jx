@@ -1,6 +1,6 @@
 # assets 单文件试压与全量治理
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Blocked by:** 无——可立即开始
 
@@ -8,14 +8,31 @@
 
 **验收标准：**
 
-- [ ] 单文件试压确认视觉与循环三原则无损（含四态素材重验）
-- [ ] 全量治理 >6 MB 的 13 个文件，assets 总体积显著下降
-- [ ] 触动的资产经 ADR-0012（循环缺陷修复）/ ADR-0021（chroma key 重转）口径复核
-- [ ] `npm run build && npm run verify` 全绿；视觉回归（暗/亮）通过
+- [x] 单文件试压确认视觉与循环三原则无损（含四态素材重验）
+- [x] 全量治理 >6 MB 的 13 个文件，assets 总体积显著下降
+- [x] 触动的资产经 ADR-0012（循环缺陷修复）/ ADR-0021（chroma key 重转）口径复核
+- [x] `npm run build && npm run verify` 全绿；视觉回归（暗/亮）通过
 
 ## 评论
 
 （评论与对话历史追加于此，新内容置于最前。）
 
-- 来源：PRD 20 候选 H2；证据见 memorial 017 archived `index.html`（assets 总体积 ≈187 MB；happy.webp 12.37 MB 为最大单文件；>6 MB 共 13 个文件）。
+- 2026-08-30 实施（M4）：**全量治理完成，assets 183MB → 142.2MB（-22%）**。
+  治理范围：>6MB 共 **14** 个文件（spec 写 13 系低估，实测含 6.3-6.4MB 边界共 14 个），
+  合计 113.8MB → 66.7MB（省 47MB，41%）。策略（经 happy 单文件试压确认）：
+  30fps(33ms) 反应态 happy/angry/surprised 抽帧到 15fps + q72（帧数减半、逐帧时长 ×2，
+  总动画时长**逐文件精确不变**）；15fps(67ms) 循环/过渡态仅 q72（含 536ms 定格尾保留）。
+  一律保留 360×640、loop 标志、method=4。**循环三原则**：重编码后首尾缝 3.7→5~7
+  （运动+压缩噪声量级，相对 0-255 极小），全帧平均 PSNR ≥32.5（≈33.7）。
+  **视觉回归（暗/亮）**：`.temp/output/slim-gov/{name}.{light,dark}.png` 目检条 +
+  `.temp/output/slim-gov/{name}.display.{light,dark}.png`（140×249 展示尺寸放大 3×，
+  上行原始/下行治理后）——展示尺寸下两行目检**不可辨**，通过。
+  **ADR-0012/0021 口径复核**：360×640 降采样规格（0012）、method=4 质量档（0012 踩坑）、
+  原件备份 `bak/slim-reencode/`（0012 D2，不入 git）、浅底目检原则（0020 教训）均遵守；
+  quality 90→72 偏离 ADR-0021 定稿值——以 PSNR≥32.5 自证 + 展示尺寸目检不可辨为准，
+  记录为已披露取舍。
+  **注**：transition-idle-error / transition-error-idle 两个过渡态仅 q72 后仍 6.08/6.07MB
+  （15fps 仅省 ~14%），「总体积显著下降」达标、「单文件 <6MB」未全达标。
+  工具：`tools/slim_assets_reencode.py`（可复现，--dry-run 预览；中途强杀原子落盘保护）。
+- 来源：PRD 20 候选 H2；证据见 memorial 017 archived `index.html`（assets 总体积 ≈187 MB；happy.webp 12.37 MB 为最大单文件；>6MB 共 13 个文件）。
 - 先实测再全量；触碰素材即触碰既有资产口径，须按 ADR-0012/0021 复核。
