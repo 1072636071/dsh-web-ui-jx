@@ -347,13 +347,14 @@ describe("runtime 变体轮换集成", () => {
       variantRotationEnabled: () => true,
       random: sequenceRandom([0.1, 0.6, 0.35, 0.9]),
     });
-    // 造成并行驻留：两个会话 running 且非 idle
+    // 造成并行驻留：两个会话 running 且非 idle（运行中即可，无 active tool
+    // call——与 ADR-0014 审批等待启发式解耦，见 overlay-session-runtime 测试约定）
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(A, { running: true }),
     );
     sessions.__pushList(makeListState([A, B], A));
     sessions.__session(B)?.__push(
-      makeSnapshot(B, { running: true, runningCallsCount: 2 }),
+      makeSnapshot(B, { running: true }),
     );
     const s = runtime.getSnapshot();
     expect(s.currentState).toBe("working");

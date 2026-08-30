@@ -18,12 +18,18 @@
  *   - working 轮换：thinking↔reading 各播 2 整圈、整圈边界换段、经待机过渡。
  *   - 摸鱼彩蛋：并行驻留期间随机表情，池收敛为 happy/angry/surprised。
  *   - poke：冷却、紧急态不触发、与表演互斥、紧急态立即打断。
+ *
+ * fixture 约定（工单 21-01 起）：显示层/轮换/并行驻留/批准返回类用例的会话
+ * 一律 `runningCallsCount: 0`（运行中但无 active tool call）——与 ADR-0014
+ * 审批等待启发式解耦（该启发式以 runningCalls>0 卡住为判据，另行专属测试）。
  */
 
 import { describe, expect, it } from "vitest";
 import {
   createOverlaySessionRuntime,
   FOCUS_DEBOUNCE_MS,
+  PERMISSION_BLOCKED_MS,
+  ANGRY_BLOCKED_MS,
   POKE_HOLD_MS,
   PERFORMANCE_HOLD_MS,
   PERMISSION_FEEDBACK_HOLD_MS,
@@ -461,7 +467,7 @@ describe("overlay-session-runtime: 每会话独立 + 紧急抢焦", () => {
     expect(t.rt.getSnapshot().focusSessionId).toBe(B);
     // B 批准 → nod-smile 表演 → 交还 A（A、B 并行 running → 驻留 working）
     sessions.__session(B)?.__push(
-      makeSnapshot(B, { running: true, runningCallsCount: 1, pending: false }),
+      makeSnapshot(B, { running: true, pending: false }),
     );
     const s = t.rt.getSnapshot();
     expect(s.currentState).toBe("nod-smile");
@@ -531,7 +537,7 @@ describe("overlay-session-runtime: 权限反馈双链", () => {
     expect(t.rt.getSnapshot().currentState).toBe("permission");
     // 授权完成（running 继续）→ nod-smile 表演
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1, pending: false }),
+      makeSnapshot(A, { running: true, pending: false }),
     );
     expect(t.rt.getSnapshot().currentState).toBe("nod-smile");
     // 入场（permission→nod-smile）+ 驻留 2s 到点 → 退场段
@@ -704,7 +710,7 @@ describe("overlay-session-runtime: 点击惊吓 poke（ADR-0011）", () => {
     expect(t.rt.getSnapshot().currentState).toBe("surprised");
     // 期间回合起落：SM 更新，但显示仍是 surprised（互斥）
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(A, { running: true }),
     );
     sessions.__session(A)?.__push(makeSnapshot(A, { running: false }));
     expect(t.rt.getSnapshot().currentState).toBe("surprised");
@@ -737,11 +743,11 @@ describe("overlay-session-runtime: 点击惊吓 poke（ADR-0011）", () => {
     const sessions = createMockSessions(makeListState([A], A));
     const t = timedRuntime(sessions);
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(A, { running: true }),
     );
     sessions.__pushList(makeListState([A, B], A));
     sessions.__session(B)?.__push(
-      makeSnapshot(B, { running: true, runningCallsCount: 2 }),
+      makeSnapshot(B, { running: true }),
     );
     expect(t.rt.getSnapshot().currentState).toBe("working");
     t.rt.poke();
@@ -767,11 +773,11 @@ describe("overlay-session-runtime: 摸鱼彩蛋（池收敛为 happy/angry/surpr
     const sessions = createMockSessions(makeListState([A], A));
     const t = timedRuntime(sessions, sequenceRandom([0, 0.72])); // 间隔=2min
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(A, { running: true }),
     );
     sessions.__pushList(makeListState([A, B], A));
     sessions.__session(B)?.__push(
-      makeSnapshot(B, { running: true, runningCallsCount: 2 }),
+      makeSnapshot(B, { running: true }),
     );
     expect(t.rt.getSnapshot().currentState).toBe("working"); // 并行驻留
     t.advance(120_000); // 彩蛋定时器到点
@@ -791,14 +797,14 @@ describe("overlay-session-runtime: 摸鱼彩蛋（池收敛为 happy/angry/surpr
     const sessions = createMockSessions(makeListState([A], A));
     const t = timedRuntime(sessions, sequenceRandom([0, 0.72]));
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(A, { running: true }),
     );
     sessions.__pushList(makeListState([A, B], A));
     expect(t.rt.getSnapshot().currentState).toBe("idle"); // B 尚未 running
     // B 转入工作：hold 上升沿发生在本次快照内（回归点：基线若在落态后采样，
     // 此处将漏检、彩蛋永不调度）
     sessions.__session(B)?.__push(
-      makeSnapshot(B, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(B, { running: true }),
     );
     expect(t.rt.getSnapshot().currentState).toBe("working"); // hold 生效
     t.advance(120_000);
@@ -812,13 +818,13 @@ describe("overlay-session-runtime: 摸鱼彩蛋（池收敛为 happy/angry/surpr
     const sessions = createMockSessions(makeListState([A], A));
     const t = timedRuntime(sessions);
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(A, { running: true }),
     );
     t.advanceClock(FOCUS_DEBOUNCE_MS + 1);
     t.tick(); // working 防抖落态
     sessions.__pushList(makeListState([A, B], A));
     sessions.__session(B)?.__push(
-      makeSnapshot(B, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(B, { running: true }),
     );
     expect(t.rt.getSnapshot().currentState).toBe("working"); // hold 生效
     // A 回合结束 → done 待整圈边界（pendingDone 保护轮换不被驻留解除清掉）
@@ -837,11 +843,11 @@ describe("overlay-session-runtime: 摸鱼彩蛋（池收敛为 happy/angry/surpr
     const t = timedRuntime(sessions, sequenceRandom([0, 0.72, 0, 0.72]));
     // 间隔均取下限 2min；floor(0.72*3)=2 → surprised
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(A, { running: true }),
     );
     sessions.__pushList(makeListState([A, B], A));
     sessions.__session(B)?.__push(
-      makeSnapshot(B, { running: true, runningCallsCount: 2 }),
+      makeSnapshot(B, { running: true }),
     );
     expect(t.rt.getSnapshot().currentState).toBe("working"); // hold 生效
     t.advance(120_000); // 第一轮触发
@@ -869,7 +875,7 @@ describe("overlay-session-runtime: working 轮换（thinking↔reading）", () =
     const sessions = createMockSessions(makeListState([A], A));
     const t = timedRuntime(sessions, sequenceRandom([0.1, 0.9, 0.5])); // 首段 thinking
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(A, { running: true }),
     );
     t.advanceClock(FOCUS_DEBOUNCE_MS + 1);
     t.tick();
@@ -914,7 +920,7 @@ describe("overlay-session-runtime: working 轮换（thinking↔reading）", () =
     const sessions = createMockSessions(makeListState([A], A));
     const t = timedRuntime(sessions, sequenceRandom([0.1, 0.9, 0.5]));
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(A, { running: true }),
     );
     t.advanceClock(FOCUS_DEBOUNCE_MS + 1);
     t.tick();
@@ -944,7 +950,7 @@ describe("overlay-session-runtime: working 轮换（thinking↔reading）", () =
     const sessions = createMockSessions(makeListState([A], A));
     const t = timedRuntime(sessions, sequenceRandom([0.1, 0.9, 0.5]));
     sessions.__session(A)?.__push(
-      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+      makeSnapshot(A, { running: true }),
     );
     t.advanceClock(FOCUS_DEBOUNCE_MS + 1);
     t.tick();
@@ -999,5 +1005,145 @@ describe("overlay-session-runtime: dispose", () => {
     const before = count;
     sessions.__pushList(makeListState([A, B], A));
     expect(count).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 审批等待时间启发式（工单 21-01，ADR-0014）
+// ---------------------------------------------------------------------------
+
+describe("overlay-session-runtime: 审批等待时间启发式（ADR-0014）", () => {
+  it("卡住（runningCalls>0 无 pending/error）≥10s 进 permission：10s 前仍 working", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const t = timedRuntime(sessions);
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    t.advanceClock(FOCUS_DEBOUNCE_MS + 1);
+    t.tick(); // working 防抖落态
+    expect(t.rt.getSnapshot().currentState).toBe("working");
+    // blockedSince 在快照到达时（now=1000）起算；推进到 10s 边界前 1ms
+    t.advance(PERMISSION_BLOCKED_MS - FOCUS_DEBOUNCE_MS - 2);
+    expect(t.rt.getSnapshot().currentState).toBe("working");
+    // 越过 10s → permission
+    t.advance(2);
+    const s = t.rt.getSnapshot();
+    expect(s.currentState).toBe("permission");
+    expect(finalLoopState(s)).toBe("permission");
+    t.rt.dispose();
+  });
+
+  it("permission 卡住 ≥30s 升级为 angry（30s 前仍 permission）", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const t = timedRuntime(sessions);
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    t.advance(PERMISSION_BLOCKED_MS + 1); // 越过 10s → permission
+    expect(t.rt.getSnapshot().currentState).toBe("permission");
+    // 推进到 30s 边界前 1ms
+    t.advance(ANGRY_BLOCKED_MS - PERMISSION_BLOCKED_MS - 2);
+    expect(t.rt.getSnapshot().currentState).toBe("permission");
+    // 越过 30s → angry
+    t.advance(2);
+    const s = t.rt.getSnapshot();
+    expect(s.currentState).toBe("angry");
+    expect(finalLoopState(s)).toBe("angry");
+    t.rt.dispose();
+  });
+
+  it("目标/运行状态变化即清零：卡住中途 running 终止，不再触发 permission/angry", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const t = timedRuntime(sessions);
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    t.advance(5000); // 卡住 5s（未到 10s）
+    expect(t.rt.getSnapshot().currentState).toBe("working");
+    // running 终止 → blockedSince 清零，走 done 表演回落（非 permission/angry）
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: false }));
+    // 推进远超 10s/30s 窗口：绝不应出现 permission/angry
+    t.advance(100_000);
+    expect(["permission", "angry"]).not.toContain(t.rt.getSnapshot().currentState);
+    // 多次 tick 消化 done 表演相位（每层每次 tick 至多推进一相位）→ 最终 idle
+    t.advance(100_000);
+    t.advance(100_000);
+    expect(t.rt.getSnapshot().currentState).toBe("idle");
+    t.rt.dispose();
+  });
+
+  it("pending 上升沿即时快路径仍生效（互补非替代）：pending 出现立即 permission，无需等 10s", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const t = timedRuntime(sessions);
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    t.advance(1000); // 卡住 1s（远未到 10s）
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1, pending: true }),
+    );
+    expect(t.rt.getSnapshot().currentState).toBe("permission");
+    t.rt.dispose();
+  });
+
+  it("升级 angry 后审批解决（pending 下降沿批准）仍走 nod-smile 反馈链", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const t = timedRuntime(sessions);
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1 }),
+    );
+    t.advance(PERMISSION_BLOCKED_MS + 1); // 越过 10s → permission
+    expect(t.rt.getSnapshot().currentState).toBe("permission");
+    t.advance(ANGRY_BLOCKED_MS - PERMISSION_BLOCKED_MS + 1); // 越过 30s → angry
+    expect(t.rt.getSnapshot().currentState).toBe("angry");
+    // 宿主补上 pending（快路径接管，SM 仍在 permission）→ 批准（下降沿）
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, runningCallsCount: 1, pending: true }),
+    );
+    sessions.__session(A)?.__push(
+      makeSnapshot(A, { running: true, pending: false }),
+    );
+    expect(t.rt.getSnapshot().currentState).toBe("nod-smile");
+    t.rt.dispose();
+  });
+
+  it("非焦点会话卡住 ≥10s 同样进 permission 并抢焦（与 pending 快路径抢焦一致）", () => {
+    const sessions = createMockSessions(makeListState([A, B], A));
+    const t = timedRuntime(sessions);
+    // A 仅运行中（无 active tool call），不触发启发式；B 卡住专用
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    t.advance(FOCUS_DEBOUNCE_MS + 1);
+    t.tick();
+    expect(t.rt.getSnapshot().currentState).toBe("working"); // A 焦点 working
+    // B 非焦点卡住（runningCalls>0 无 pending/error）
+    sessions.__session(B)?.__push(
+      makeSnapshot(B, { running: true, runningCallsCount: 2 }),
+    );
+    t.advance(PERMISSION_BLOCKED_MS + 1);
+    const s = t.rt.getSnapshot();
+    expect(s.currentState).toBe("permission");
+    expect(s.focusSessionId).toBe(B); // 紧急抢焦
+    t.rt.dispose();
+  });
+
+  it("非焦点会话卡住 ≥30s 后被接管 → 直接以 angry 呈现（接管补判）", () => {
+    const sessions = createMockSessions(makeListState([A, B], A));
+    const t = timedRuntime(sessions);
+    // A error 抢焦（压住 B 的呈现）
+    sessions.__session(A)?.__push(makeSnapshot(A, { hasError: true }));
+    expect(t.rt.getSnapshot().currentState).toBe("error");
+    // B 非焦点卡住（runningCalls>0 无 pending/error）→ 10s 进 permission（SM）
+    sessions.__session(B)?.__push(
+      makeSnapshot(B, { running: true, runningCallsCount: 2 }),
+    );
+    t.advance(PERMISSION_BLOCKED_MS + 1);
+    expect(t.rt.getSnapshot().currentState).toBe("error"); // A 仍压着
+    // 越过 30s 后 A error 消退 → B 接管，直接以 angry 呈现（非 permission）
+    t.advance(ANGRY_BLOCKED_MS - PERMISSION_BLOCKED_MS + 1);
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: false }));
+    const s = t.rt.getSnapshot();
+    expect(s.currentState).toBe("angry");
+    expect(s.focusSessionId).toBe(B);
+    t.rt.dispose();
   });
 });

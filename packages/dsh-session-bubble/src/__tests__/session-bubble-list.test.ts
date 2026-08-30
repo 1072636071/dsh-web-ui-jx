@@ -415,6 +415,45 @@ describe("SessionBubbleList: 归档排除端到端", () => {
       vi.useRealTimers();
     }
   });
+
+  it("键盘 Delete 收起聚焦气泡（唯一移除手势的键盘路径，ADR-0026 改型）", () => {
+    vi.useFakeTimers();
+    try {
+      mount({
+        sessions: makeSessions(
+          listState("ready", [
+            // 用独立 id：dismissed 集合为模块单例内存态，先例（手柄点击用例）
+            // 会把 "root" 记入并泄漏到后续用例——避开以免被误判为已收起。
+            summary("kroot"),
+            summary("ks1", {
+              parentId: "kroot",
+              origin: "subagent",
+              completed: true,
+            }),
+          ]),
+        ).sessions,
+      });
+      const bubble = container
+        .querySelector<HTMLElement>("[aria-label='收起会话']")
+        ?.closest<HTMLElement>("[data-hover-key]");
+      expect(bubble).not.toBeNull();
+
+      act(() => {
+        bubble!.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Delete", bubbles: true }),
+        );
+      });
+      act(() => {
+        vi.advanceTimersByTime(150); // 越过退出动画
+      });
+
+      expect(
+        bubbleTitles().some((label) => label.includes("会话：kroot")),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

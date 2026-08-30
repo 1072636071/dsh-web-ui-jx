@@ -1,6 +1,12 @@
 /**
  * overlay-session-runtime — 会话级状态机容器、焦点仲裁与显示层调度
- * （ADR-0008 + ADR-0010 + ADR-0011 + ADR-0013 + ADR-0016）。
+ * （ADR-0008 + ADR-0010 + ADR-0011 + ADR-0013 + ADR-0016 + ADR-0014）。
+ *
+ * ADR-0014 审批等待时间启发式：每会话记 blockedSince（runningCalls>0 且无
+ * pending/error 的「卡住等待」起点），tick 扫描各 deadline——≥10s 进
+ * permission、≥30s 升级 angry；目标/运行状态变化即清零；snapshot.pending
+ * 上升沿的即时快路径保留（互补而非替代）。详见 `tick()` 与
+ * `updateBlockedSince`。
  *
  * ADR-0016 四态收敛后的显示层管线（优先级高 → 低）：
  *   1. 紧急态（permission/error）：任意会话紧急 → 立即接管显示（硬切，
@@ -78,6 +84,12 @@ import {
 
 /** working 进入防抖窗口 ms（PRD 决策 5「约 2000ms」；permission/error 硬切不防抖）。 */
 export const FOCUS_DEBOUNCE_MS = 2000;
+
+/** 审批等待时间启发式（ADR-0014）：卡住 ≥10s 进 permission。 */
+export const PERMISSION_BLOCKED_MS = 10_000;
+
+/** 审批等待时间启发式（ADR-0014）：卡住 ≥30s 由 permission 升级为 angry。 */
+export const ANGRY_BLOCKED_MS = 30_000;
 
 /** poke 惊吓循环驻留时长 ms（惊吓循环态可见后开始计时，ADR-0011）。 */
 export const POKE_HOLD_MS = 3000;
@@ -264,12 +276,23 @@ interface SessionEntry {
   lastState: OverlayState;
   /** 当前底层目标态（可能与 lastState 不同：焦点会话 working 进入防抖期间）。 */
   pendingTarget: OverlayState;
+  /**
+   * 审批等待时间启发式（ADR-0014）起点：会话进入「runningCalls>0 且无
+   * pending/error」卡住等待的时刻（注入时钟 ms）。undefined = 未卡住。
+   * tick 扫描 ≥10s 进 permission、≥30s 升级 angry；目标/运行状态变化即清零。
+   */
+  blockedSince: number | undefined;
 }
 
 /** 紧急态显示层（permission/error 接管，入场源姿态捕获）。 */
 interface EmergencyDisplay {
   readonly sessionId: SessionId;
   readonly state: "permission" | "error";
+  /**
+   * 紧急显示的实际表情：permission 长候 ≥30s 升级为 angry（ADR-0014），
+   * error 恒 error。SM 状态保持 permission（审批解析仍走既有反馈链）。
+   */
+  readonly expression: "permission" | "error" | "angry";
   /** 入场源姿态（捕获一次；紧急链切换时取上一紧急态）。 */
   readonly pose: TransitionEndpoint;
 }
@@ -923,7 +946,17 @@ export function createOverlaySessionRuntime(
       ) {
         // 紧急链切换（如 permission→error）时，源姿态取上一紧急态。
         const pose = emergency !== undefined ? emergency.state : displayPose;
-        emergency = { sessionId: emergencyId, state, pose };
+        // 接管补判（ADR-0014）：会话卡住 ≥30s 才成为当前呈现者（此前被其他
+        // 紧急态压着、tick 的升级路径未命中）时，直接以 angry 表情接管。
+        let expression: "permission" | "error" | "angry" = state;
+        if (
+          state === "permission" &&
+          entry.blockedSince !== undefined &&
+          now() - entry.blockedSince >= ANGRY_BLOCKED_MS
+        ) {
+          expression = "angry";
+        }
+        emergency = { sessionId: emergencyId, state, expression, pose };
       }
       setCurrentFocus(emergencyId);
       return;
@@ -959,16 +992,17 @@ export function createOverlaySessionRuntime(
     switch (layer) {
       case "emergency": {
         // 紧急抢焦：显示紧急会话（入场源姿态经 idle 中转，计划内容稳定）。
+        // permission 长候 ≥30s 升级为 angry 时 expression 为 "angry"（ADR-0014）。
         stopVariantRotation();
         const em = emergency!;
         const plan = viaIdlePlan(
           em.pose,
-          em.state,
-          loopItem(em.state, loopAssetUrl(em.state)),
+          em.expression,
+          loopItem(em.expression, loopAssetUrl(em.expression)),
         );
         return {
           focusSessionId: currentFocusSessionId,
-          currentState: em.state,
+          currentState: em.expression,
           playback: plan,
           focusNonce,
         };
@@ -1193,10 +1227,52 @@ export function createOverlaySessionRuntime(
       }
     }
     reconcileFocus();
+    updateBlockedSince(entry, currCore);
     const isHold = isParallelHold();
     if (wasParallel !== isHold) {
       onParallelHoldChanged(isHold);
     }
+    emit();
+  }
+
+  /**
+   * 维护 ADR-0014 审批等待时间启发式的 blockedSince。
+   *
+   * 卡住判定 = runningCalls>0 且无 pending/error（工具调用顶着不动、宿主未报
+   * 审批信号也不报错）。pending 在场时由 `snapshot.pending` 上升沿快路径接管
+   * （即时 permission），故不计入启发式；目标/运行状态变化（含 pending 上升沿、
+   * running 终止、error 出现）经本条清零。tick 按 blockedSince 的 elapsed 判定
+   * 10s/30s deadline（见 tick()）。
+   */
+  function updateBlockedSince(
+    entry: SessionEntry,
+    core: SnapshotCore,
+  ): void {
+    const blocked =
+      core.running &&
+      core.runningCallsCount > 0 &&
+      !core.pending &&
+      !core.hasError;
+    if (blocked) {
+      if (entry.blockedSince === undefined) entry.blockedSince = now();
+    } else {
+      entry.blockedSince = undefined;
+    }
+  }
+
+  /**
+   * 审批长候升级（ADR-0014）：permission 卡住 ≥30s 时，紧急显示表情由
+   * permission 升级为 angry（久候无应表情）。SM 状态保持 permission——
+   * 审批解析（pending 下降沿 → nod-smile/frown-wave）仍走既有反馈链，
+   * 紧急链切换（→error）亦不受影响。仅当该会话是当前紧急呈现者时升级；
+   * 升级后本次紧急期间不重复（expression 已为 angry）。
+   */
+  function upgradeBlockedToAngry(entry: SessionEntry): void {
+    if (entry.lastState !== "permission") return;
+    if (emergency === undefined || emergency.sessionId !== entry.id) return;
+    if (emergency.expression === "angry") return;
+    // 从当前 permission 表情出发：permission→idle→angry 过渡 + angry 循环。
+    emergency = { ...emergency, expression: "angry", pose: "permission" };
     emit();
   }
 
@@ -1216,6 +1292,7 @@ export function createOverlaySessionRuntime(
       prevCore: null,
       lastState: IDLE,
       pendingTarget: IDLE,
+      blockedSince: undefined,
     };
     entries.set(id, entry);
     entry.unsub = binding.session.subscribe(() => {
@@ -1322,6 +1399,27 @@ export function createOverlaySessionRuntime(
       const entry = entries.get(sessionId);
       if (entry !== undefined && entry.pendingTarget === "working") {
         dispatchState(entry, "working");
+        reconcileFocus();
+        emit();
+      }
+    }
+    // 审批等待时间启发式（ADR-0014）：每会话 blockedSince 扫描——≥10s 进
+    // permission、≥30s 由 permission 升级 angry。deadline 判定走注入时钟，
+    // 零新定时器；目标/运行状态变化已在 updateBlockedSince 清零。两条阈值
+    // 独立判定（不可用 if/else-if：越过 30s 但尚未进 permission 的会话仍须
+    // 先走 10s 分支进 permission，再于后续 tick 升级）。
+    for (const entry of entries.values()) {
+      if (entry.blockedSince === undefined) continue;
+      const elapsed = now() - entry.blockedSince;
+      if (elapsed >= ANGRY_BLOCKED_MS && entry.lastState === "permission") {
+        upgradeBlockedToAngry(entry);
+      }
+      if (
+        elapsed >= PERMISSION_BLOCKED_MS &&
+        entry.lastState !== "permission" &&
+        entry.lastState !== "error"
+      ) {
+        dispatchState(entry, "permission");
         reconcileFocus();
         emit();
       }
