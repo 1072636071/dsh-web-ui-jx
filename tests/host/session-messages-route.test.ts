@@ -10,8 +10,8 @@
  *   - GET /api/dsh-jx/session/<id>/messages → 200 + {title, prompts}；
  *   - title 折叠：取最新 `session/title` 事件的 data.title（log-backed 权威），
  *     无 title 事件 → null；
- *   - prompts 载荷经 collectUserMessages（过滤/拼接语义由纯函数测试覆盖，
- *     此处只断言接线透传）；
+ *   - prompts 载荷经 collectConversation（过滤/配对语义由纯函数测试覆盖，
+ *     此处只断言接线透传，含配对 reply）；
  *   - inspect 抛错（会话不存在/不可读）→ 404 + JSON error；
  *   - 方法限制：非 GET → 405；
  *   - 路径形状：不匹配 `/messages` 结尾等 → 404；
@@ -50,6 +50,15 @@ function userMsg(seq: number, text: string): HostSessionEventLike {
     type: "user/message",
     seq,
     data: { source: { kind: "user" }, content: [{ type: "text", text }] },
+  };
+}
+
+/** assistant 回复事件（文本在 data.message.content）. */
+function assistantMsg(seq: number, text: string): HostSessionEventLike {
+  return {
+    type: "assistant/message",
+    seq,
+    data: { message: { source: { kind: "model" }, content: [{ type: "text", text }] } },
   };
 }
 
@@ -95,15 +104,16 @@ async function getJson(
 }
 
 describe("dsh-jx session messages route — GET /api/dsh-jx/session/<id>/messages", () => {
-  it("返回 200 + {title, prompts}：问话按序透传，title 取最新 session/title 事件", async () => {
+  it("返回 200 + {title, prompts}：问答按序透传（含配对 reply），title 取最新 session/title 事件", async () => {
     inspectImpl = async () => ({
       meta: { id: "abc" },
       events: [
         userMsg(1, "第一问"),
         titleEvent(2, "旧标题"),
-        userMsg(3, "第二问"),
-        titleEvent(4, "最新标题"),
-        { type: "assistant/message", seq: 5, data: {} },
+        { type: "assistant/message", seq: 3, data: {} }, // malformed 回复：无 message → 不崩、reply 保持 null
+        userMsg(4, "第二问"),
+        assistantMsg(5, "第二问答复"),
+        titleEvent(6, "最新标题"),
       ],
     });
     const { status, json } = await getJson(
@@ -112,8 +122,8 @@ describe("dsh-jx session messages route — GET /api/dsh-jx/session/<id>/message
     expect(status).toBe(200);
     expect(json.title).toBe("最新标题");
     expect(json.prompts).toEqual([
-      { seq: 1, text: "第一问" },
-      { seq: 3, text: "第二问" },
+      { seq: 1, text: "第一问", reply: null },
+      { seq: 4, text: "第二问", reply: "第二问答复" },
     ]);
     expect(inspectCalls).toEqual(["abc"]);
   });
@@ -128,7 +138,7 @@ describe("dsh-jx session messages route — GET /api/dsh-jx/session/<id>/message
     );
     expect(status).toBe(200);
     expect(json.title).toBeNull();
-    expect(json.prompts).toEqual([{ seq: 1, text: "只有一问" }]);
+    expect(json.prompts).toEqual([{ seq: 1, text: "只有一问", reply: null }]);
   });
 
   it("冷会话同契约：inspect 由宿主内部 fallback 持久化读，路由不感知（返回即预览）", async () => {
@@ -142,7 +152,7 @@ describe("dsh-jx session messages route — GET /api/dsh-jx/session/<id>/message
       `${SESSION_MESSAGES_PREFIX}/cold-1/messages`,
     );
     expect(status).toBe(200);
-    expect(json.prompts).toEqual([{ seq: 9, text: "冷会话问话" }]);
+    expect(json.prompts).toEqual([{ seq: 9, text: "冷会话问话", reply: null }]);
   });
 
   it("inspect 抛错（会话不存在/不可读）→ 404 + JSON error", async () => {

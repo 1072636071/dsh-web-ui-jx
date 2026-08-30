@@ -94,24 +94,19 @@ export {
   type SessionBubblePopupProps,
 } from "./SessionBubblePreview.tsx";
 
-// 气泡内容弹框纯逻辑：路由 JSON 解析 / 胶囊折叠选中摘要 / 视口钳制。
+// 气泡内容弹框纯逻辑：路由 JSON 解析（含配对 reply）/ 摘要选中 / 视口钳制。
 export {
-  CAPSULE_SUMMARY_MAX_CHARS,
-  MAX_VISIBLE_CAPSULES,
+  SUMMARY_MAX_CHARS,
   POPUP_GAP_PX,
+  POPUP_HEIGHT_PX,
   POPUP_MARGIN_PX,
-  POPUP_MAX_HEIGHT_PX,
   POPUP_WIDTH_PX,
-  capsuleLayout,
   computePopupPlacement,
-  foldCapsules,
   parsePreviewResponse,
   resolveSelectedIndex,
   truncateSummary,
   type AnchorRect,
-  type FoldedCapsules,
   type PopupPlacement,
-  type PreviewCapsule,
   type PromptLike,
   type SessionPreviewData,
   type Size,

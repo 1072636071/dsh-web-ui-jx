@@ -40,10 +40,11 @@
  * （骨架屏 + 失败静默）；AI 动态标题（dynamicTitleTransport，工单 16-04）
  * 以书眉副题行呈现，未配置 API 时整行隐藏。
  *
- * 气泡内容弹框（ADR-0031，PRD 14 工单 02/03）：鼠标 hover 会话气泡浮现
- * 内容浮层（标题 + 问话胶囊 + 详情区），数据经 host
+ * 气泡内容弹框（ADR-0031 / ADR-0032）：鼠标 hover 会话气泡浮现的固定尺寸三列
+ * 问答对照浮层（左列标题+问话摘要行 / 中列选中问话全文 / 右列配对 LLM 回复），
+ * 数据经 host
  * `/api/dsh-jx/session/<id>/messages`（sessionController.inspect）无副作用
- * 读取，胶囊点击与气泡同跳转路径。两弹层车道分离互斥：内容弹框只接 mouse
+ * 读取，摘要行点击与气泡同跳转路径。两弹层车道分离互斥：内容弹框只接 mouse
  * pointer（180ms 胜出），详情窗走触屏长按车道（500ms）；活跃方经
  * previewActiveRef / hoverDetail 双闸门让行，绝不叠显。
  *
@@ -1246,7 +1247,7 @@ export function SessionBubbleList({
     },
     [hoverDetail, items, current, preview.onBubbleEnter],
   );
-  // 胶囊点击 = 与点击气泡同一跳转路径（sessions.open + kept 记账，ADR-0022 D1
+  // 摘要行点击 = 与点击气泡同一跳转路径（sessions.open + kept 记账，ADR-0022 D1
   // 语义统一），跳转后收起弹框；当前会话 no-op（仅收起）。
   const handlePreviewOpen = useCallback(() => {
     const t = preview.target;
@@ -1567,12 +1568,10 @@ export function SessionBubbleList({
           data={preview.data}
           failed={preview.failed}
           hoveredIndex={preview.hoveredIndex}
-          capsulesExpanded={preview.capsulesExpanded}
           closing={preview.closing}
           onPopupEnter={preview.onPopupEnter}
           onPopupLeave={preview.onPopupLeave}
-          onCapsuleHover={preview.onCapsuleHover}
-          onToggleCapsules={preview.onToggleCapsules}
+          onSummaryHover={preview.onSummaryHover}
           onOpenSession={handlePreviewOpen}
         />
       )}

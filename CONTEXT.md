@@ -34,8 +34,9 @@
 | 投放区 | 保留模式开启时气泡列旁的两个拖拽落点统称（ADR-0022）：收起区 + 归档区；拖拽是移除的唯一手势（双击判定方案已否决）；仅 completed 类气泡可拖，running/pending 禁止。 |
 | 收起区 | 投放区之一（近放，气泡列正下方）：拖入 = 记入本地 dismissed 集合（localStorage `jx-bubble-keep-*` 持久化），气泡隐藏、不动 SDK、完全可逆——管「暂时不想看」。 |
 | 归档区 | 投放区之一（远放，角色脚边，警示视觉 + hover 提示）：拖入 = 调 `workspaces.archiveSession` 真归档（侧边栏同步隐藏、日志保留），**不可逆**（契约层无 unarchive）；拒绝当前会话气泡（规避归档当前会话清空选择的副作用）；由配置②「拖拽归档」独立开关控制。 |
-| 气泡内容弹框 | 鼠标 hover 会话气泡浮现的内容浮层（ADR-0031）：会话标题 + 一排问话胶囊 + 问话详情区；默认展开最后一个胶囊（显示最后一条问话完整内容），hover 切胶囊；点击胶囊 `sessions.open(id)` 跳转该会话（会话内精确定位留待官方开放接口）。数据源走 host 半区 `sessionController.inspect`（无副作用，兼容冷会话）。 |
-| 问话胶囊 | 气泡内容弹框里、每条用户问话对应的文字胶囊（显示该条问话截断摘要）：弹框展示该会话**全部**直接用户问话，超长折叠「+N」；胶囊始终紧凑，当前选中/hover 胶囊的完整问话显示在下方的问话详情区。 |
+| 气泡内容弹框 | 鼠标 hover 会话气泡浮现的内容浮层（ADR-0031，几何与分栏经 ADR-0032 改写）：**固定 560×320**（宽/高恒定的 inline style 注入，内容不足留白、各列内滚动，根治旧 `maxHeight` 高度抖动）；**三列横排**——左列（固定 160px）= 会话标题 + 竖排可滚动问话摘要列表、中列与右列（各 `minmax(0,1fr)` 等分剩余 ≈179px）分别 = 选中问话完整原文 / 该问话配对的 LLM 回复；左列选中态（hover 切换、latch、默认最后一条 = 最新一轮）统一驱动中右两列，点行仍 `sessions.open(id)` 跳转。数据源走 host 半区 `sessionController.inspect`（无副作用，兼容冷会话）。 |
+| 问话摘要行 | 气泡内容弹框左列中、每条用户问话对应的一行（显示该条问话截断摘要，单行省略号，替代旧「横排胶囊 + 折叠 +N」，改竖排可滚动列表）；当前选中/hover 行金描边，其完整问话显示在中列、配对回复显示在右列。 |
+| 问答案配对 | 气泡内容弹框右列的取数规则（ADR-0032）：第 N 条问话的回复 = 其后、下一条**真人**问话（`user/message` 且 `source.kind==='user'`）之前，最后一条**非空文本** `assistant/message`（文本在 `data.message.content[]`，与问话的 `data.content` 不对称；跳过 tool-call 前言/空 content/注入型 context）。host 响应 prompts 每条附 `reply: string \| null`。子智能体回复在独立子会话、父日志仅见 `tool/result`，本弹框不覆盖。 |
 | 变体动作 | 长驻态多动作轮换（ADR-0013）：形状「中性姿态→动作→中性姿态」（**中性帧** = 主素材首帧，各变体首尾对齐），只播一遍、随机不重复串成无限列表，段间停 ~400ms；命名 `{state}-vN.webp`（主素材 v1 入池）；首批 idle/working 各 v2–v4；SettingsCard「角色」section 开关默认开。 |
 | 播放计划结构等价 | UI 播放推进契约（ADR-0016）：新旧 playback 长度相同且各项 kind/url 逐项相同 ⇒ 同一计划沿用进度，否则归零重播。必须结构比较而非裸引用——poke/彩蛋/并行驻留分支每次重建数组（新引用同内容），runtime 又无条件 emit（**快照引用抖动**）。落地于播放游标（`playback-cursor.ts`）。 |
 | 状态身份倒挂 | 反模式现象名（issue 08 症状）：某状态造型仅在离开该状态的过渡首帧可见（permission 因过渡链被打断，批准后退场才被看到）。 |
@@ -110,5 +111,6 @@
 | ADR-0029 | 会话气泡独立成子包（库 + 薄壳插件两层，monorepo 就地改造；已实施）：`dsh-session-bubble` 库（纯逻辑 `buildBubbleGroups` + 组件 + 配置/记账 + `bubble-theme.css` 自带 `--jx-*` 默认值）独立发布；`dsh-session-bubble-plugin` 薄壳装完即用；根插件改 import 库单一事实源；`--dsw-*` 由宿主提供不复制；localStorage key 保留 `jx-*` 前缀集中单点；数据契约 `ISessions`/`IWorkspaces` 不抽象。 |
 | ADR-0030 | 详情窗 AI 动态标题走 host 半区 Node 直连 + transport 抽象（已实施）：库 `DynamicTitleTransport` 接口 + host `/api/dsh-jx/ai-title` 路由（OpenAI 兼容协议）+ settings 分节 `dsh-jx.aiTitle`（endpoint/model/频率）+ credentials 存取 API key（每操作 resolve、换 key 零重启）；客户端只传消息上下文、浏览器零 key 暴露；触发重刷 = 事件失效 + 悬停时缓存过期才生成 + 节流；否决注册 LLM adapter。 |
 | ADR-0031 | 气泡内容弹框数据源取宿主服务端 `sessionController.inspect`（已实施）：host 半区注入 `sessionController`，`inspect(sessionId)` 无副作用读会话日志（兼容冷会话），顺序提取全部直接用户问话（时序正序，末条恒为最新）（`user/message` + `source.kind==='user'`），经 `/api/dsh-jx` 路由下发；client hover 气泡浮现内容弹框（标题 + 问话胶囊 + 详情区）；否决 client 临时 open 切回 / sessions.search / 仅已 open 会话降级。 |
+| ADR-0032 | 气泡内容弹框固定几何 + 三列问答对照（待实施）：`maxHeight`→固定 `height`（560×320）根治高度抖动，内容留白 + 各列内滚动；竖排三段改三列（左=标题+竖排可滚动问话摘要行、中=选中问话全文、右=配对 LLM 回复），左列选中态驱动中右；host 响应 prompts 每条附 `reply:string\|null`（问答案配对规则），`collectUserMessages` 扩为逐问配对 assistant 文本；否决 全局末条回复 / 回复堆叠中列 / JS 记忆上次高度。 |
 
 详见 `docs/adr/`。

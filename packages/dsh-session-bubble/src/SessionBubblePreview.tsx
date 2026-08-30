@@ -1,25 +1,29 @@
 /**
- * SessionBubblePreview — 气泡内容弹框（hover 预览会话问话，ADR-0031 / PRD 14 工单 02/03）。
+ * SessionBubblePreview — 气泡内容弹框（hover 问答对照，ADR-0031 / ADR-0032）。
  *
- * 鼠标 hover 会话气泡浮现的 tooltip 浮层：会话标题 + 一排问话胶囊 + 问话详情区。
- * 默认展开最后一个胶囊（详情区显示最新问话完整内容）；hover 某胶囊 → 详情区
- * 切换；点击胶囊 → 与点击气泡同一跳转路径（sessions.open + kept 记账），跳转
- * 后收起弹框。折叠/选中/摘要/视口定位等决策全部走
- * state-machine/session-bubble-preview.ts 纯逻辑（可测 seam），本文件只做
- * React 接线 + hover 生命周期 + fetch 缓存。
+ * 鼠标 hover 会话气泡浮现的 tooltip 浮层，**固定尺寸三列问答对照**：
+ *   - 左列 = 会话标题 + 竖排可滚动的问话摘要行列表（每条一行、截断摘要）；
+ *   - 中列 = 当前选中问话的完整原文；
+ *   - 右列 = 该问话配对的 LLM 回复全文（无回复显示「暂无回复」占位）。
+ * 默认选中最后一条问话 = 最新一轮问答（打开即见 LLM 最新回复）；hover 某摘要
+ * 行 → 中/右列同步切换（latch 保持）；点击摘要行 → 与点击气泡同一跳转路径
+ * （sessions.open + kept 记账），跳转后收起弹框。固定宽高（inline style 注入
+ * 560×320，非 maxHeight）根治高度抖动；内容不足留白、超出各列内滚动。选中/
+ * 摘要/视口定位等决策全部走 state-machine/session-bubble-preview.ts 纯逻辑
+ * （可测 seam），本文件只做 React 接线 + hover 生命周期 + fetch 缓存。
  *
  * hover 生命周期（用户故事 10/11/15）：
  *   - 气泡 pointerenter → debounce（HOVER_SHOW_DELAY_MS）后浮现；弹框已开时
  *     切目标即时跟随（不串会话）；
  *   - 气泡 pointerleave → 宽限期（HIDE_GRACE_MS）后消失，期间指针移入弹框
- *     则取消（弹框可交互：胶囊 hover/点击/滚动）；
+ *     则取消（弹框可交互：摘要行 hover/点击/滚动）；
  *   - 弹框 pointerleave → 同宽限期消失。
  *
  * 数据链路（D6 debounce + 缓存）：hover 命中才 fetch
  * `/api/dsh-jx/session/<id>/messages`（host `sessionController.inspect`
- * 无副作用读）；缓存 key = `sessionId:updatedAt`——会话有新活动（updatedAt
- * 上升）自动失效，无定时器、无手动失效面；in-flight 去重防同 key 并发重复
- * 打路由；缓存容量上限防极长会话列表下无界增长（超限逐出最早条目）。
+ * 无副作用读，每条问话带配对 reply）；缓存 key = `sessionId:updatedAt`——会话
+ * 有新活动（updatedAt 上升）自动失效，无定时器、无手动失效面；in-flight 去重
+ * 防同 key 并发重复打路由；缓存容量上限防极长会话列表下无界增长（逐出最早）。
  *
  * 交互分流（D6 / 用户故事 12/13）：弹框经 createPortal 挂 document.body
  * （position:fixed 视口坐标——浮层祖先带 transform，盒内 fixed 会失效），
@@ -42,12 +46,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
-  capsuleLayout,
   computePopupPlacement,
   parsePreviewResponse,
   resolveSelectedIndex,
+  truncateSummary,
+  SUMMARY_MAX_CHARS,
   POPUP_GAP_PX,
-  POPUP_MAX_HEIGHT_PX,
+  POPUP_HEIGHT_PX,
   POPUP_WIDTH_PX,
   type AnchorRect,
   type SessionPreviewData,
@@ -130,7 +135,7 @@ export interface PreviewTarget {
   readonly rect: AnchorRect;
   /** 会话列表快照的 updatedAt（并入缓存 key，新活动自动失效）. */
   readonly updatedAt: number;
-  /** 是否当前会话（点击胶囊跳转对当前会话是 no-op，与点击气泡同语义）. */
+  /** 是否当前会话（点击摘要行跳转对当前会话是 no-op，与点击气泡同语义）. */
   readonly isCurrent: boolean;
 }
 
@@ -153,10 +158,8 @@ export interface BubblePreviewState {
   readonly data: SessionPreviewData | null;
   /** 数据加载失败（显示失败占位，hover 下次可重试）. */
   readonly failed: boolean;
-  /** hover 胶囊命中的 prompts 下标（undefined = 无 hover，选中回落最后）. */
+  /** hover 摘要行命中的 prompts 下标（undefined = 无 hover，选中回落最后）. */
   readonly hoveredIndex: number | undefined;
-  /** 弹框内胶囊区展开全部（「+N」chip 切换）. */
-  readonly capsulesExpanded: boolean;
   /** 气泡 pointerenter 旁路（不拦截既有交互）. */
   onBubbleEnter: (target: PreviewTarget) => void;
   /** 气泡 pointerleave 旁路. */
@@ -165,11 +168,9 @@ export interface BubblePreviewState {
   onPopupEnter: () => void;
   /** 弹框 pointerleave（宽限期隐藏）. */
   onPopupLeave: () => void;
-  /** hover 某胶囊 → 详情区切换（latch：选中保持到下次 hover/换目标，移开不回弹——审查动画轮修复①）. */
-  onCapsuleHover: (index: number) => void;
-  /** 切换弹框内胶囊展开全部/收起. */
-  onToggleCapsules: () => void;
-  /** 关闭弹框（胶囊点击跳转后调用；立即进入退出动画相）. */
+  /** hover 某摘要行 → 中/右列切换（latch：选中保持到下次 hover/换目标，移开不回弹——审查动画轮修复①）. */
+  onSummaryHover: (index: number) => void;
+  /** 关闭弹框（摘要行点击跳转后调用；立即进入退出动画相）. */
   close: () => void;
   /** 弹框处于退出动画相（父层据此渲染 .closing class，100ms 后卸载）. */
   readonly closing: boolean;
@@ -186,7 +187,6 @@ export function useBubblePreview(): BubblePreviewState {
   const [hoveredIndex, setHoveredIndex] = useState<number | undefined>(
     undefined,
   );
-  const [capsulesExpanded, setCapsulesExpanded] = useState(false);
   // 退出动画相（审查动画轮修复②）：隐藏先挂 .closing 淡出 100ms 再卸载——
   // 与气泡列 .leaving 同一模式；宽限期与退出相是两段独立计时。
   const [closing, setClosing] = useState(false);
@@ -259,7 +259,6 @@ export function useBubblePreview(): BubblePreviewState {
     setData(null);
     setFailed(false);
     setHoveredIndex(undefined);
-    setCapsulesExpanded(false);
   }, [clearExitTimer]);
 
   /** 撤销退出相（淡出未完即被重进）：取消卸载计时、恢复展示。 */
@@ -289,7 +288,6 @@ export function useBubblePreview(): BubblePreviewState {
       targetRef.current = next;
       setTarget(next);
       setHoveredIndex(undefined);
-      setCapsulesExpanded(false);
       loadInto(next);
     },
     [loadInto, cancelClose],
@@ -343,11 +341,7 @@ export function useBubblePreview(): BubblePreviewState {
 
   const onPopupLeave = scheduleHide;
 
-  const onToggleCapsules = useCallback(() => {
-    setCapsulesExpanded((e) => !e);
-  }, []);
-
-  /** 显式关闭（胶囊点击跳转后）：跳过宽限期，直接进退出动画相。 */
+  /** 显式关闭（摘要行点击跳转后）：跳过宽限期，直接进退出动画相。 */
   const close = useCallback(() => {
     clearShowTimer();
     clearHideTimer();
@@ -368,14 +362,12 @@ export function useBubblePreview(): BubblePreviewState {
     data,
     failed,
     hoveredIndex,
-    capsulesExpanded,
     closing,
     onBubbleEnter,
     onBubbleLeave,
     onPopupEnter,
     onPopupLeave,
-    onCapsuleHover: setHoveredIndex,
-    onToggleCapsules,
+    onSummaryHover: setHoveredIndex,
     close,
   };
 }
@@ -392,90 +384,97 @@ export interface SessionBubblePopupProps {
   data: SessionPreviewData | null;
   /** 加载失败标记. */
   failed: boolean;
-  /** hover 胶囊命中的 prompts 下标. */
+  /** hover 摘要行命中的 prompts 下标. */
   hoveredIndex: number | undefined;
-  /** 胶囊区是否展开全部. */
-  capsulesExpanded: boolean;
   /** 退出动画相：挂 .closing 播 100ms 淡出，动画播完由 hook 卸载. */
   closing: boolean;
   /** 弹框 pointerenter/leave（维持存活）. */
   onPopupEnter: () => void;
   onPopupLeave: () => void;
-  /** 胶囊 hover 回调（latch 语义：选中保持到下次 hover 或换目标，不回弹）. */
-  onCapsuleHover: (index: number) => void;
-  /** 「+N」/「收起」chip 切换. */
-  onToggleCapsules: () => void;
-  /** 点击胶囊 → 跳转该会话（父层复用 handleOpen，语义与点击气泡一致）. */
+  /** 摘要行 hover 回调（latch 语义：选中保持到下次 hover 或换目标，不回弹）. */
+  onSummaryHover: (index: number) => void;
+  /** 点击摘要行 → 跳转该会话（父层复用 handleOpen，语义与点击气泡一致）. */
   onOpenSession: () => void;
 }
 
 /**
- * 渲染气泡内容弹框：标题 + 问话胶囊行（+N chip）+ 详情区。
+ * 渲染气泡内容弹框：固定尺寸三列——左列标题+问话摘要行竖排列表、中列选中问话
+ * 全文、右列该问话配对的 LLM 回复。
  *
- * 定位：computePopupPlacement 纯函数（默认挂气泡左侧、放不下翻转/钳制），
- * 视口尺寸取弹框出现时刻的 innerWidth/innerHeight（瞬态浮层，无需 resize
- * 订阅）。弹框自身挂 data-jx-interactive——portal 在 body 下不经浮层祖先，
- * 但仍需排除整盒拖动的 document 级 pointerdown 判定（CharacterOverlay
- * closest('[data-jx-interactive]') 从任意 target 向上查）。
+ * 定位：computePopupPlacement 纯函数（按固定尺寸钳制，默认挂气泡左侧、放不下
+ * 翻转/钳制），视口尺寸取弹框出现时刻的 innerWidth/innerHeight（瞬态浮层，无需
+ * resize 订阅）。几何单源：宽/高由定位常量注入 inline style（固定 height，非
+ * maxHeight），CSS 不重复字面量——定位输入与实际尺寸同源，尺寸恒定根治抖动。
+ * 底缘锚定：placement.top 是固定高盒顶缘，top+height 配 translate:0 -100% 让
+ * 实际底缘精确落在钳制线；translate 独立于淡入/淡出 keyframes 的 transform。
+ * 弹框自身挂 data-jx-interactive——portal 在 body 下不经浮层祖先，但仍需排除
+ * 整盒拖动的 document 级 pointerdown 判定。左列选中项变化时滚入可见。
  */
 export function SessionBubblePopup({
   target,
   data,
   failed,
   hoveredIndex,
-  capsulesExpanded,
   closing,
   onPopupEnter,
   onPopupLeave,
-  onCapsuleHover,
-  onToggleCapsules,
+  onSummaryHover,
   onOpenSession,
 }: SessionBubblePopupProps) {
   const prompts = data?.prompts ?? [];
-  // 折叠/展开两态统一走 capsuleLayout：展开态仍报告折叠线 moreCount，
-  // 「收起」chip 恒可渲染（审查 S1：展开不得成单行道）。
-  const folded = useMemo(
-    () => capsuleLayout(prompts, undefined, capsulesExpanded),
-    [prompts, capsulesExpanded],
+  // 竖排列表直接铺全部问答（host 已按 MAX_TURNS 截断护栏），不再折叠胶囊——
+  // 左列 overflow-y 滚动替代旧「+N/收起」。index = prompts 原下标。
+  const rows = useMemo(
+    () =>
+      prompts.map((p, i) => ({
+        index: i,
+        seq: p.seq,
+        summary: truncateSummary(p.text, SUMMARY_MAX_CHARS),
+      })),
+    [prompts],
   );
-  const selectedIndex = resolveSelectedIndex(
-    prompts.length,
-    hoveredIndex,
-  );
-  const selected =
-    selectedIndex === null ? undefined : prompts[selectedIndex];
+  const selectedIndex = resolveSelectedIndex(prompts.length, hoveredIndex);
+  const selected = selectedIndex === null ? undefined : prompts[selectedIndex];
   const placement = useMemo(
     () =>
       computePopupPlacement(
         target.rect,
-        { width: POPUP_WIDTH_PX, height: POPUP_MAX_HEIGHT_PX },
+        { width: POPUP_WIDTH_PX, height: POPUP_HEIGHT_PX },
         { width: window.innerWidth, height: window.innerHeight },
         POPUP_GAP_PX,
       ),
     [target.rect],
   );
 
-  // portal 目标快照：渲染期取一次即可（body 全程存在；卸载竞态由 React
-  // 对 portal 的常规清理兜底）。
-  const container = document.body;
+  // 选中摘要行滚入可见（默认最后一条 → 打开即见最新一轮；hover 切换旧条目时
+  // 同理保持选中项在视口内）。block:'nearest' 只滚动左列容器不牵动页面。
+  const activeRowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    activeRowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex, target.sessionId]);
 
+  // portal 目标快照：渲染期取一次即可（body 全程存在；卸载竞态由 React 对
+  // portal 的常规清理兜底）。
+  const container = document.body;
   const title = data?.title ?? target.title;
+
+  // 数据态：失败 / 加载中 / 无问话 → 中右两列合并为一条横跨占位；就绪 → 分列问答。
+  const status: "error" | "loading" | "empty" | "ready" = failed
+    ? "error"
+    : data === null
+      ? "loading"
+      : prompts.length === 0
+        ? "empty"
+        : "ready";
 
   return createPortal(
     <div
       className={`${styles.preview} ${closing ? styles.closing : ""}`}
-      /* 几何单源（审查去重项）：宽/最大高由定位常量注入 inline style，
-       * CSS 不再重复字面量——computePopupPlacement 的钳制输入与实际尺寸
-       * 永不漂移。底缘锚定（审查动画轮修复③）：placement.top 是最坏高度
-       * 盒的顶缘，top+maxHeight 配 CSS translate:0 -100% 让实际底缘精确
-       * 落在钳制后的目标线——内容高矮不再造成「悬空上浮」；translate 是
-       * 独立属性，与淡入/淡出 keyframes 的 transform 正交组合，reduced-
-       * motion 关动画时锚定不受影响 */
       style={{
         left: placement.left,
-        top: placement.top + POPUP_MAX_HEIGHT_PX,
+        top: placement.top + POPUP_HEIGHT_PX,
         width: POPUP_WIDTH_PX,
-        maxHeight: POPUP_MAX_HEIGHT_PX,
+        height: POPUP_HEIGHT_PX,
       }}
       data-jx-interactive=""
       role="dialog"
@@ -483,69 +482,70 @@ export function SessionBubblePopup({
       onPointerEnter={onPopupEnter}
       onPointerLeave={onPopupLeave}
     >
-      <div className={styles.header} title={title}>
-        {title}
+      {/* 左列：标题 + 竖排可滚动问话摘要行列表（选中态驱动中右两列）。 */}
+      <div className={styles.colLeft}>
+        <div className={styles.header} title={title}>
+          {title}
+        </div>
+        <div className={styles.summaryList}>
+          {status === "ready" &&
+            rows.map((row) => {
+              const active = selectedIndex === row.index;
+              return (
+                <div
+                  key={row.seq}
+                  ref={active ? activeRowRef : undefined}
+                  className={`${styles.summaryRow} ${
+                    active ? styles.summaryActive : ""
+                  }`}
+                  role="button"
+                  tabIndex={0}
+                  title={row.summary}
+                  aria-current={active ? "true" : undefined}
+                  onPointerEnter={() => onSummaryHover(row.index)}
+                  onFocus={() => onSummaryHover(row.index)}
+                  onClick={onOpenSession}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onOpenSession();
+                    }
+                  }}
+                >
+                  {row.summary}
+                </div>
+              );
+            })}
+        </div>
       </div>
-      {/* 选中 latch（审查动画轮修复①）：不在行 pointerleave 回弹最后——
-          否则鼠标移到详情区读旧问话全文的瞬间内容被切走，「划过→阅读」
-          动线断裂。选中保持到下次 hover 胶囊 / 换预览目标 / 弹框重开。 */}
-      <div className={styles.capsuleRow}>
-        {folded.moreCount > 0 && (
-          <span
-            className={`${styles.capsule} ${styles.foldChip}`}
-            role="button"
-            tabIndex={0}
-            aria-label={
-              capsulesExpanded ? "收起问话胶囊" : `展开更早 ${folded.moreCount} 条问话`
-            }
-            onClick={onToggleCapsules}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onToggleCapsules();
-              }
-            }}
-          >
-            {capsulesExpanded ? "收起" : `+${folded.moreCount}`}
+
+      {status !== "ready" ? (
+        // 未就绪：中右两内容列合并为一条横跨占位（尺寸仍恒定，不塌陷）。
+        <div className={styles.spanPlaceholder}>
+          <span className={styles.placeholder}>
+            {status === "error"
+              ? "预览加载失败"
+              : status === "loading"
+                ? "加载中…"
+                : "暂无问话"}
           </span>
-        )}
-        {folded.visible.map((capsule) => (
-          <span
-            key={capsule.seq}
-            className={`${styles.capsule} ${
-              selectedIndex === capsule.index ? styles.capsuleActive : ""
-            }`}
-            role="button"
-            tabIndex={0}
-            title={capsule.summary}
-            aria-current={selectedIndex === capsule.index ? "true" : undefined}
-            onPointerEnter={() => onCapsuleHover(capsule.index)}
-            onFocus={() => onCapsuleHover(capsule.index)}
-            onClick={() => {
-              onOpenSession();
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onOpenSession();
-              }
-            }}
-          >
-            {capsule.summary}
-          </span>
-        ))}
-      </div>
-      <div className={styles.detail}>
-        {failed ? (
-          <span className={styles.placeholder}>预览加载失败</span>
-        ) : data === null ? (
-          <span className={styles.placeholder}>加载中…</span>
-        ) : prompts.length === 0 ? (
-          <span className={styles.placeholder}>暂无问话</span>
-        ) : (
-          selected?.text
-        )}
-      </div>
+        </div>
+      ) : (
+        <>
+          {/* 中列：选中问话完整原文（列内滚动）。 */}
+          <div className={styles.colContent} aria-label="问话">
+            {selected?.text}
+          </div>
+          {/* 右列：选中问话配对的 LLM 回复全文；无回复显示占位。 */}
+          <div className={styles.colContent} aria-label="回复">
+            {selected?.reply != null ? (
+              selected.reply
+            ) : (
+              <span className={styles.placeholder}>暂无回复</span>
+            )}
+          </div>
+        </>
+      )}
     </div>,
     container,
   );

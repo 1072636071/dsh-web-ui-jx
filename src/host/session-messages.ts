@@ -1,23 +1,28 @@
 /**
- * 会话问话数据提取与路由（气泡内容弹框数据地基，ADR-0028 / PRD 14 工单 01）。
+ * 会话问答数据提取与路由（气泡内容弹框数据地基，ADR-0028 / ADR-0032）。
  *
- * 唯一新 seam：`collectUserMessages(events)` 纯函数——输入宿主会话事件数组
+ * 唯一 seam：`collectConversation(events)` 纯函数——输入宿主会话事件数组
  * （`sessionController.inspect(sessionId)` 返回的 `events` 的 structural 投影），
- * 输出该会话全部直接用户问话 `UserPrompt[]`（每条 `{seq, text}`）。
+ * 输出该会话逐轮问答 `ConversationTurn[]`（每条 `{seq, text, reply}`）。
  *
- * 提取规则（ADR-0028 D1）：
- *   - 仅 `type==='user/message'` 且 `data.source.kind==='user'` 入选——直接
- *     人类问话；plugin/notice/recall 合成、assistant/tool 等其他事件全部排除
- *     （`source.kind==='user'` 过滤照抄官方 controller 构造器语义）；
- *   - `data.content` 中 `type==='text'` 块的 `text` 拼接为问话文本；image 等
- *     非文本块忽略；拼接后为空的问话（如纯图片消息）不产出条目；
- *   - 输出按事件时序正序——最后一条 = 最新问话，是「弹框默认展开最后一个
- *     胶囊」恒成立的数据保证；
- *   - 每条携带源事件 `seq`（官方定位能力开放后接线滚动锚点，ADR-0028 附注）。
+ * 提取规则（ADR-0028 D1 + ADR-0032 问答案配对）：
+ *   - 问话（text）：仅 `type==='user/message'` 且 `data.source.kind==='user'`
+ *     入选——直接人类问话；plugin/notice/recall 合成、assistant/tool 等其他事件
+ *     全部排除（`source.kind==='user'` 过滤照抄官方 controller 构造器语义）；
+ *     `data.content` 中 `type==='text'` 块拼接为问话文本，image 等非文本块忽略，
+ *     拼接为空的问话（如纯图片消息）不产出条目；
+ *   - 回复（reply）：第 N 条问话的 `reply` = 其后、下一条**真人**问话之前，最后
+ *     一条**非空文本** `assistant/message` 的文本拼接；找不到则 `null`。注入型
+ *     `user/message`（`source.kind!=='user'`）不作轮次边界；含 tool-call 前言/空
+ *     content 的 assistant 消息不覆盖已有回复。**与问话文本位置不对称**：问话在
+ *     `data.content`、回复在 `data.message.content`（`source.kind==='model'`）。
+ *   - 输出按事件时序正序——最后一条 = 最新问答，是「弹框默认展开最后一条
+ *     （显示最新一轮问答）」恒成立的数据保证；每条携带源事件 `seq`（官方定位
+ *     能力开放后接线滚动锚点，ADR-0028 附注）。
  *
  * 路由接线 `registerSessionMessagesRoute`：GET `/api/dsh-jx/session/<id>/messages`
  * → `ctx.sessionController.inspect(id)`（无副作用，兼容冷会话）→ 纯函数提取 →
- * JSON `{title, prompts}`。模式对齐 asset-routes.ts / import-api.ts。
+ * JSON `{title, prompts:[{seq,text,reply}]}`。模式对齐 asset-routes.ts / import-api.ts。
  *
  * @module dsh-web-ui-jx/host/session-messages
  */
@@ -27,7 +32,7 @@ import type { Context } from "@deepseek-ai/cordis";
 import { writeJson } from "./json-response.ts";
 
 // ---------------------------------------------------------------------------
-// 纯函数 seam：collectUserMessages
+// 纯函数 seam：collectConversation
 // ---------------------------------------------------------------------------
 
 /**
@@ -43,18 +48,19 @@ export interface HostSessionEventLike {
   readonly data?: unknown;
 }
 
-/** 一条直接用户问话：源事件 seq + 拼接后的完整文本. */
-export interface UserPrompt {
+/** 一轮问答：源问话事件 seq + 问话全文 + 配对的 LLM 回复（无回复则 null）. */
+export interface ConversationTurn {
   readonly seq: number;
   readonly text: string;
+  readonly reply: string | null;
 }
 
 /**
- * 返回条数上限（极长会话护栏，PRD 补充说明「返回条数上限由实施定」）：
- * 超出时保尾丢头——最后一条恒为最新问话，「默认展开最后一个胶囊」不受截断
- * 影响；截断线之外的更旧问话本就不进弹框（client 侧另有 +N 折叠）。
+ * 返回轮数上限（极长会话护栏，PRD 补充说明「返回条数上限由实施定」）：
+ * 超出时保尾丢头——最后一轮恒为最新问答，「默认展开最后一条」不受截断
+ * 影响；截断线之外的更旧问答本就不进弹框（client 侧另有滚动）。
  */
-export const MAX_USER_PROMPTS = 100;
+export const MAX_TURNS = 100;
 
 /**
  * 单条问话文本长度上限（payload 护栏）：超长截断加省略号。问话是「人打的字」，
@@ -63,31 +69,64 @@ export const MAX_USER_PROMPTS = 100;
 export const MAX_PROMPT_TEXT_CHARS = 8000;
 
 /**
- * 从会话事件序列提取全部直接用户问话（时序正序）。
+ * 单条 LLM 回复文本长度上限（payload 护栏）：比问话更宽松——答案常长于人打的
+ * 字，正常回复永不触顶，只防超长回复撑爆路由响应与弹框右列。
+ */
+export const MAX_REPLY_TEXT_CHARS = 12000;
+
+/**
+ * 从会话事件序列提取逐轮问答（时序正序，每条 `{seq, text, reply}`）。
+ *
+ * 配对规则：一条真人问话开一轮；轮内后续 `assistant/message` 的非空文本按序
+ * 覆盖累积，最后一条即该轮回复；遇下一条真人问话闭合上一轮。纯图片问话（拼接
+ * 空文本）不成轮也不闭合上一轮；注入型 `user/message`、tool-call 前言/空 content
+ * 的 assistant 消息均不改动轮次状态。
  *
  * @param events - `sessionController.inspect(sessionId)` 返回的事件数组。
- * @returns `{seq, text}` 列表；无问话/退化输入返回空列表。
+ * @returns `{seq, text, reply}` 列表；无问话/退化输入返回空列表。
  */
-export function collectUserMessages(
+export function collectConversation(
   events: readonly HostSessionEventLike[],
-): UserPrompt[] {
-  const prompts: UserPrompt[] = [];
+): ConversationTurn[] {
+  const turns: ConversationTurn[] = [];
+  let hasCurrent = false;
+  let currentSeq = 0;
+  let currentText = "";
+  let currentReply: string | null = null;
+
+  const flush = (): void => {
+    if (!hasCurrent) return;
+    turns.push({ seq: currentSeq, text: currentText, reply: currentReply });
+    hasCurrent = false;
+  };
+
   for (const event of events) {
-    if (event.type !== "user/message") continue;
-    if (!isDirectUserMessage(event.data)) continue;
-    const text = joinTextBlocks(event.data);
-    if (text.length === 0) continue;
-    prompts.push({
-      seq: event.seq,
-      text:
-        text.length > MAX_PROMPT_TEXT_CHARS
-          ? `${text.slice(0, MAX_PROMPT_TEXT_CHARS)}…`
-          : text,
-    });
+    if (event.type === "user/message") {
+      if (!isDirectUserMessage(event.data)) continue; // 注入型/合成：不作轮次边界
+      const text = joinContentText(event.data);
+      if (text.length === 0) continue; // 纯图片空文本：不成轮、不闭合上一轮
+      flush(); // 下一条真人问话闭合上一轮（累积的 reply 归上一轮）
+      hasCurrent = true;
+      currentSeq = event.seq;
+      currentText = truncate(text, MAX_PROMPT_TEXT_CHARS);
+      currentReply = null;
+    } else if (event.type === "assistant/message") {
+      if (!hasCurrent) continue; // 首条问话之前的 assistant：无归属，忽略
+      const text = joinAssistantText(event.data);
+      if (text.length === 0) continue; // tool-call 前言/空 content 不覆盖已有回复
+      currentReply = truncate(text, MAX_REPLY_TEXT_CHARS); // 最后一条非空文本胜出
+    }
   }
-  return prompts.length > MAX_USER_PROMPTS
-    ? prompts.slice(prompts.length - MAX_USER_PROMPTS)
-    : prompts;
+  flush();
+
+  return turns.length > MAX_TURNS
+    ? turns.slice(turns.length - MAX_TURNS)
+    : turns;
+}
+
+/** 超长截断加省略号；不超长原样返回. */
+function truncate(text: string, maxChars: number): string {
+  return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
 }
 
 /** `data.source.kind === 'user'` 的安全判定（形状异常一律 false）. */
@@ -98,9 +137,8 @@ function isDirectUserMessage(data: unknown): boolean {
   return (source as { kind?: unknown }).kind === "user";
 }
 
-/** content 中 type==='text' 块的 text 拼接；非文本块忽略、缺省安全返回 ''. */
-function joinTextBlocks(data: unknown): string {
-  const content = (data as { content?: unknown }).content;
+/** content 数组中 type==='text' 块的 text 拼接（问话/回复共用）；缺省安全返回 ''. */
+function joinBlocks(content: unknown): string {
   if (!Array.isArray(content)) return "";
   let text = "";
   for (const block of content) {
@@ -109,6 +147,23 @@ function joinTextBlocks(data: unknown): string {
     if (b.type === "text" && typeof b.text === "string") text += b.text;
   }
   return text;
+}
+
+/** 问话文本：`data.content[]`（形状异常安全返回 ''）. */
+function joinContentText(data: unknown): string {
+  if (typeof data !== "object" || data === null) return "";
+  return joinBlocks((data as { content?: unknown }).content);
+}
+
+/**
+ * 回复文本：`assistant/message` 的 `data.message.content[]`——与问话的
+ * `data.content` 不对称（宿主 AssistantMessage 包在 `data.message` 里）。
+ */
+function joinAssistantText(data: unknown): string {
+  if (typeof data !== "object" || data === null) return "";
+  const message = (data as { message?: unknown }).message;
+  if (typeof message !== "object" || message === null) return "";
+  return joinBlocks((message as { content?: unknown }).content);
 }
 
 // ---------------------------------------------------------------------------
@@ -168,7 +223,7 @@ function foldLatestTitle(
 
 /**
  * 路由 handler：解析 pathname → 校验 id → `inspect`（无副作用读）→
- * `collectUserMessages` → JSON `{title, prompts}`。
+ * `collectConversation` → JSON `{title, prompts:[{seq,text,reply}]}`。
  *
  * 错误策略：inspect 抛错（会话不存在/持久化不可读——无法从异常形状可靠
  * 区分）统一 404 JSON；id 非法（malformed %-escape / 空 / null 字节 / 超长）
@@ -219,7 +274,7 @@ async function handleSessionMessagesRequest(
     const { events } = await controller.inspect(sessionId);
     writeJson(res, 200, {
       title: foldLatestTitle(events),
-      prompts: collectUserMessages(events),
+      prompts: collectConversation(events),
     });
   } catch {
     writeJson(res, 404, { error: "session not found or unreadable" });

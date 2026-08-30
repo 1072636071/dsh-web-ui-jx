@@ -1,38 +1,37 @@
 /**
  * SessionBubblePopup（气泡内容弹框）组件局部样式（CSS Module）。
  *
- * ADR-0031 / PRD 14 工单 02/03：hover 会话气泡浮现的 tooltip 浮层——
- * 会话标题 + 一排问话胶囊 + 问话详情区。
+ * ADR-0031 / ADR-0032：hover 会话气泡浮现的 tooltip 浮层——固定尺寸三列问答
+ * 对照：左列（标题 + 竖排可滚动问话摘要行）/ 中列（选中问话全文）/ 右列（配对
+ * LLM 回复）。
  *
  * 设计约束：
- *   - 只消费语义别名 + --jx-* 专属轨，无颜色字面量、无主题选择器；深浅双
- *     主题由 L2 remap 自动处理（用户故事 16）。
- *   - 几何单源：宽/最大高由 session-bubble-preview.ts 的
- *     POPUP_WIDTH_PX / POPUP_MAX_HEIGHT_PX 经组件 inline style 注入——
- *     视口钳制纯函数的输入与实际尺寸同源，改几何只改 TS 一处。
+ *   - 只消费语义别名 + --jx-* 专属轨，无颜色字面量、无主题选择器；深浅双主题
+ *     由 L2 remap 自动处理（用户故事 16）。
+ *   - 几何单源：外框宽/高由 session-bubble-preview.ts 的 POPUP_WIDTH_PX /
+ *     POPUP_HEIGHT_PX 经组件 inline style 注入——视口钳制纯函数输入与实际尺寸
+ *     同源，改几何只改 TS 一处。固定 height（非 maxHeight）根治切换问话抖动。
+ *   - 三列宽分配以固定 px（左）+ 两条 1fr（中/右）落在内容框内，像素级由
+ *     inline 外框宽与 gap/padding 反推，避免与 560 外框冲突。
  *   - position: fixed：组件经 createPortal 挂 document.body（浮层祖先带
  *     transform，盒内 fixed 会退化为盒内定位），left/top 由纯函数算出。
- *   - 出现 150ms 淡入（对齐气泡列节奏）；prefers-reduced-motion 全关
- *     （instant 切换，用户故事 15）。
- *   - z-index 高于角色浮层（overlay 2147483646）——弹框是浮层之上的瞬态。
- *   - pointer-events:auto：portal 在 body 下独立命中（弹框可交互），组件
- *     挂 data-jx-interactive 排除整盒拖动判定。
+ *   - 各列内容超高时列内独立 overflow-y 滚动，外框尺寸恒定。
+ *   - 出现 150ms 淡入（对齐气泡列节奏）；prefers-reduced-motion 全关。
+ *   - z-index 高于角色浮层；pointer-events:auto（portal 在 body 下独立命中）。
  */
 
 .preview {
   position: fixed;
   z-index: 2147483647;
   pointer-events: auto;
-  /* 底缘锚定（审查动画轮修复③）：组件注入 top = 钳制后的最坏高度盒底缘，
-   * translate:0 -100% 把实际底缘精确落回该线——内容高矮不再「悬空上浮」。
-   * translate 独立于 transform，与 enter/exit keyframes 正交组合，
-   * reduced-motion 关动画时锚定不受影响 */
+  /* 底缘锚定：组件注入 top = 钳制后的固定高盒底缘，translate:0 -100% 把实际
+   * 底缘精确落回该线；translate 独立于 transform，与 enter/exit keyframes 正交 */
   translate: 0 -100%;
-  /* 宽/最大高由组件 inline style 注入（POPUP_WIDTH_PX / POPUP_MAX_HEIGHT_PX
-   * 单源——定位纯函数的钳制输入与实际尺寸不漂移），此处不再重复字面量 */
+  /* 外框宽/高由组件 inline style 注入（POPUP_WIDTH_PX / POPUP_HEIGHT_PX 单源），
+   * 此处不重复字面量 */
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
   padding: 10px 12px;
   /* 表面取气泡同阶（--jx-surface-2 随 --jx-panel-* alpha 自动玻璃化，
@@ -49,6 +48,15 @@
   animation: preview-enter 150ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* 左列：标题在上、问话摘要行竖排列表在下，列表独占剩余高度并滚动 */
+.colLeft {
+  grid-column: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* 标题行：单行省略号（几何与气泡 .title 同法） */
 .header {
   flex: 0 0 auto;
@@ -60,25 +68,24 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* 胶囊行：紧凑一排，可换行；超高自身滚动（详情区保留可见空间） */
-.capsuleRow {
-  flex: 0 0 auto;
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 4px;
-  max-height: 96px;
+/* 问话摘要行容器：竖向可滚动，铺满左列剩余高度 */
+.summaryList {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-/* 问话胶囊：文字胶囊（显示截断摘要），恒紧凑——完整问话在详情区 */
-.capsule {
-  max-width: 100%;
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
+/* 问话摘要行：单行截断摘要、整行可点，选中态金描边（与气泡列 .current 同轨） */
+.summaryRow {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 3px 8px;
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--dsw-specific-bubble);
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
@@ -90,41 +97,30 @@
   transition: border-color 150ms ease, color 150ms ease;
 }
 
-.capsule:hover {
+.summaryRow:hover {
   border-color: var(--jx-gold);
 }
 
-.capsule:focus-visible {
+.summaryRow:focus-visible {
   outline: 2px solid var(--jx-gold);
   outline-offset: 1px;
 }
 
-/* 选中胶囊（当前详情区对应条目：默认最后一个 / hover 切换）：金描边 +
- * 主文字——与气泡列 .current 金描边同轨（hover 提视语义一致） */
-.capsuleActive {
+/* 选中行（当前中/右列对应条目：默认最后一条 / hover 切换）：金描边 + 主文字 */
+.summaryActive {
   border-color: var(--jx-gold);
   color: var(--dsw-alias-label-primary);
 }
 
-/* 「+N」/「收起」折叠 chip：弱化文字（与气泡列 .more 同轨） */
-.foldChip {
-  color: var(--dsw-alias-label-dimmed);
-}
-
-.foldChip:hover {
-  color: var(--dsw-alias-label-primary);
-}
-
-/* 详情区：当前选中胶囊对应的完整问话（保留换行，超高滚动） */
-.detail {
-  flex: 1 1 auto;
-  min-height: 36px;
+/* 中/右列：选中问话全文 / 配对 LLM 回复全文，列内滚动 */
+.colContent {
+  min-height: 0;
   overflow-y: auto;
   padding: 6px 8px;
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 4px;
-  /* 墨阶下沉一级（与子气泡同源思路）：详情区相对弹框表面退后一层 */
+  /* 墨阶下沉一级（与子气泡同源思路）：内容列相对弹框表面退后一层 */
   background: var(--jx-surface-1);
   white-space: pre-wrap;
   word-break: break-word;
@@ -132,7 +128,22 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* 加载中/失败/无问话占位 */
+/* 未就绪（加载中/失败/无问话）占位：横跨中右两内容列，尺寸恒定不塌陷 */
+.spanPlaceholder {
+  grid-column: 2 / span 2;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 4px;
+  background: var(--jx-surface-1);
+}
+
+/* 加载中/失败/无问话/暂无回复占位 */
 .placeholder {
   color: var(--dsw-alias-label-dimmed);
 }
@@ -148,9 +159,9 @@
   }
 }
 
-/* 退出动画相（审查动画轮修复②）：组件在 hook 的 closing 相挂此类，
- * 100ms 淡出后由 JS 卸载——退出快于进入（DESIGN.md §6），与气泡列
- * .leaving 同一模式；transform 与 .preview 的 translate 锚定正交 */
+/* 退出动画相：组件在 hook 的 closing 相挂此类，100ms 淡出后由 JS 卸载——
+ * 退出快于进入（DESIGN.md §6），与气泡列 .leaving 同一模式；transform 与
+ * .preview 的 translate 锚定正交 */
 .preview.closing {
   animation: preview-exit 100ms cubic-bezier(0.16, 1, 0.3, 1) both;
   /* 淡出中不可再交互（对齐气泡列 .leaving 的 pointer-events:none 纪律） */
@@ -168,15 +179,15 @@
   }
 }
 
-/* prefers-reduced-motion：动画全关（instant 切换，用户故事 15）。
- * 注意只关 animation/transition，不关 .preview 的 translate（那是定位锚，
- * 不是动效）；closing 相的 100ms 计时照旧，只是淡出不可见。 */
+/* prefers-reduced-motion：动画全关（instant 切换，用户故事 15）。注意只关
+ * animation/transition，不关 .preview 的 translate（那是定位锚，不是动效）；
+ * closing 相的 100ms 计时照旧，只是淡出不可见。 */
 @media (prefers-reduced-motion: reduce) {
   .preview,
   .preview.closing {
     animation: none;
   }
-  .capsule {
+  .summaryRow {
     transition: none;
   }
 }
