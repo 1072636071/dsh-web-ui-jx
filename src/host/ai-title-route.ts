@@ -26,6 +26,7 @@ import type { CredentialProvider } from "@deepseek-ai/dsh-credentials";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { writeJson } from "./http-shared.ts";
 import { createOpenAiClient, type LlmClient } from "./llm-client.ts";
+import { createTtlInflightCache } from "./ttl-inflight-cache.ts";
 // 17-07：host 只经库公共入口消费纯逻辑，不再 import 库内部路径。
 import { buildDynamicTitlePrompt } from "../../packages/dsh-session-bubble/src/index.ts";
 
@@ -37,6 +38,49 @@ export const AI_TITLE_NS = settingsNamespace("dsh-jx");
 
 /** POST body 大小上限（4 KB，仅三个文本字段）。 */
 const MAX_BODY_BYTES = 4 * 1024;
+
+// ---------------------------------------------------------------------------
+// 工单 20-03：服务端按 sessionId + updatedAt 的短 TTL 缓存 + in-flight 去重
+// ---------------------------------------------------------------------------
+
+/**
+ * 服务端标题缓存 TTL（毫秒，短 TTL——二道护栏）。缓存 key 含 updatedAt，会话
+ * 内容更新 → updatedAt 变 → key 变 → 天然失效；TTL 只收敛同内容窗口内的重复
+ * 调用（同一会话同一 updatedAt 只需生成一次标题，省 endpoint 额度）。
+ */
+const AI_TITLE_CACHE_TTL_MS = 60_000;
+
+/** 生成成功标题缓存（key `${sessionId}::${updatedAt}` → 标题；条目上限 512）.
+ * 载荷类型含 undefined 以承载 in-flight 失败结果；set 仅在生成成功时调用。 */
+const aiTitleCache = createTtlInflightCache<string | undefined>({
+  ttlMs: AI_TITLE_CACHE_TTL_MS,
+  maxEntries: 512,
+});
+
+/**
+ * 生成缓存 key：sessionId 非空且 updatedAt 为有限数值才参与缓存；缺任一即
+ * 关闭缓存/去重（回落到原每次调用路径，行为不变）。
+ */
+function aiTitleCacheKey(
+  sessionId: string,
+  updatedAt: unknown,
+): string | undefined {
+  if (
+    sessionId.length === 0 ||
+    typeof updatedAt !== "number" ||
+    !Number.isFinite(updatedAt)
+  ) {
+    return undefined;
+  }
+  return `${sessionId}::${updatedAt}`;
+}
+
+/**
+ * 清空服务端标题缓存（ADR-0017 清理入口）。路由 disposer 调用，热重载无残留。
+ */
+export function clearAiTitleCache(): void {
+  aiTitleCache.invalidate();
+}
 
 /** aiTitle 设置分节 schema（宿主 Web UI 设置页据此渲染表单）。 */
 export const AiTitleSettingsSchema = z.object({
@@ -128,6 +172,8 @@ async function handleAiTitleRequest(
   }
   const title = typeof body.title === "string" ? body.title : "";
   const lastUserText = typeof body.lastUserText === "string" ? body.lastUserText : "";
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
+  const updatedAt = body.updatedAt;
 
   const config = scope.get().aiTitle;
   const refreshIntervalMs = config.refreshIntervalMin * 60_000;
@@ -151,16 +197,56 @@ async function handleAiTitleRequest(
     return;
   }
 
+  // 工单 20-03：服务端按 sessionId+updatedAt 缓存命中 / in-flight 去重。
+  const cacheKey = aiTitleCacheKey(sessionId, updatedAt);
+  if (cacheKey !== undefined) {
+    const hit = aiTitleCache.get(cacheKey);
+    if (hit !== undefined) {
+      writeJson(res, 200, { title: hit, refreshIntervalMs });
+      return;
+    }
+    const pending = aiTitleCache.pending(cacheKey);
+    if (pending !== undefined) {
+      const sharedTitle = await pending;
+      if (sharedTitle === undefined) {
+        writeJson(res, 200, { error: "dynamic title generation failed" });
+      } else {
+        writeJson(res, 200, { title: sharedTitle, refreshIntervalMs });
+      }
+      return;
+    }
+  }
+
   // 组装有界提示词（库侧纯函数）并调用 LLM 客户端（默认 OpenAI 兼容直连）。
   const prompt = buildDynamicTitlePrompt({ title, lastUserText });
-  const generated = await llmClient.chat(prompt, {
-    baseURL: config.baseURL,
-    model: config.model.trim(),
-    apiKey,
-  });
+  const generate = (): Promise<string | undefined> =>
+    llmClient.chat(prompt, {
+      baseURL: config.baseURL,
+      model: config.model.trim(),
+      apiKey,
+    });
+
+  // 统一「计算或共享」：参与缓存时注册 in-flight 供并发共享；否则直接计算。
+  let generated: string | undefined;
+  if (cacheKey !== undefined) {
+    const compute = generate();
+    aiTitleCache.setPending(cacheKey, compute);
+    try {
+      generated = await compute;
+    } finally {
+      aiTitleCache.clearPending(cacheKey);
+    }
+  } else {
+    generated = await generate();
+  }
+
+  // LLM 生成失败不缓存（reject/undefined 均回落原失败路径，行为不变）。
   if (generated === undefined) {
     writeJson(res, 200, { error: "dynamic title generation failed" });
     return;
+  }
+  if (cacheKey !== undefined) {
+    aiTitleCache.set(cacheKey, generated);
   }
   writeJson(res, 200, { title: generated, refreshIntervalMs });
 }
@@ -195,5 +281,7 @@ export function registerAiTitleRoute(
   );
   return () => {
     void dispose();
+    // ADR-0017：路由卸载时同步清空服务端标题缓存（热重载无残留）。
+    clearAiTitleCache();
   };
 }

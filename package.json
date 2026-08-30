@@ -47,7 +47,7 @@
     }
   },
   "scripts": {
-    "build": "vite build && vite build --mode client",
+    "build": "node scripts/generate-duration-manifest.mjs && vite build && vite build --mode client",
     "build:host": "vite build",
     "build:client": "vite build --mode client",
     "typecheck": "tsc --noEmit",

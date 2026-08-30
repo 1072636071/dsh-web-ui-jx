@@ -53,6 +53,7 @@ import {
 } from "./root-lifecycle.ts";
 import { createOverlaySessionRuntime } from "./state-machine/overlay-session-runtime.ts";
 import type { OverlaySessionRuntime } from "./state-machine/overlay-session-runtime.ts";
+import { clearDurationCache } from "./webp-duration.ts";
 import {
   getVariantRotationEnabled,
   subscribeVariantRotationEnabled,
@@ -255,11 +256,13 @@ export function apply(ctx: ClientContext): void {
   // ADR-0017 D1：规范清理补全 —— root 卸载与容器移除随 fiber 走。
   // 此前只 dispose runtime，React 树滞留 DOM 成为孤儿浮层；本 effect
   // 无条件注册（sessions 缺失、runtime 未创建时同样要能清理挂载物）。
+  // 工单 20-01：一并清空 webp-duration 模块级时长缓存（ADR-0017 可重入约束）。
   ctx.effect(
     () => {
       return () => {
         root.unmount();
         container.remove();
+        clearDurationCache();
       };
     },
     "dsh-web-ui-jx: client root lifecycle",

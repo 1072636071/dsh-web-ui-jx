@@ -302,6 +302,11 @@ export interface DynamicTitleStoreOptions {
   readonly ttlMs?: number;
   /** 最小生成间隔 ms（节流，默认 30 秒）. */
   readonly minIntervalMs?: number;
+  /**
+   * 缓存条目上限（LRU 淘汰，默认 50）。超出上限淘汰最久未用的会话缓存，
+   * 使客户端缓存有界（工单 20-04）。
+   */
+  readonly maxEntries?: number;
   /** 时间注入（测试用；默认 Date.now）. */
   readonly now?: () => number;
 }
@@ -327,10 +332,33 @@ export function createDynamicTitleStore(
   transport: DynamicTitleTransport,
   options: DynamicTitleStoreOptions = {},
 ): DynamicTitleTransport {
-  let ttlMs = options.ttlMs ?? 15 * 60_000;
+  // 工单 20-04：TTL 改为按 entry 存储（消除闭包级全局覆写）；defaultTtlMs 仅在
+  // 无既有条目时作兜底，后续各会话以宿主返回的 refreshIntervalMs 为各自 TTL。
+  const defaultTtlMs = options.ttlMs ?? 15 * 60_000;
   const minIntervalMs = options.minIntervalMs ?? 30_000;
+  const maxEntries = options.maxEntries ?? 50;
   const now = options.now ?? Date.now;
   const cache = new Map<string, TitleCacheEntry>();
+  // in-flight 去重：并发悬浮同一会话（同 updatedAt）共享同一次 transport 调用。
+  const inflight = new Map<string, Promise<DynamicTitleResult | undefined>>();
+
+  /** 按 entry 的复用 TTL：已有条目用其宿主下发频率，否则回落默认。 */
+  function entryTtlMs(entry: TitleCacheEntry | undefined): number {
+    return entry !== undefined && entry.refreshIntervalMs > 0
+      ? entry.refreshIntervalMs
+      : defaultTtlMs;
+  }
+
+  /** 写入/更新缓存并按 LRU 淘汰最久未用的条目（Map 首个键）. */
+  function setCached(sessionId: string, entry: TitleCacheEntry): void {
+    cache.delete(sessionId);
+    cache.set(sessionId, entry);
+    while (cache.size > maxEntries) {
+      const oldest = cache.keys().next();
+      if (oldest.done) break;
+      cache.delete(oldest.value);
+    }
+  }
 
   return {
     async generateTitle(input, signal) {
@@ -348,14 +376,17 @@ export function createDynamicTitleStore(
         dirty,
         cachedTitle: entry?.title,
         lastAttemptAt: entry?.lastAttemptAt,
-        ttlMs,
+        ttlMs: entryTtlMs(entry),
         minIntervalMs,
         now: now(),
       });
 
       // 复用缓存 / 跳过：回放既有状态（configured 带标题 / unconfigured 表示未配置）。
+      // 同时触达 LRU（移到 Map 末尾，避免被误判为最久未用而优先淘汰）。
       if (decision === "reuse" || decision === "skip") {
         if (entry === undefined) return undefined;
+        cache.delete(input.sessionId);
+        cache.set(input.sessionId, entry);
         return entry.state === "configured"
           ? {
               kind: "configured",
@@ -368,12 +399,26 @@ export function createDynamicTitleStore(
             };
       }
 
-      // 生成：调用底层 transport。异常按失败处理（静默降级，不向上抛）。
+      // 生成：调用底层 transport。并发同 key 共享同一次调用；异常按失败处理。
+      const inflightKey = `${input.sessionId}::${input.updatedAt}`;
+      let pending = inflight.get(inflightKey);
+      if (pending === undefined) {
+        pending = (async (): Promise<DynamicTitleResult | undefined> => {
+          try {
+            return await transport.generateTitle(input, signal);
+          } catch {
+            return undefined;
+          }
+        })();
+        inflight.set(inflightKey, pending);
+      }
       let result: DynamicTitleResult | undefined;
       try {
-        result = await transport.generateTitle(input, signal);
+        result = await pending;
       } catch {
         result = undefined;
+      } finally {
+        inflight.delete(inflightKey);
       }
       const attemptAt = now();
       if (result === undefined) {
@@ -398,9 +443,7 @@ export function createDynamicTitleStore(
         return undefined;
       }
 
-      // 学习宿主配置的重刷频率（后续判定以其为 TTL）。
-      if (result.refreshIntervalMs > 0) ttlMs = result.refreshIntervalMs;
-      cache.set(input.sessionId, {
+      setCached(input.sessionId, {
         state: result.kind,
         title: result.kind === "configured" ? result.title : "",
         lastAttemptAt: attemptAt,

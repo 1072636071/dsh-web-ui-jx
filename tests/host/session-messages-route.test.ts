@@ -30,6 +30,10 @@ import {
   type SessionControllerLike,
 } from "../../src/host/session-messages.ts";
 import { request } from "../helpers/http.ts";
+import {
+  clearSessionMessagesCache,
+  __setSessionMessagesCacheClock,
+} from "../../src/host/session-messages.ts";
 
 // ---------------------------------------------------------------------------
 // 夹具：真实 Context + WebServer + fake sessionController
@@ -68,6 +72,8 @@ function titleEvent(seq: number, title: string): HostSessionEventLike {
 }
 
 beforeEach(async () => {
+  clearSessionMessagesCache();
+  __setSessionMessagesCacheClock(Date.now);
   ctx = new Context();
   await ctx.plugin(WebServer, { host: "127.0.0.1", port: 0 });
   port = ctx.webServer.port;
@@ -88,6 +94,8 @@ afterEach(async () => {
   disposeRoute = undefined;
   disposeFake?.();
   disposeFake = undefined;
+  clearSessionMessagesCache();
+  __setSessionMessagesCacheClock(Date.now);
   await ctx?.fiber.dispose();
   ctx = undefined;
 });
@@ -216,5 +224,110 @@ describe("dsh-jx session messages route — GET /api/dsh-jx/session/<id>/message
     );
     expect(res.status).toBe(400);
     expect(inspectCalls).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 工单 20-02：短 TTL 缓存 + in-flight 去重 + 归档/不可读联动失效
+// ---------------------------------------------------------------------------
+
+describe("dsh-jx session messages route — 缓存与去重（工单 20-02）", () => {
+  it("缓存命中：同会话连续请求只 inspect 一次", async () => {
+    inspectImpl = async () => ({
+      meta: { id: "abc" },
+      events: [userMsg(1, "第一问"), assistantMsg(2, "答复")],
+    });
+    const first = await getJson(`${SESSION_MESSAGES_PREFIX}/abc/messages`);
+    const second = await getJson(`${SESSION_MESSAGES_PREFIX}/abc/messages`);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.json).toEqual(first.json);
+    expect(inspectCalls).toEqual(["abc"]);
+  });
+
+  it("TTL 过期后重新 inspect（同一会话，两次全量读）", async () => {
+    let clock = 0;
+    __setSessionMessagesCacheClock(() => clock);
+    inspectImpl = async () => ({
+      meta: { id: "abc" },
+      events: [userMsg(1, "问话")],
+    });
+    await getJson(`${SESSION_MESSAGES_PREFIX}/abc/messages`);
+    expect(inspectCalls).toEqual(["abc"]);
+
+    clock += 6_000; // 越过 1s TTL
+    const fresh = await getJson(`${SESSION_MESSAGES_PREFIX}/abc/messages`);
+    expect(fresh.status).toBe(200);
+    expect(inspectCalls).toEqual(["abc", "abc"]);
+  });
+
+  it("in-flight 去重：同会话并发请求共享同一次 inspect", async () => {
+    // 预建 gate：make 并发窗口（inspect 保持挂起直到显式 resolve）。gate 在
+    // 发起请求前创建，resolve 句柄同步就绪，避免 executor 异步赋值竞态。
+    let resolveInspect: (v: {
+      meta: unknown;
+      events: HostSessionEventLike[];
+    }) => void = () => {};
+    const gate = new Promise<{ meta: unknown; events: HostSessionEventLike[] }>(
+      (resolve) => {
+        resolveInspect = resolve;
+      },
+    );
+    inspectImpl = () => gate;
+
+    const first = getJson(`${SESSION_MESSAGES_PREFIX}/abc/messages`);
+    const second = getJson(`${SESSION_MESSAGES_PREFIX}/abc/messages`);
+    resolveInspect({
+      meta: { id: "abc" },
+      events: [userMsg(1, "并发问")],
+    });
+    const [r1, r2] = await Promise.all([first, second]);
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    expect(r1.json).toEqual(r2.json);
+    expect(inspectCalls).toEqual(["abc"]);
+  });
+
+  it("inspect 抛错（归档/不可读）丢弃缓存：后续一律 404 不返回陈旧数据", async () => {
+    let clock = 0;
+    __setSessionMessagesCacheClock(() => clock);
+    inspectImpl = async () => ({
+      meta: { id: "abc" },
+      events: [userMsg(1, "正常数据")],
+    });
+    const hit = await getJson(`${SESSION_MESSAGES_PREFIX}/abc/messages`);
+    expect(hit.status).toBe(200);
+
+    // 越过 TTL 使缓存过期，归档后 inspect 不可读 → 404 且丢弃缓存。
+    clock += 6_000;
+    inspectImpl = async () => {
+      throw new Error("session archived/unreadable");
+    };
+    const gone = await getJson(`${SESSION_MESSAGES_PREFIX}/abc/messages`);
+    const goneAgain = await getJson(`${SESSION_MESSAGES_PREFIX}/abc/messages`);
+    expect(gone.status).toBe(404);
+    expect(goneAgain.status).toBe(404);
+    // 不再返回首次缓存的陈旧问答。
+    expect(gone.json).not.toEqual(hit.json);
+    // 每次失败都真实走 inspect（未命中缓存、缓存已被丢弃）。
+    expect(inspectCalls).toEqual(["abc", "abc", "abc"]);
+  });
+
+  it("缓存 key 按 sessionId 隔离：不同会话各自独立", async () => {
+    inspectImpl = async (id) => ({
+      meta: { id },
+      events: [userMsg(1, `会话 ${id}`), assistantMsg(2, `答复 ${id}`)],
+    });
+    const a1 = await getJson(`${SESSION_MESSAGES_PREFIX}/a1/messages`);
+    const b1 = await getJson(`${SESSION_MESSAGES_PREFIX}/b1/messages`);
+    const a2 = await getJson(`${SESSION_MESSAGES_PREFIX}/a1/messages`);
+    const b2 = await getJson(`${SESSION_MESSAGES_PREFIX}/b1/messages`);
+    expect(a1.json).toEqual({
+      title: null,
+      prompts: [{ seq: 1, text: "会话 a1", reply: "答复 a1" }],
+    });
+    expect(a2.json).toEqual(a1.json);
+    expect(b2.json).toEqual(b1.json);
+    expect(inspectCalls).toEqual(["a1", "b1"]);
   });
 });

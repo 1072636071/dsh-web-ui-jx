@@ -64,7 +64,7 @@
 
 ## M3
 
-**状态：** pending
+**状态：** shipped
 
 **工单：** 20-01, 20-02, 20-03, 20-04
 
@@ -78,10 +78,10 @@
 
 **验收信号：**
 
-- [ ] 20-01：`webp-duration` 优先读 manifest 且回落逻辑有测试；`durationCache` 有清理入口
-- [ ] 20-02：inspect 缓存命中/失效/in-flight 合并测试全绿；归档后不返回陈旧数据
-- [ ] 20-03/20-04：ai-title 服务端缓存与去重、客户端 LRU 与按 entry TTL 测试全绿
-- [ ] 全量测试 + build + verify 全绿
+- [x] 20-01：`webp-duration` 优先读 manifest 且回落逻辑有测试；`durationCache` 有清理入口
+- [x] 20-02：inspect 缓存命中/失效/in-flight 合并测试全绿；归档后不返回陈旧数据
+- [x] 20-03/20-04：ai-title 服务端缓存与去重、客户端 LRU 与按 entry TTL 测试全绿
+- [x] 全量测试 + build + verify 全绿
 
 ## M4
 
@@ -138,6 +138,7 @@
 
 （交付过程中的阻塞、决策、偏差记录于此，新内容置于最前。）
 
+- 2026-08-30：M3（20-01~20-04）上线门禁通过——四工单全部 `done`（`/jxx-code-review` 两轮标准/spec 双维度：首轮发现「host 缓存无界 + TTL+in-flight 三处重复」与「20-02 归档失效窗口」，按用户选择 A 修复——抽共享 `ttl-inflight-cache.ts`（短 TTL + in-flight 去重 + LRU 上限）供 host 两缓存复用、host 缓存补 maxEntries、session-messages TTL 5s→1s 收敛归档窗口、ai-title 生成分支合并、webp-duration manifest 命中不再写缓存；次轮无硬性违规，仅 import 置顶与测试注释过期等已修，余为已记录偏差/酌情异味）、全量测试 36 文件 596 项全绿、`build`+`verify` 22 项全绿、回滚方式为直接 revert 已验证；M3 置 `shipped` 并提交。**偏差记录**：① 20-02「随 archived/retention 失效」因 host 无归档订阅 seam 以两层自足护栏落地——短 TTL（1s）压归档后陈旧窗口 + inspect 抛错即弃缓存不返回陈旧数据，非订阅式联动失效；② `ttl-inflight-cache.ts` 载荷类型用 `string | undefined`（undefined 兼任 miss/失败哨兵）、`scripts/generate-duration-manifest.mjs` 与 `webp-duration.ts` 各一份 ANMF 解析（跨 .mjs 构建脚本与 client 模块无法共享，靠测试锁定一致）、`clearSessionMessagesCache(sessionId?)` 单参形态生产无调用方——均为酌情取舍非阻断。**另注**：`npm run typecheck` 存在与 M3 无关的 pre-existing 错误（`packages/dsh-session-bubble/src/detail/detail-data.ts:86`，未改动文件，非本里程碑引入；M3 其余代码 typecheck 干净）。
 - 2026-08-30：M2（19-01~19-05）上线门禁通过——五工单全部 `done`（`/jxx-code-review` 两轮标准/spec 双维度零发现项；修复两项审查发现：WarpConfig/getConfig 死配置整体删除、GLASS_DEGRADED_SELECTORS 导出由测试消费）、全量测试 36 文件 576 项全绿、`build`+`verify` 22 项全绿、回滚方式为直接 revert 已验证；M2 置 `shipped` 并提交。**偏差记录**：① 19-03 选②「无淡出」，`visible` 保留为「已接合」门控（非死代码，PRD U2 措辞已同步）；② H1/M2 视觉回归以「playwright 独立复刻页暗/亮双主题截图」验证 CSS 契约（中和/玻璃/降级均成立），非完整宿主截图——建议宿主实机上线前补一张整体观感截图复核；③ 19-02「Profiler 实测」以 memorial 017 证据代偿（本环境无宿主实机 Profiler），已披露。
 - 2026-08-30：M1（18-01~18-04）上线门禁通过——四工单全部 `done`（`/jxx-code-review` 两轮无发现项）、全量测试 36 文件 577 项全绿、`build`+`verify` 22 项全绿、回滚方式为直接 revert 已验证；M1 置 `shipped` 并提交。18-04 复核发现并修复 tree-shaking 失效（库包加 `sideEffects:false`，host 产物 221.78 KB → 179.79 KB、无 React）。
 - 2026-08-30：由 memorial 017 全量盘点 → to-spec（5 PRD）→ to-tickets（19 工单）→ to-milestones（本文件，M1–M5）。分组依据：每里程碑结束可独立上线、回滚可定；工单全部无跨里程碑依赖。

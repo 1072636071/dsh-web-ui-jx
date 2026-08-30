@@ -333,3 +333,115 @@ describe("createDynamicTitleStore", () => {
     expect(degraded).toMatchObject({ title: "旧标题" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// 工单 20-04：LRU 上限 + 按 entry TTL + in-flight 去重
+// ---------------------------------------------------------------------------
+
+describe("createDynamicTitleStore — LRU / 按 entry TTL / 去重（工单 20-04）", () => {
+  const mkInput = (overrides: Partial<DynamicTitleInput> = {}): DynamicTitleInput => ({
+    sessionId: "s1",
+    title: "t",
+    updatedAt: 1,
+    lastUserText: "u",
+    ...overrides,
+  });
+
+  /** 计数 transport：每次生成按会话产出不同标题 + 指定重刷频率。 */
+  function countingTransport(opts: {
+    refresh: number | ((sessionId: string) => number);
+  }): DynamicTitleTransport & { calls: number } {
+    let calls = 0;
+    return {
+      get calls() {
+        return calls;
+      },
+      async generateTitle(input) {
+        calls++;
+        return {
+          kind: "configured",
+          title: `t-${input.sessionId}`,
+          refreshIntervalMs:
+            typeof opts.refresh === "function"
+              ? opts.refresh(input.sessionId)
+              : opts.refresh,
+        } as DynamicTitleResult;
+      },
+    };
+  }
+
+  it("LRU 有界：超上限淘汰最久未用条目", async () => {
+    const inner = countingTransport({ refresh: 60_000 });
+    const store = createDynamicTitleStore(inner, {
+      ttlMs: 60_000,
+      now: () => 1_000,
+      maxEntries: 2,
+    });
+    await store.generateTitle(mkInput({ sessionId: "a" }));
+    await store.generateTitle(mkInput({ sessionId: "b" }));
+    await store.generateTitle(mkInput({ sessionId: "c" })); // a（最久未用）被淘汰
+    expect(inner.calls).toBe(3);
+    // a 已淘汰 → 重新生成；b/c 仍在缓存
+    await store.generateTitle(mkInput({ sessionId: "a" }));
+    expect(inner.calls).toBe(4);
+  });
+
+  it("LRU 按最近使用淘汰：复用触达后不被优先淘汰", async () => {
+    const inner = countingTransport({ refresh: 60_000 });
+    const store = createDynamicTitleStore(inner, {
+      ttlMs: 60_000,
+      now: () => 1_000,
+      maxEntries: 2,
+    });
+    await store.generateTitle(mkInput({ sessionId: "a" }));
+    await store.generateTitle(mkInput({ sessionId: "b" }));
+    await store.generateTitle(mkInput({ sessionId: "a" })); // reuse a（触达，b 变最久未用）
+    await store.generateTitle(mkInput({ sessionId: "c" })); // b 被淘汰
+    expect(inner.calls).toBe(3);
+    // b 被淘汰 → 重新生成；a 仍在缓存 → reuse
+    await store.generateTitle(mkInput({ sessionId: "b" }));
+    expect(inner.calls).toBe(4);
+  });
+
+  it("TTL 按 entry 存储：各会话重刷频率独立、不全局覆写", async () => {
+    let clock = 0;
+    const inner = countingTransport({
+      refresh: (sessionId) => (sessionId === "fast" ? 60_000 : 300_000),
+    });
+    const store = createDynamicTitleStore(inner, { now: () => clock, maxEntries: 10 });
+    await store.generateTitle(mkInput({ sessionId: "fast" })); // 学习 60s
+    await store.generateTitle(mkInput({ sessionId: "slow" })); // 学习 300s
+    expect(inner.calls).toBe(2);
+
+    // 越过 fast 的 TTL（60s）但仍在 slow 的 TTL（300s）内。
+    clock = 70_000;
+    const refreshed = await store.generateTitle(mkInput({ sessionId: "fast" }));
+    expect(refreshed?.kind).toBe("configured");
+    expect(inner.calls).toBe(3); // fast 已到期 → 重新生成
+    await store.generateTitle(mkInput({ sessionId: "slow" }));
+    expect(inner.calls).toBe(3); // slow 未到期 → reuse，不再打 transport
+  });
+
+  it("in-flight 去重：并发同一会话同 updatedAt 只调一次 transport", async () => {
+    let calls = 0;
+    let resolveLlm: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      resolveLlm = resolve;
+    });
+    const inner: DynamicTitleTransport = {
+      async generateTitle() {
+        calls++;
+        await gate;
+        return { kind: "configured", title: "共享标题", refreshIntervalMs: 60_000 };
+      },
+    };
+    const store = createDynamicTitleStore(inner, { ttlMs: 60_000, now: () => 1_000 });
+    const p1 = store.generateTitle(mkInput());
+    const p2 = store.generateTitle(mkInput());
+    resolveLlm();
+    const [r1, r2] = await Promise.all([p1, p2]);
+    expect(r1).toMatchObject({ title: "共享标题" });
+    expect(r2).toMatchObject({ title: "共享标题" });
+    expect(calls).toBe(1);
+  });
+});

@@ -30,6 +30,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Context } from "@deepseek-ai/cordis";
 import { writeJson } from "./http-shared.ts";
+import { createTtlInflightCache } from "./ttl-inflight-cache.ts";
 
 // ---------------------------------------------------------------------------
 // 纯函数 seam：collectConversation
@@ -200,6 +201,47 @@ const ROUTE_PATTERN = /^\/api\/dsh-jx\/session\/([^/]+)\/messages$/;
 /** sessionId 长度上限（宿主 id 远小于此；超长视为滥用输入，不打入 inspect）。 */
 const MAX_SESSION_ID_CHARS = 256;
 
+// ---------------------------------------------------------------------------
+// 工单 20-02：按 sessionId 的短 TTL 缓存 + in-flight 去重
+// ---------------------------------------------------------------------------
+
+/** 问话路由响应载荷（title + 逐轮问答）。 */
+type SessionMessagesPayload = { title: string | null; prompts: ConversationTurn[] };
+
+/**
+ * 缓存 TTL（毫秒，短 TTL——归档/retention 变更的时效护栏）。宿主对归档语义的
+ * 权威在 client 半区 workspaces 服务（ADR-0028），host 路由无归档订阅 seam；本
+ * 缓存以短 TTL（1s 内）把归档后的陈旧窗口压到接近失效，且 inspect 抛错（会话被
+ * 移出/归档后不可读）即丢弃该会话缓存、后续一律 404——不退回已排除/已归档会话
+ * 的陈旧数据。
+ */
+const SESSION_MESSAGES_CACHE_TTL_MS = 1_000;
+
+/** 时钟注入（默认 Date.now；测试可替换以控制 TTL 过期）. */
+let sessionMessagesNow: () => number = Date.now;
+
+/** 按 sessionId 的短 TTL 缓存 + in-flight 去重实例（条目上限 256，host 缓存有界）. */
+const messagesCache = createTtlInflightCache<SessionMessagesPayload>({
+  ttlMs: SESSION_MESSAGES_CACHE_TTL_MS,
+  maxEntries: 256,
+  now: () => sessionMessagesNow(),
+});
+
+/**
+ * 清空问话路由缓存（ADR-0017 清理入口 + 归档联动失效的可选手动钩子）。
+ * 不传 sessionId 清空全部（路由 disposer 调用）；传 sessionId 仅清该会话。
+ */
+export function clearSessionMessagesCache(sessionId?: string): void {
+  messagesCache.invalidate(sessionId);
+}
+
+/**
+ * 覆盖缓存时钟（仅测试用）。传 Date.now 恢复默认。
+ */
+export function __setSessionMessagesCacheClock(fn: () => number): void {
+  sessionMessagesNow = fn;
+}
+
 /**
  * 折叠最新会话标题：扫描 `session/title` 事件取最后一条的 `data.title`
  * （log-backed title service 的 latest-wins 快照语义）。无 title 事件返回
@@ -270,14 +312,40 @@ async function handleSessionMessagesRequest(
     res.end();
     return;
   }
-  try {
+  // 工单 20-02：短 TTL 缓存命中 → 不重复全量读日志。
+  const cached = messagesCache.get(sessionId);
+  if (cached !== undefined) {
+    writeJson(res, 200, cached);
+    return;
+  }
+  // in-flight 去重：同 sessionId 并发请求共享同一次 inspect。
+  const pending = messagesCache.pending(sessionId);
+  if (pending !== undefined) {
+    try {
+      writeJson(res, 200, await pending);
+    } catch {
+      writeJson(res, 404, { error: "session not found or unreadable" });
+    }
+    return;
+  }
+  const promise = (async (): Promise<SessionMessagesPayload> => {
     const { events } = await controller.inspect(sessionId);
-    writeJson(res, 200, {
+    return {
       title: foldLatestTitle(events),
       prompts: collectConversation(events),
-    });
+    };
+  })();
+  messagesCache.setPending(sessionId, promise);
+  try {
+    const payload = await promise;
+    messagesCache.set(sessionId, payload);
+    writeJson(res, 200, payload);
   } catch {
+    // inspect 抛错（会话不存在/不可读/已移除）：丢弃该会话缓存，不再返回陈旧数据。
+    messagesCache.invalidate(sessionId);
     writeJson(res, 404, { error: "session not found or unreadable" });
+  } finally {
+    messagesCache.clearPending(sessionId);
   }
 }
 
@@ -304,5 +372,7 @@ export function registerSessionMessagesRoute(ctx: Context): () => void {
   );
   return () => {
     void dispose();
+    // ADR-0017：路由卸载时同步清空问话路由缓存（热重载无残留）。
+    clearSessionMessagesCache();
   };
 }

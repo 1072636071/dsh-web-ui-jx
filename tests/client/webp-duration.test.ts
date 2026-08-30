@@ -18,12 +18,14 @@
  *   - 加载缓存：同 URL 只 fetch 一次；解析失败/网络失败回退 null 且不重复请求。
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import durationManifest from "../../assets/manifest.json";
 import {
   parseWebpDurationMs,
   loadWebpDurationMs,
+  clearDurationCache,
 } from "../../src/client/webp-duration.ts";
 
 // ---------------------------------------------------------------------------
@@ -195,14 +197,19 @@ describe("parseWebpDurationMs: 现有 34 素材回归（ADR-0016 素材重组 + 
 // ---------------------------------------------------------------------------
 
 describe("loadWebpDurationMs: 加载与缓存", () => {
+  beforeEach(() => clearDurationCache());
+
   it("成功：解析真实时长，同 URL 只 fetch 一次", async () => {
+    // 用不在 manifest 的合成路径走 fetch + 解析 + 缓存路径（manifest 命中另测）。
     let calls = 0;
     const fetcher = async (): Promise<Uint8Array> => {
       calls += 1;
       return makeAnimatedWebp([67, 67, 536]);
     };
-    const d1 = await loadWebpDurationMs("/api/dsh-jx/character/idle.webp", fetcher);
-    const d2 = await loadWebpDurationMs("/api/dsh-jx/character/idle.webp", fetcher);
+    const url = "/api/dsh-jx/character/not-in-manifest.webp";
+    expect(loadWebpDurationMs(url, fetcher)).toBeDefined();
+    const d1 = await loadWebpDurationMs(url, fetcher);
+    const d2 = await loadWebpDurationMs(url, fetcher);
     expect(d1).toBe(670);
     expect(d2).toBe(670);
     expect(calls).toBe(1);
@@ -233,5 +240,74 @@ describe("loadWebpDurationMs: 加载与缓存", () => {
     const b = await loadWebpDurationMs("http://x/b.webp", fetcher);
     expect(a).toBe(100);
     expect(b).toBe(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 工单 20-01：时长 manifest 优先 + 缺项回落
+// ---------------------------------------------------------------------------
+
+describe("loadWebpDurationMs: manifest 优先（工单 20-01）", () => {
+  beforeEach(() => clearDurationCache());
+
+  it("manifest 命中：零 fetcher 调用直接返回时长（零整文件下载）", async () => {
+    let calls = 0;
+    const fetcher = async (): Promise<Uint8Array> => {
+      calls += 1;
+      throw new Error("manifest 命中不该 fetch");
+    };
+    const d = await loadWebpDurationMs("/api/dsh-jx/character/idle.webp", fetcher);
+    expect(d).toBe(durationManifest["character/idle.webp"]);
+    expect(d).toBe(9916);
+    expect(calls).toBe(0);
+  });
+
+  it("manifest 缺项：回落原解析逻辑（fetcher 真实调用）", async () => {
+    const fetcher = async (): Promise<Uint8Array> => makeAnimatedWebp([67, 536]);
+    const d = await loadWebpDurationMs(
+      "/api/dsh-jx/character/transition-missing.webp",
+      fetcher,
+    );
+    expect(d).toBe(603);
+  });
+
+  it("非素材路由 URL（不在 manifest 作用域）→ 回落原解析", async () => {
+    const fetcher = async (): Promise<Uint8Array> => makeAnimatedWebp([2000]);
+    expect(await loadWebpDurationMs("http://x/own.webp", fetcher)).toBe(2000);
+  });
+
+  it("manifest 与运行时解析一一一致（锁定生成脚本不失配）", () => {
+    const assetsDir = resolve("assets/character");
+    for (const [key, ms] of Object.entries(durationManifest)) {
+      const fileName = key.replace(/^character\//, "");
+      const bytes = readFileSync(join(assetsDir, fileName));
+      expect(parseWebpDurationMs(new Uint8Array(bytes)), key).toBe(ms);
+    }
+  });
+
+  it("manifest 覆盖全部既有素材（34 个字符态/过渡段 webp）", () => {
+    const assetsDir = resolve("assets/character");
+    const files = readdirSync(assetsDir)
+      .filter((f) => f.toLowerCase().endsWith(".webp"))
+      .sort();
+    const manifest = durationManifest as Record<string, number>;
+    expect(Object.keys(manifest).length).toBe(files.length);
+    for (const f of files) {
+      expect(manifest[`character/${f}`], f).toBeTypeOf("number");
+    }
+  });
+
+  it("clearDurationCache 清理实时解析缓存后重新请求", async () => {
+    let calls = 0;
+    const fetcher = async (): Promise<Uint8Array> => {
+      calls += 1;
+      return makeAnimatedWebp([100]);
+    };
+    const url = "/xd/synthetic-t.webp" + Math.random();
+    expect(await loadWebpDurationMs(url, fetcher)).toBe(100);
+    expect(calls).toBe(1);
+    clearDurationCache();
+    expect(await loadWebpDurationMs(url, fetcher)).toBe(100);
+    expect(calls).toBe(2);
   });
 });
