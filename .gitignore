@@ -21,3 +21,6 @@ bak/
 # Python 字节码缓存
 __pycache__/
 *.pyc
+
+# IDE (JetBrains temp config, not tracked)
+.idea/
