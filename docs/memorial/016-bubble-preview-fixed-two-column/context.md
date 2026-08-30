@@ -42,3 +42,11 @@
 ## 待澄清
 
 （已全部澄清）
+
+## 实施与验证（2026-08-30）
+
+4 工单全部 `done`，commit `da1a974`。落地：host `collectUserMessages→collectConversation`（逐问配对 `reply`，`MAX_USER_PROMPTS→MAX_TURNS`、新增 `MAX_REPLY_TEXT_CHARS`）；client 弹框固定 560×320（`maxHeight→height` 根治抖动）三列问答对照，移除 +N 折叠（`foldCapsules/capsuleLayout` 退场），词汇对齐 CONTEXT（`onSummaryHover`/`SUMMARY_MAX_CHARS`/`.summaryActive`）。
+
+- typecheck 无新增错误（3 处为未改动文件既有基线）；全量 576 测试通过；`build`+`verify` 21/21 绿。
+- 两轴代码审查（标准/spec）复审无发现项。
+- 运行时验证：重启 :3080 host（detached）后真实会话 `/api/dsh-jx/session/<id>/messages` 每条 prompt 附配对 `reply`（样例 1271 字符）；浏览器 hover 见固定尺寸三列、切换不抖动、右列显示 LLM 回复——用户已确认良好。
