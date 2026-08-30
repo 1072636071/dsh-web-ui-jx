@@ -18,7 +18,9 @@ ADR-0024 建了整页壁纸层，但忧虑实际观感：**壁纸被整个 APP �
 
 **D2 — 全浮层毛玻璃让壁纸透出（方案 B）、玻璃继承现有 alpha**：
 
-真毛玻璃铺满全插件家族表面（输入卡/气泡/代码块/内联 code/sidebar/dialog/menu/listbox/popper/tooltip/`[data-dsh-plugin="..."]` 各插件面板/底部面板/设置表面）。`backdrop-filter: blur(10px)` 恒定，`background-color` **继承既有 `--jx-panel-*` 区域 alpha**——即不新增滑杆、不盖住 ADR-0025 交付的区域滑杆收益，模糊度固定、透明度随现有滑杆。
+真毛玻璃覆盖稳定表面（输入卡/sidebar/dialog/menu/tooltip/popper/`[data-dsh-plugin="..."]` 各插件面板/底部面板/设置表面）。`backdrop-filter: blur(10px)` 恒定，`background-color` **继承既有 `--jx-panel-*` 区域 alpha**——即不新增滑杆、不盖住 ADR-0025 交付的区域滑杆收益，模糊度固定、透明度随现有滑杆。
+
+**修订（2026-08 工单 19-02）**：流式高频重绘元素（`listbox` / 气泡 / 代码块 / 内联 `code`）从模糊矩阵移出、**降级为纯 alpha**——`backdrop-filter` 是最贵 CSS 属性之一，流式输出/滚动时对高频重绘元素反复模糊拖慢重绘；降级后其半透明底仍由 `--jx-panel-*` 区域 alpha 兜住，仅失去毛玻璃质感。reduced-motion 降级（D4）仍全关。
 
 **D3 — 壁纸层改负 z-index 做层级分离**：
 

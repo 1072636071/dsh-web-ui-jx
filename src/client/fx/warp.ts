@@ -5,9 +5,12 @@
  * （首亮尾暗、前大后小），粒子各自扩张淡出；按下（pointerdown）在落点绽开一圈
  * 墨涟漪。停下即停，不常驻、不挡内容。
  *
- * 语义：只在运动时回应的鼠标跟手特效，帮定位鼠标的"小工具"，停下即隐。
+ * 语义：只在运动时回应的鼠标跟手特效，帮定位鼠标的"小工具"。
+ * 无控制器级停止淡出（19-03 明确「无淡出」）：拖尾/涟漪各自自带 520ms/720ms
+ * 淡出动画，停止移动后最后一批粒子在 ~520ms 内自然隐去；控制器只负责降级与
+ * 接合门控，无常驻帧循环、无「写了不接」的死代码。
  * 性能：纯 transform+opacity（GPU 合成层），节点池化复用，无 backdrop-filter /
- *       SVG filter / 每帧位移图计算。
+ *       SVG filter / 每帧位移图计算；涟漪同样走 WAAPI（19-04，无强制 reflow）。
  * 降级：pointer:coarse / prefers-reduced-motion 由控制器 noop，永不触发。
  *
  * 装饰层 pointer-events: none，不拦截底层 UI 交互。
@@ -16,15 +19,7 @@
  * @module dsh-web-ui-jx/client
  */
 
-import { createWarpController, type WarpConfig } from "./warp-controller.ts";
-
-/** warp 参数（淡出 400ms 供控制器判定降级/计时；半径仅作粒子基准尺寸）。 */
-const WARP_CONFIG: WarpConfig = {
-  radius: 50,
-  dwellMs: 0,
-  fadeMs: 400,
-  scale: 0,
-};
+import { createWarpController } from "./warp-controller.ts";
 
 /** 拖尾粒子池上限。 */
 const MAX_TRAIL = 40;
@@ -98,6 +93,27 @@ const TRAIL_KEYFRAMES: Array<Keyframe> = [
 /** trail 动画时值选项（生成粒子时创建一次）。 */
 const TRAIL_OPTIONS: KeyframeAnimationOptions = {
   duration: 520,
+  iterations: 1,
+  easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+  fill: "forwards",
+};
+
+/** ripple 动画时值（对齐 fx.css 原 jx-warp-ripple 关键帧；19-04 改 WAAPI 驱动，
+ *  移除 CSS 动画重触发所需的强制 reflow）。 */
+const RIPPLE_KEYFRAMES: Array<Keyframe> = [
+  {
+    opacity: 0.5,
+    transform: "translate3d(0,0,0) translate(-50%,-50%) scale(0.15)",
+  },
+  {
+    opacity: 0,
+    transform: "translate3d(0,0,0) translate(-50%,-50%) scale(1.05)",
+  },
+];
+
+/** ripple 动画时值选项。 */
+const RIPPLE_OPTIONS: KeyframeAnimationOptions = {
+  duration: 720,
   iterations: 1,
   easing: "cubic-bezier(0.16, 1, 0.3, 1)",
   fill: "forwards",
@@ -181,16 +197,26 @@ function spawnTrail(x: number, y: number, px: number, py: number): void {
   }
 }
 
-/** 在 (x,y) 绽开一圈墨涟漪，重放 CSS 扩张淡出动画。 */
+/**
+ * 在 (x,y) 绽开一圈墨涟漪（19-04：Web Animations API 驱动，替代 CSS
+ * `animation` 重置重触发——旧实现的 `void el.offsetWidth` 是显式强制 reflow，
+ * 每次 pointerdown 一次强制同步布局；WAAPI 无此成本，且与 trail 粒子同构）。
+ */
 function spawnRipple(x: number, y: number): void {
   if (!container || !controller || !controller.getSnapshot().visible) return;
   const el = acquireRipple();
   el.style.left = `${x}px`;
   el.style.top = `${y}px`;
-  el.style.animation = "none";
+  // 取消残留动画（池化复用），随后重放
+  el.getAnimations().forEach((a) => a.cancel());
   container.appendChild(el);
-  void el.offsetWidth;
-  el.style.animation = "";
+  const anim = el.animate(RIPPLE_KEYFRAMES, RIPPLE_OPTIONS);
+  // 动画结束即从 DOM 移除，回到池待复用（与 trail 粒子一致）
+  anim.finished
+    .then(() => {
+      if (el.parentNode === container) el.remove();
+    })
+    .catch(() => {});
 }
 
 /**
@@ -209,15 +235,14 @@ export function startWarp(): void {
     "position:fixed;top:0;left:0;width:0;height:0;pointer-events:none;z-index:9997;overflow:visible;";
   document.body.appendChild(container);
 
-  controller = createWarpController(WARP_CONFIG, {
+  controller = createWarpController({
     pointerCoarse: window.matchMedia("(pointer: coarse)").matches,
     reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   });
 
   onPointerMove = (e: PointerEvent): void => {
     if (!controller) return;
-    const now = performance.now();
-    controller.onMove(e.clientX, e.clientY, now);
+    controller.onMove(e.clientX, e.clientY);
     if (!controller.getSnapshot().visible) return;
     const dx = e.clientX - lastX;
     const dy = e.clientY - lastY;

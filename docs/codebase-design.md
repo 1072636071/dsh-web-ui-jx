@@ -95,7 +95,7 @@ src/
 | `variant-rotation.ts` | `isRotatableState`、`pickNextVariant`、`rotationPool` | 变体池随机不重复抽取、轮换周期 | 纯逻辑，深 |
 | `overlay-position.ts` | `getOverlayPositionSnapshot` 等 | 拖动钳制、localStorage 持久化、resize 重钳制 | 单例 store，中 |
 | `overlay-settings.ts` | 设置读取/订阅 | 开关持久化与订阅 | 薄但职责单一，中 |
-| `warp-controller.ts` | `WarpController`（onMove/onFrame/...） | 可见性/淡出相位状态机、coarse/reduced-motion 降级 | **好接缝**：大脑与渲染分离 |
+| `warp-controller.ts` | `WarpController`（onMove/getSnapshot/destroy） | 接合门控（首次移动）、coarse/reduced-motion 降级；**无淡出**（19-03，粒子自带淡出动画，无常驻帧循环） | **好接缝**：大脑与渲染分离 |
 | `warp.ts` / `fall.ts` 等 | `startXxx / stopXxx` | DOM 挂载、监听、视觉参数 | 适配器/渲染层，中 |
 | `storage-domain.ts` | `ImportStore`（get/put/entries/close） | zod 声明式 KV domain 封装 | 深：小接口包住 KV 契约 |
 | `asset-routes.ts` / `import-api.ts` | `registerXxx(ctx)` | HTTP 路由、zip 解压、进度、路径穿越防御 | 中偏深（import-api ~450 行） |

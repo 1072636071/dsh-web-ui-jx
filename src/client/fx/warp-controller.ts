@@ -1,32 +1,19 @@
 /**
  * warp 特效纯逻辑控制器。
  *
- * 输入 pointermove 事件序列 + 时间戳 + 设备能力，输出元素目标状态
- * {visible, x, y, fadePhase}。不依赖 DOM（DOM 薄壳在 warp.ts，工单 02）。
+ * 输入 pointermove 事件序列 + 设备能力，输出元素目标状态 {visible, x, y}。
+ * 不依赖 DOM（DOM 薄壳在 warp.ts）。
  *
- * 生命周期：
- *   - onMove(x, y, now)：pointermove 事件，一帧可多次（后调覆盖先调 = rAF coalesce 语义）。
- *   - onFrame(now)：rAF 回调，推进淡出（不改变 x,y）。
- *   - 停下 elapsed ≤ dwellMs：保持显示 fadePhase=1。
- *   - dwellMs < elapsed ≤ dwellMs+fadeMs：淡出 fadePhase 从 1 渐到 0。
- *   - elapsed > dwellMs+fadeMs：隐藏 visible=false。
+ * 语义（19-03 二选一落定为「无淡出」）：
+ *   - onMove(x, y)：pointermove 事件，一帧可多次（后调覆盖先调 = rAF coalesce 语义）。
+ *   - visible = 已接合（首次移动后恒真，不随停下复位）：仅供薄壳门控是否产生
+ *     粒子/涟漪。**无停止淡出**——粒子与涟漪自带 520ms/720ms 淡出动画
+ *     （warp.ts / fx.css），不需要控制器级淡出状态机，也没有常驻帧循环。
  *
  * 降级：pointer:coarse 或 prefers-reduced-motion → 永不显示，所有方法 noop。
  *
  * @module dsh-web-ui-jx/client
  */
-
-/** warp 特效参数。 */
-export interface WarpConfig {
-  /** 光圈半径（px）。 */
-  readonly radius: number;
-  /** 停下后保持显示的时长（ms）。 */
-  readonly dwellMs: number;
-  /** 淡出持续时长（ms）。 */
-  readonly fadeMs: number;
-  /** feDisplacementMap 位移强度。 */
-  readonly scale: number;
-}
 
 /** 设备能力（决定降级）。 */
 export interface WarpDeviceCapability {
@@ -38,23 +25,19 @@ export interface WarpDeviceCapability {
 
 /** 元素目标状态（DOM 薄壳读取并应用）。 */
 export interface WarpSnapshot {
+  /** 特效已接合（首次移动后恒真；disabled/destroyed 时保持 false/最后值）。
+   *  无停止淡出语义——见模块头。 */
   readonly visible: boolean;
   readonly x: number;
   readonly y: number;
-  /** 1=完全显示，0=隐藏，(0,1)=淡出中。 */
-  readonly fadePhase: number;
 }
 
 /** warp 控制器接口。 */
 export interface WarpController {
-  /** pointermove 事件（一帧可多次，后调覆盖先调）。 */
-  onMove(x: number, y: number, now: number): void;
-  /** rAF 回调，推进淡出。 */
-  onFrame(now: number): void;
+  /** pointermove 事件（一帧可多次，后调覆盖先调 = rAF coalesce 语义）。 */
+  onMove(x: number, y: number): void;
   /** 当前元素目标状态。 */
   getSnapshot(): WarpSnapshot;
-  /** 持有的参数（薄壳读 radius/scale 用于 CSS）。 */
-  getConfig(): WarpConfig;
   /** 销毁，幂等。 */
   destroy(): void;
 }
@@ -62,48 +45,27 @@ export interface WarpController {
 /**
  * 创建 warp 控制器。
  *
- * @param config - 特效参数。
- * @param device - 设备能力。
+ * @param device - 设备能力（决定降级）。
  */
 export function createWarpController(
-  config: WarpConfig,
   device: WarpDeviceCapability,
 ): WarpController {
-  let visible = false;
   let x = 0;
   let y = 0;
-  let fadePhase = 0;
-  let lastMoveTime = 0;
+  let engaged = false;
   let destroyed = false;
 
   const disabled = device.pointerCoarse || device.reducedMotion;
 
   return {
-    onMove(mx, my, now) {
+    onMove(mx, my) {
       if (destroyed || disabled) return;
       x = mx;
       y = my;
-      lastMoveTime = now;
-      visible = true;
-      fadePhase = 1;
-    },
-    onFrame(now) {
-      if (destroyed || disabled || !visible) return;
-      const elapsed = now - lastMoveTime;
-      if (elapsed <= config.dwellMs) {
-        fadePhase = 1;
-      } else if (elapsed < config.dwellMs + config.fadeMs) {
-        fadePhase = 1 - (elapsed - config.dwellMs) / config.fadeMs;
-      } else {
-        fadePhase = 0;
-        visible = false;
-      }
+      engaged = true;
     },
     getSnapshot() {
-      return { visible, x, y, fadePhase };
-    },
-    getConfig() {
-      return config;
+      return { visible: engaged, x, y };
     },
     destroy() {
       destroyed = true;

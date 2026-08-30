@@ -149,18 +149,8 @@ html.fx-warp [data-jx-fx-warp-ripple] {
   border-radius: 50%;
   pointer-events: none;
   border: 1.5px solid var(--jx-moon);
-  animation: jx-warp-ripple 720ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes jx-warp-ripple {
-  from {
-    opacity: 0.5;
-    transform: translate3d(0, 0, 0) translate(-50%, -50%) scale(0.15);
-  }
-  to {
-    opacity: 0;
-    transform: translate3d(0, 0, 0) translate(-50%, -50%) scale(1.05);
-  }
+  /* 动画由 fx/warp.ts 的 Web Animations API 驱动（19-04：WAAPI 重放无强制
+     reflow，替代 CSS animation 重置重触发的旧路径）；此处只定义静态外观。 */
 }
 
 /* ============================================================

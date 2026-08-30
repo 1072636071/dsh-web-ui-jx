@@ -48,6 +48,8 @@ import {
 import {
   BACKDROP_ACTIVE_ATTR,
   BACKDROP_ATTR,
+  GLASS_DEGRADED_SELECTORS,
+  isWallpaperSurface,
   startWelcomeBackdrop,
   sweepResidualBackdrops,
   syncWelcomeBackdrop,
@@ -299,12 +301,25 @@ describe("welcome-backdrop runtime", () => {
 // 表面探测器 + 中和规则（ADR-0027 D1，方案 A）
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 布局几何 stub（jsdom 不跑布局，offsetHeight/rect 恒 0）
+// ---------------------------------------------------------------------------
+
+/** stub 出全视口覆盖的几何（layout seam），对齐 isWallpaperSurface 的
+ *  offsetHeight 廉价前置过滤（19-01）。 */
+function stubLayoutMetrics(el: HTMLElement, height: number = window.innerHeight): void {
+  Object.defineProperty(el, "offsetHeight", {
+    configurable: true,
+    get: () => height,
+  });
+  el.getBoundingClientRect = () =>
+    ({ height, width: window.innerWidth, top: 0, bottom: height, left: 0, right: window.innerWidth } as DOMRect);
+}
+
 describe("welcome-backdrop surface neutralizer (ADR-0027 02)", () => {
   function makeFullViewportSurface() {
     const el = document.createElement("div");
-    // jsdom 不跑布局，rect.height 恒 0；stub 返回全视口覆盖（layout seam）。
-    el.getBoundingClientRect = () =>
-      ({ height: window.innerHeight, width: window.innerWidth, top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth } as DOMRect);
+    stubLayoutMetrics(el);
     el.style.backgroundColor = "rgb(0, 0, 0)";
     el.style.setProperty("position", "absolute");
     document.body.appendChild(el);
@@ -322,7 +337,9 @@ describe("welcome-backdrop surface neutralizer (ADR-0027 02)", () => {
   it("非不透明(透明)背景表面不被标记", () => {
     const dispose = startWelcomeBackdrop();
     const surface = document.createElement("div");
-    surface.style.height = `${window.innerHeight}px`;
+    // 通过几何前置过滤（全视口高度），仅因背景透明而被拒——证明拒绝来自
+    // 透明判定而非高度过滤。
+    stubLayoutMetrics(surface);
     surface.style.backgroundColor = "transparent";
     document.body.appendChild(surface);
     syncWelcomeBackdrop();
@@ -330,10 +347,12 @@ describe("welcome-backdrop surface neutralizer (ADR-0027 02)", () => {
     dispose();
   });
 
-  it("小表面积（未覆盖视口<90%）不被标记", () => {
+  it("小表面积（未覆盖视口<90%）不被标记（offsetHeight 前置过滤拒绝）", () => {
     const dispose = startWelcomeBackdrop();
     const small = document.createElement("div");
-    small.style.height = "50px";
+    // 显式 stub 出小高度（50px），证明拒绝来自 19-01 的廉价前置过滤而非
+    // jsdom 默认 offsetHeight=0 的巧合。
+    stubLayoutMetrics(small, 50);
     small.style.backgroundColor = "rgb(0, 0, 0)";
     document.body.appendChild(small);
     syncWelcomeBackdrop();
@@ -344,8 +363,7 @@ describe("welcome-backdrop surface neutralizer (ADR-0027 02)", () => {
   it("modal/plugin/dialog 表面不被标记（放行）", () => {
     const dispose = startWelcomeBackdrop();
     const modal = document.createElement("div");
-    modal.getBoundingClientRect = () =>
-      ({ height: window.innerHeight, width: window.innerWidth, top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth } as DOMRect);
+    stubLayoutMetrics(modal);
     modal.style.backgroundColor = "rgb(0, 0, 0)";
     modal.setAttribute("role", "dialog");
     // 大 z-index（>100）也排除
@@ -354,8 +372,7 @@ describe("welcome-backdrop surface neutralizer (ADR-0027 02)", () => {
 
     // 插件面板（data-dsh-plugin）即使全视口不透明也不应被全局中和（方案 B 玻璃处理）
     const plugin = document.createElement("div");
-    plugin.getBoundingClientRect = () =>
-      ({ height: window.innerHeight, width: window.innerWidth, top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth } as DOMRect);
+    stubLayoutMetrics(plugin);
     plugin.style.backgroundColor = "rgb(0, 0, 0)";
     plugin.setAttribute("data-dsh-plugin", "task-board");
     document.body.appendChild(plugin);
@@ -398,6 +415,93 @@ describe("welcome-backdrop surface neutralizer (ADR-0027 02)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 表面观察器 rAF 批处理（19-01）
+// ---------------------------------------------------------------------------
+
+describe("welcome-backdrop surface observer batching (19-01)", () => {
+  function makeSurface() {
+    const el = document.createElement("div");
+    stubLayoutMetrics(el);
+    el.style.backgroundColor = "rgb(0, 0, 0)";
+    el.style.position = "absolute";
+    document.body.appendChild(el);
+    return el;
+  }
+
+  /** 让 MutationObserver 微任务先注册模块的 rAF，再等该 rAF 执行批处理。 */
+  async function flushSurfaceBatch(): Promise<void> {
+    await Promise.resolve(); // 微任务检查点：observer 回调 → scheduleSurfaceBatch
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  }
+
+  it("观察到的新增表面经 rAF 批处理后打标", async () => {
+    const dispose = startWelcomeBackdrop();
+    const surface = makeSurface();
+    // 打标不发生在 mutation 同步回调里（避免强制布局风暴），而延迟到 rAF。
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(false);
+    await flushSurfaceBatch();
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(true);
+    dispose();
+  });
+
+  it("同帧多批 mutation 合并为一次 rAF 批处理（去重）", async () => {
+    const dispose = startWelcomeBackdrop();
+    const s1 = makeSurface();
+    const s2 = makeSurface();
+    await flushSurfaceBatch();
+    expect(s1.hasAttribute("data-jx-backdrop-surface")).toBe(true);
+    expect(s2.hasAttribute("data-jx-backdrop-surface")).toBe(true);
+    dispose();
+  });
+
+  it("移除表面经批处理摘标；同帧移动节点保留标记并重验", async () => {
+    const dispose = startWelcomeBackdrop();
+    const surface = makeSurface();
+    await flushSurfaceBatch();
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(true);
+
+    // 直接移除：摘标在 rAF 批处理里发生。
+    surface.remove();
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(true); // 未到批处理
+    await flushSurfaceBatch();
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(false);
+
+    // 同帧移动（先摘后挂）：rAF 批处理后重新打标，且无旧标残留问题。
+    const other = document.createElement("div");
+    document.body.appendChild(other);
+    other.appendChild(surface);
+    await flushSurfaceBatch();
+    expect(surface.hasAttribute("data-jx-backdrop-surface")).toBe(true);
+    dispose();
+  });
+
+  it("isWallpaperSurface 廉价前置过滤：小高度节点不做 rect/computedStyle", () => {
+    // 小高度：被 offsetHeight 前置过滤拒绝（不触 rect/computedStyle）。
+    const small = document.createElement("div");
+    stubLayoutMetrics(small, 10);
+    small.style.backgroundColor = "rgb(0, 0, 0)";
+    document.body.appendChild(small);
+    expect(isWallpaperSurface(small)).toBe(false);
+
+    // 全视口高度但透明背景：通过前置过滤后因透明被拒（不被误标记）。
+    const tallTransparent = document.createElement("div");
+    stubLayoutMetrics(tallTransparent);
+    tallTransparent.style.backgroundColor = "transparent";
+    document.body.appendChild(tallTransparent);
+    expect(isWallpaperSurface(tallTransparent)).toBe(false);
+
+    // 全视口高度 + 不透明底：判定为表面。
+    const tallOpaque = document.createElement("div");
+    stubLayoutMetrics(tallOpaque);
+    tallOpaque.style.backgroundColor = "rgb(0, 0, 0)";
+    document.body.appendChild(tallOpaque);
+    expect(isWallpaperSurface(tallOpaque)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 全浮层毛玻璃（ADR-0027 D2，方案 B）
 // ---------------------------------------------------------------------------
 
@@ -418,13 +522,30 @@ describe("welcome-backdrop glass (ADR-0027 03)", () => {
       "[data-composer-card]",
       '[data-slot="sidebar"]',
       "[role=\"dialog\"]",
+      "[role=\"menu\"]",
+      "[role=\"tooltip\"]",
       "[data-dsh-surface=\"settings\"]",
-      'bubble',
-      "[class*=\"md-code-block\"]",
       "[data-dsh-plugin]",
       "[data-radix-popper-content-wrapper]",
+      "[data-composer-seat]",
     ]) {
       expect(content, sel).toContain(sel);
+    }
+    dispose();
+  });
+
+  it("高频重绘元素降级为纯 alpha、不在模糊矩阵内（19-02）", () => {
+    const dispose = startWelcomeBackdrop();
+    const style = document.querySelector("head style[data-jx-scene-neutralizer]");
+    const content = style?.textContent ?? "";
+    // 以 GLASS_DEGRADED_SELECTORS 为单一真相源：降级集合不得以
+    // 「body[data-jx-wallpaper-active] <选择器>」形式进入 backdrop-filter
+    // 模糊规则作用域（含 reduced-motion 关闭规则，两者共用同一矩阵）。
+    // 用作用域前缀精确匹配，避免误命中样式注释里的普通单词（如 "code"）。
+    for (const sel of GLASS_DEGRADED_SELECTORS) {
+      expect(content, sel).not.toContain(
+        `body[data-jx-wallpaper-active] ${sel}`,
+      );
     }
     dispose();
   });

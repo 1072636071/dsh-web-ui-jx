@@ -62,6 +62,14 @@ const MIN_VIEWPORT_SURFACE_HEIGHT = 0.9;
 /** 结算时视为 modal/浮层的最大 z-index（超过则放行不中和）。 */
 const MAX_SURFACE_OVERLAY_Z_INDEX = 100;
 
+/** 表面扫描最大深度（自扫描根起算）。全视口表面（app 根/侧栏/浮层/插件面板）
+ *  都位于浅层 DOM，深树内部不可能命中「高度 ≥ 视口 90%」判定；深度上限用于
+ *  防流式输出构建的超深内容树拖垮每次增量扫描（19-01 观察范围收窄）。 */
+const MAX_SURFACE_SCAN_DEPTH = 12;
+
+/** 单批增量扫描元素数上限（BFS 浅层优先，超限即截断；同步全域补扫不设上限）。 */
+const MAX_INCREMENTAL_SCAN_NODES = 1024;
+
 /** 五个区域独立 alpha：CSS 变量 → 读取器（ADR-0025 D1）。写入与移除共用此映射。 */
 const REGION_ALPHA_VARS = {
   "--jx-panel-sidebar-alpha": getSidebarAlpha,
@@ -127,18 +135,35 @@ function isExcludedSurface(el: HTMLElement, zIndex: string): boolean {
 /**
  * 表面判定：覆盖 ≥90% 视口高度 + 非透明底 + 非 excluded。这些「整幅 app/对话
  * 根」面板的底色是宿主写死的不透明底、不吃 jx token，中和之壁纸才能露出。
+ *
+ * 性能（19-01）：先做廉价高度前置过滤（`offsetHeight` 单次测量，远轻于
+ * `getBoundingClientRect` + `getComputedStyle`），不达标直接返回 false，避免
+ * 对每个新增节点都做完整 rect + computedStyle。
  */
 export function isWallpaperSurface(el: HTMLElement): boolean {
   const win = el.ownerDocument?.defaultView;
   if (win === null || win === undefined) return false;
-  let rectHeight = 0;
   let viewportHeight = 0;
+  try {
+    viewportHeight =
+      el.ownerDocument.documentElement.clientHeight || win.innerHeight || 0;
+  } catch {
+    return false;
+  }
+  if (viewportHeight <= 0) return false;
+  // 廉价前置过滤：高度不足视口 90% 的节点不可能命中「全视口表面」判定。
+  try {
+    if (el.offsetHeight < viewportHeight * MIN_VIEWPORT_SURFACE_HEIGHT) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  let rectHeight = 0;
   let background = "";
   let zIndex = "";
   try {
     rectHeight = el.getBoundingClientRect().height;
-    viewportHeight =
-      el.ownerDocument.documentElement.clientHeight || win.innerHeight || 0;
     const cs = win.getComputedStyle(el);
     background = cs.backgroundColor;
     zIndex = cs.zIndex;
@@ -146,29 +171,72 @@ export function isWallpaperSurface(el: HTMLElement): boolean {
     return false;
   }
   const fillsViewport =
-    viewportHeight > 0 && rectHeight >= viewportHeight * MIN_VIEWPORT_SURFACE_HEIGHT;
+    rectHeight >= viewportHeight * MIN_VIEWPORT_SURFACE_HEIGHT;
   return fillsViewport && hasVisibleBackground(background) && !isExcludedSurface(el, zIndex);
 }
 
-/** 栈式 DFS 遍历子树并对每个 HTML 元素应用回调（无短路，纯遍历）。 */
-function walkElements(root: Element, visit: (el: HTMLElement) => void): void {
-  const stack: Element[] = [root];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (node === undefined) continue;
-    if (node instanceof HTMLElement) visit(node);
-    for (const child of Array.from(node.children)) stack.push(child);
+/**
+ * 广度优先遍历子树并对每个 HTML 元素应用回调。
+ *
+ * BFS（浅层优先）+ 可选的深度/数量上限：增量扫描时保证先覆盖浅层表面元素
+ * 再深入内容树，全视口表面都位于浅层，深树/大子树截断不损失判定覆盖，同时
+ * 把每次增量扫描的工作量上界锁死（19-01 观察范围收窄）。
+ *
+ * @param root - 遍历根。
+ * @param visit - 对每个 HTML 元素调用的回调。
+ * @param options - 深度/数量上限（增量扫描防风暴用；缺省为无上限纯遍历）。
+ */
+function walkElements(
+  root: Element,
+  visit: (el: HTMLElement) => void,
+  options: { maxDepth?: number; maxNodes?: number } = {},
+): void {
+  const { maxDepth = Infinity, maxNodes = Infinity } = options;
+  let checked = 0;
+  const queue: Array<{ node: Element; depth: number }> = [
+    { node: root, depth: 0 },
+  ];
+  let head = 0;
+  while (head < queue.length) {
+    const { node, depth } = queue[head];
+    head += 1;
+    if (depth > maxDepth) continue;
+    if (node instanceof HTMLElement) {
+      visit(node);
+      checked += 1;
+      if (checked >= maxNodes) return;
+    }
+    if (depth >= maxDepth) continue;
+    for (const child of Array.from(node.children)) {
+      queue.push({ node: child, depth: depth + 1 });
+    }
   }
 }
 
-/** 对给定子树「全视口不透明表面」打标记（根为 body 时即全域扫描；根为新增
- *  子树时即增量重标）。命中 surface 判定且未打标则加标记。幂等。 */
-function tagSurfaces(root: Element): void {
-  walkElements(root, (node) => {
-    if (node !== document.body && !node.hasAttribute(SURFACE_ATTR) && isWallpaperSurface(node)) {
-      node.setAttribute(SURFACE_ATTR, "");
-    }
-  });
+/**
+ * 对给定子树「全视口不透明表面」打标记（根为 body 时即全域扫描；根为新增
+ * 子树时即增量重标）。命中 surface 判定且未打标则加标记。幂等。
+ *
+ * @param options - 增量扫描传入深度/数量上限（`MAX_SURFACE_SCAN_DEPTH` /
+ *   `MAX_INCREMENTAL_SCAN_NODES`）；全域同步补扫只限深度、不限数量。
+ */
+function tagSurfaces(
+  root: Element,
+  options?: { maxDepth?: number; maxNodes?: number },
+): void {
+  walkElements(
+    root,
+    (node) => {
+      if (
+        node !== document.body &&
+        !node.hasAttribute(SURFACE_ATTR) &&
+        isWallpaperSurface(node)
+      ) {
+        node.setAttribute(SURFACE_ATTR, "");
+      }
+    },
+    options,
+  );
 }
 
 /** 清除全部表面标记（卸层/清扫时调用）。 */
@@ -181,22 +249,38 @@ function clearSurfaceMarks(doc: Document = document): void {
 /** 毛玻璃恒定模糊（px，ADR-0027 D2/D8：模糊固定、透明度随现有区域 alpha）。 */
 export const GLASS_BLUR_PX = 10;
 
-/** 全浮层玻璃化的宿主表面选择器（对齐参考项目 wallpaper-exclusive 覆盖矩阵：
- *  输入卡/气泡/代码块/内联 code/sidebar/通用浮层/popper/插件面板/底部面板/
- *  设置表面。语义锚点优先；不命中时靠下方兜底后缀选择器回填。 */
+/**
+ * 全浮层玻璃化的宿主表面选择器（对齐参考项目 wallpaper-exclusive 覆盖矩阵：
+ *  输入卡/侧栏/通用浮层/popper/插件面板/底部面板/设置表面。语义锚点优先；
+ *  不命中时靠下方兜底后缀选择器回填）。
+ *
+ * 19-02 收窄：流式高频重绘元素（listbox / bubble / md-code-block / code）从
+ * 模糊矩阵移出、降级为纯 alpha——`backdrop-filter` 是最贵 CSS 属性之一，流式
+ * 输出/滚动时对高频重绘元素反复模糊会拖慢重绘；降级后其半透明底仍由
+ * `--jx-panel-*` 区域 alpha 兜住，仅失去毛玻璃质感。详见
+ * {@link GLASS_DEGRADED_SELECTORS} 与 ADR-0027 D2 修订。
+ */
 const GLASS_SURFACE_SELECTORS = [
   "[data-composer-card]",                            // 输入卡
   '[data-slot="sidebar"]',                          // 侧栏背景
   "[role=\"dialog\"]", "[role=\"menu\"]",            // 通用浮层
-  "[role=\"listbox\"]", "[role=\"tooltip\"]",
+  "[role=\"tooltip\"]",
   "[data-radix-popper-content-wrapper]",            // popper
   "[data-dsh-surface=\"settings\"]",                // 设置表面
   "[data-dsh-plugin]",                              // 各插件面板（task-board/ssh/git-graph/...）
   "[data-composer-seat]",                           // composer seat
-  // 气泡 / 代码块 / 内联 code（语义锚点缺失时用稳定后缀兜底）
-  "[data-chat-anchor-key] [class*=\"bubble\"]",
-  "[class*=\"md-code-block\"]",
-  "code",
+] as const;
+
+/** 高频重绘元素：从模糊矩阵降级为「纯 alpha」（19-02，ADR-0027 D2 修订）。
+ *  这些元素在流式输出/滚动时高频重绘，保留 backdrop-filter 会持续触发昂贵的
+ *  背景模糊栅格化；移出后其底仍随 --jx-panel-* 区域 alpha 半透明，只失去
+ *  毛玻璃质感。降级集合不注入任何 CSS（纯 alpha = token alpha 既有形态），
+ *  由测试 import 作为「不得进入模糊矩阵」断言的单一真相源。 */
+export const GLASS_DEGRADED_SELECTORS = [
+  "[role=\"listbox\"]",                             // 高频滚动列表
+  "[data-chat-anchor-key] [class*=\"bubble\"]",     // 气泡（流式更新）
+  "[class*=\"md-code-block\"]",                     // 代码块（流式输出）
+  "code",                                           // 内联 code（面积小、模糊不可感知）
 ] as const;
 
 /** 稳定后缀兜底选择器：宿主某面板无顶层语义锚点但类名含上述后缀时兜住（对齐
@@ -229,9 +313,11 @@ function ensureNeutralizer(): void {
     body[data-jx-wallpaper-active] [${BACKDROP_ATTR}] {
       pointer-events: none !important;
     }
-    /* 方案 B 全浮层毛玻璃（ADR-0027 D2）：blur 恒定；background-color 继承
-       既有的 --jx-surface/区域 alpha（经 --jx-panel-alpha 已随面板滑块半透明），
-       此处只补 blend 毛玻璃，不重写底。 */
+    /* 方案 B 全浮层毛玻璃（ADR-0027 D2，19-02 收窄版）：blur 恒定；background
+       -color 继承既有的 --jx-surface/区域 alpha（经 --jx-panel-alpha 已随面板
+       滑块半透明），此处只补 blend 毛玻璃，不重写底。高频重绘元素
+       （bubble/code/listbox，见 GLASS_DEGRADED_SELECTORS）已移出矩阵、
+       降级为纯 alpha。 */
     body[data-jx-wallpaper-active] ${ALL_GLASS_SELECTORS.join(",\n    body[data-jx-wallpaper-active] ")} {
       -webkit-backdrop-filter: blur(${GLASS_BLUR_PX}px);
       backdrop-filter: blur(${GLASS_BLUR_PX}px);
@@ -264,7 +350,21 @@ function clearWallpaperMarkers(doc: Document = document): void {
 /** 导航/切会话重建表面时，增量重扫打标的 MutationObserver（挂载期持有）。 */
 let surfaceObserver: MutationObserver | null = null;
 
-/** 启动 body 子树观察：新增/移除的表面由 handleSurfaceMutations 打标/清标。 */
+/** 待增量打标的根节点（同一帧内多批 mutation 去重积累）。 */
+let pendingTagRoots = new Set<HTMLElement>();
+/** 待增量摘标的根节点。 */
+let pendingUntagRoots = new Set<HTMLElement>();
+/** 是否已调度 rAF 批处理（去重调度标志）。 */
+let surfaceBatchScheduled = false;
+/** rAF 批处理句柄（dispose 时取消除残留回调）。 */
+let surfaceBatchRafId: number | null = null;
+
+/**
+ * 启动 body 子树观察：新增/移除的表面由 handleSurfaceMutations 打标/清标。
+ *
+ * 观察范围仍为 body（浮层/popper 等常经 portal 直挂 body 层，收窄到 #root 会
+ * 漏掉这些表面）；防风暴靠 19-01 的 rAF 批处理 + 增量扫描深度/数量上限完成。
+ */
 function ensureSurfaceObserver(): void {
   if (surfaceObserver !== null) return;
   const win = document.defaultView;
@@ -273,30 +373,84 @@ function ensureSurfaceObserver(): void {
   surfaceObserver.observe(document.body, { childList: true, subtree: true });
 }
 
-/** 订阅期内的增量打标/清标：新增子树重扫、移除子树摘标。 */
+/**
+ * 订阅期内的增量打标/清标（19-01）：回调只做廉价的 Set 积累，真正的扫描统一
+ * 延迟到下一帧 rAF 批处理——流式输出时多批 mutation 合一次布局，避免每批
+ * mutation 各自触发一次强制同步布局风暴。
+ */
 function handleSurfaceMutations(records: MutationRecord[]): void {
   if (backdropEl === null) return; // 壁纸未激活，不维护标记
   for (const record of records) {
     for (const node of record.addedNodes) {
-      if (node instanceof HTMLElement) tagSurfaces(node);
+      if (node instanceof HTMLElement) pendingTagRoots.add(node);
     }
     for (const node of record.removedNodes) {
-      if (node instanceof HTMLElement) untagSubtree(node);
+      if (node instanceof HTMLElement) pendingUntagRoots.add(node);
     }
   }
+  scheduleSurfaceBatch();
 }
 
-/** 对移除子树摘除标记。 */
-function untagSubtree(root: HTMLElement): void {
-  walkElements(root, (node) => {
-    if (node.hasAttribute(SURFACE_ATTR)) node.removeAttribute(SURFACE_ATTR);
+/** 调度一帧内的 rAF 批处理（已调度则不重复；无 rAF 环境同步兜底）。 */
+function scheduleSurfaceBatch(): void {
+  if (surfaceBatchScheduled) return;
+  const win = document.defaultView;
+  if (win === null || typeof win.requestAnimationFrame !== "function") {
+    flushSurfaceBatch();
+    return;
+  }
+  surfaceBatchScheduled = true;
+  surfaceBatchRafId = win.requestAnimationFrame(() => {
+    surfaceBatchScheduled = false;
+    surfaceBatchRafId = null;
+    flushSurfaceBatch();
   });
 }
 
-/** 停止 surfaceObserver（dispose/扫净后调用）。 */
+/** 执行待处理的增量打标/摘标（一帧一次；先摘后打，避免移动节点残留旧标）。 */
+function flushSurfaceBatch(): void {
+  if (backdropEl === null) {
+    pendingTagRoots.clear();
+    pendingUntagRoots.clear();
+    return;
+  }
+  for (const root of pendingUntagRoots) {
+    if (root.isConnected) continue; // 仍连接 = 同帧内移动，旧标保留由下方打标重验
+    untagSubtree(root);
+  }
+  pendingUntagRoots.clear();
+  for (const root of pendingTagRoots) {
+    if (!root.isConnected) continue; // 已移除的节点不打标
+    tagSurfaces(root, {
+      maxDepth: MAX_SURFACE_SCAN_DEPTH,
+      maxNodes: MAX_INCREMENTAL_SCAN_NODES,
+    });
+  }
+  pendingTagRoots.clear();
+}
+
+/** 对移除子树摘除标记（深度上限对齐增量扫描）。 */
+function untagSubtree(root: HTMLElement): void {
+  walkElements(
+    root,
+    (node) => {
+      if (node.hasAttribute(SURFACE_ATTR)) node.removeAttribute(SURFACE_ATTR);
+    },
+    { maxDepth: MAX_SURFACE_SCAN_DEPTH, maxNodes: MAX_INCREMENTAL_SCAN_NODES },
+  );
+}
+
+/** 停止 surfaceObserver（dispose/扫净后调用），并取消未执行的 rAF 批处理。 */
 function stopSurfaceObserver(): void {
   surfaceObserver?.disconnect();
   surfaceObserver = null;
+  if (surfaceBatchRafId !== null) {
+    document.defaultView?.cancelAnimationFrame(surfaceBatchRafId);
+    surfaceBatchRafId = null;
+  }
+  surfaceBatchScheduled = false;
+  pendingTagRoots.clear();
+  pendingUntagRoots.clear();
 }
 
 /** 当前挂载的层容器（单例；未挂载为 null）。 */
@@ -337,8 +491,9 @@ function syncBackdrop(): void {
     document.body.setAttribute(BACKDROP_ACTIVE_ATTR, "");
     document.documentElement.setAttribute(BACKDROP_ACTIVE_ATTR, "");
     // 方案 A：全域扫描不透明表面打标 + 注入中和规则（ADR-0027 D1）。
+    // 全域补扫限深度（浅层才可能有全视口表面），防超大 DOM 拖慢配置同步。
     ensureNeutralizer();
-    tagSurfaces(document.body);
+    tagSurfaces(document.body, { maxDepth: MAX_SURFACE_SCAN_DEPTH });
     const img = backdropEl.querySelector<HTMLImageElement>(
       "[data-jx-backdrop-img]",
     );
