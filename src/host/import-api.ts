@@ -44,7 +44,6 @@ import {
   type AssetType,
   type ImportSource,
 } from "./storage-domain.ts";
-import { writeJson } from "./json-response.ts";
 import { resolveAssetsRoot } from "./paths.ts";
 
 /** 导入 API 路由前缀（比素材路由 `/api/dsh-jx` 更长，longest-prefix-wins 优先匹配）。 */

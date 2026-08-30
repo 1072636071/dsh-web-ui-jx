@@ -29,7 +29,7 @@
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Context } from "@deepseek-ai/cordis";
-import { writeJson } from "./json-response.ts";
+import { writeJson } from "./http-shared.ts";
 
 // ---------------------------------------------------------------------------
 // 纯函数 seam：collectConversation

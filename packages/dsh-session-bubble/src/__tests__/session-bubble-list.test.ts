@@ -17,7 +17,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { act } from "react-dom/test-utils";
 import { createRoot, type Root } from "react-dom/client";
-import { createElement } from "react";
+import { Fragment, createElement, useState } from "react";
 import { SessionBubbleList } from "../SessionBubbleList.tsx";
 import {
   STORAGE_KEYS,
@@ -414,5 +414,75 @@ describe("SessionBubbleList: 归档排除端到端", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 工单 18-03：React.memo 隔离重渲染（稳定 props 下不重渲染）
+// ---------------------------------------------------------------------------
+
+describe("SessionBubbleList: React.memo 隔离重渲染（工单 18-03）", () => {
+  it("父组件以稳定 props 重渲染时不重渲染气泡列（getSnapshot 不再被调用）", () => {
+    // 计数 getSnapshot：它在气泡列渲染时被 useSyncExternalStore 调用——
+    // memo 短路整棵子树后不再触发，是「未重渲染」的确定性观测点。
+    const snapshot = listState("ready", [summary("a", { completed: true })]);
+    let snapshotCalls = 0;
+    const sessions = {
+      list: {
+        subscribe(_listener: () => void) {
+          return () => {};
+        },
+        getSnapshot() {
+          snapshotCalls += 1;
+          return snapshot;
+        },
+      },
+      open() {},
+    } as unknown as ISessions;
+    // workspaces 同属 SDK 稳定引用（真实调用签名：sessions + workspaces + 可选
+    // transports）。快照引用必须稳定，否则 useSyncExternalStore 检测到变化会
+    // 触发无限重渲染，干扰 memo 观测。
+    const workspaceSnapshot = { archivedSessionIds: [], phase: "ready" as const };
+    const workspaces = {
+      list: {
+        subscribe(_listener: () => void) {
+          return () => {};
+        },
+        getSnapshot() {
+          return workspaceSnapshot;
+        },
+      },
+    } as unknown as IWorkspaces;
+    // 稳定 props 引用：与父组件自身重渲染解耦（transports 省略 = undefined，
+    // 与真实缺省场景一致）。
+    const stableProps = { sessions, workspaces };
+
+    // harness：本地 state 驱动父级重渲染，但 props 引用保持不变。
+    const Harness = () => {
+      const [tick, setTick] = useState(0);
+      return createElement(
+        Fragment,
+        null,
+        createElement("button", {
+          id: "tick-btn",
+          onClick: () => setTick((t) => t + 1),
+        }),
+        createElement(SessionBubbleList, stableProps),
+      );
+    };
+
+    act(() => {
+      root = createRoot(container);
+      root!.render(createElement(Harness));
+    });
+    // 挂载期的 effect（见闻记账等）已随 act flush 落定，基线为稳定值。
+    const baseline = snapshotCalls;
+    expect(baseline).toBeGreaterThan(0);
+
+    // 父组件重渲染 + 稳定 props：memo 短路气泡列渲染，getSnapshot 不再被调用。
+    act(() => {
+      (container.querySelector("#tick-btn") as HTMLButtonElement).click();
+    });
+    expect(snapshotCalls).toBe(baseline);
   });
 });

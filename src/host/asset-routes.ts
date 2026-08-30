@@ -84,11 +84,13 @@ async function handleAssetRequest(
 
   const filePath = join(ASSETS_ROOT, subpath);
   try {
+    // 先 stat 得到 ETag 所需的 size/mtime，命中 if-none-match 直接 304 返回、
+    // 不再 readFile——MB 级素材每次 304 复验省一次整文件磁盘读（工单 02）。
     // ETag 取自 size + mtime：素材会随修复/重生成原地更新（同名同 URL），
     // 曾用 `immutable, max-age=86400` 强缓存导致浏览器最长 24h 看不到新字节
     // （2026-08-22 白偏红修复踩坑）。改为每次复验（max-age=0, must-revalidate），
     // 未变化回 304 零载荷，已变化即取新字节。
-    const [data, st] = await Promise.all([readFile(filePath), stat(filePath)]);
+    const st = await stat(filePath);
     const etag = `W/"${st.size}-${Math.round(st.mtimeMs)}"`;
     const cacheHeaders: Record<string, string> = {
       "cache-control": "public, max-age=0, must-revalidate",
@@ -99,6 +101,8 @@ async function handleAssetRequest(
       res.end();
       return;
     }
+    // 未命中 304：读取字节后响应，响应头与现状逐字节等价。
+    const data = await readFile(filePath);
     res.writeHead(200, {
       "content-type": contentType,
       "content-length": String(data.length),

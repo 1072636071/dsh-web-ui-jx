@@ -100,6 +100,24 @@ check("lib/index.js（host 半区）存在且非空", () =>
     ? `${(statSync(libIndex).size / 1024).toFixed(1)} KB`
     : false,
 );
+// S7/工单 18-04 验收固化：host 半区为纯 Node 代码，不得出现 react 家族包引用
+// （组件 / hooks / JSX runtime / react-dom）。库纯逻辑（buildDynamicTitlePrompt 等）
+// 经库包 `sideEffects: false` 与 host 的 react external 双重保证 tree-shake 干净；
+// 若出现则发布被阻断，避免 React 组件混入 Node 半区、体积失控。
+check("lib/index.js（host 半区）无 React 包引用", () => {
+  if (!nonEmptyFile(libIndex)) return false;
+  const js = readFileSync(libIndex, "utf8");
+  // 覆盖 ESM `from "react"` / `from 'react/jsx-runtime'` / `from "react-dom"` 与
+  // CJS `require("react")` 形态——react 家族包名：恰好 `react`、`react/` 子路径、
+  // `react-dom`/`react-is`（不匹配任意 `react-*` 前缀包，避免误报）。只检查非
+  // 注释行（minified 产物本无注释，防御性排除以免误报）。
+  const reactImport =
+    /(?:from|require\(\s*)[\s'"]react(?:\/|-(?:dom|is)|[\s'"])/;
+  const hasReactImport = js
+    .split(/\r?\n/)
+    .some((line) => !line.trimStart().startsWith("//") && reactImport.test(line));
+  return hasReactImport ? false : true;
+});
 check("lib/client.js（client 半区）存在且非空", () =>
   nonEmptyFile(libClient)
     ? `${(statSync(libClient).size / 1024).toFixed(1)} KB`

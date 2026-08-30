@@ -102,6 +102,7 @@
 
 import {
   Fragment,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -990,6 +991,11 @@ export interface SessionBubbleListProps {
 /**
  * 渲染会话气泡列（归组模型 + 展开交互，ADR-0018）。
  *
+ * 导出包 `React.memo`（工单 18-03）：props（sessions/workspaces/两个 transport）
+ * 均为稳定的宿主引用（SDK store 快照 store、transport 单例），父组件（浮层）因
+ * 自身状态（runtime playback 推进/拖动/台词）重渲染时气泡列跳过全量 JSX diff；
+ * 气泡列内部订阅 external store 驱动的更新不受影响（store 变化仍照常重渲染）。
+ *
  * sessions 缺省时返回 null（静默空转）。无可见顶层组、无折叠、无退出中
  * 内容且保留模式关闭时不返回任何内容（浮层保持素净；保留模式下投放区
  * 常驻，PRD 用户故事 18）。
@@ -998,7 +1004,7 @@ export interface SessionBubbleListProps {
  * @param props.workspaces - 工作区数据源（归档权威在 SDK，ADR-0022 D8）。
  * @returns 会话气泡列（+ 投放区），或 null。
  */
-export function SessionBubbleList({
+export const SessionBubbleList = memo(function SessionBubbleList({
   sessions,
   workspaces,
   previewTransport,
@@ -1577,4 +1583,4 @@ export function SessionBubbleList({
       )}
     </Fragment>
   );
-}
+});
