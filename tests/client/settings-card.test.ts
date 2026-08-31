@@ -341,3 +341,34 @@ describe("SettingsCard: 重置浮层位置", () => {
     resetSpy.mockRestore();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 重启 DSH（memorial 017）
+// ---------------------------------------------------------------------------
+
+describe("SettingsCard: 重启 DSH", () => {
+  it("渲染「重启 DSH」按钮：点击 fetch('POST /api/dsh-jx/restart')", () => {
+    const fetchSpy = vi.fn(() =>
+      Promise.resolve(new Response('{"ok":true}', { status: 200 })),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    mount();
+    const btn = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "重启 DSH",
+    );
+    expect(btn).not.toBeUndefined();
+    act(() => {
+      btn!.click();
+    });
+
+    // 点击只发一次 POST 到重启路由，不加确认弹窗。
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ];
+    expect(url).toBe("/api/dsh-jx/restart");
+    expect(init.method).toBe("POST");
+  });
+});

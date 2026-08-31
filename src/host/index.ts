@@ -25,6 +25,7 @@ import { registerAssetRoutes } from "./asset-routes.ts";
 import { registerImportApi } from "./import-api.ts";
 import { registerSessionMessagesRoute } from "./session-messages.ts";
 import { registerAiTitleRoute } from "./ai-title-route.ts";
+import { registerRestartRoute } from "./restart.ts";
 
 /** Stable cordis plugin name（匹配 cordis.patch.yml 的 insert id）. */
 export const name = "dsh-jx";
@@ -55,4 +56,5 @@ export async function apply(ctx: Context): Promise<void> {
   registerSessionMessagesRoute(ctx);
   await registerImportApi(ctx);
   registerAiTitleRoute(ctx);
+  registerRestartRoute(ctx);
 }

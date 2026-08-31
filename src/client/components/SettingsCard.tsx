@@ -333,6 +333,15 @@ export function SettingsCard({ className }: SettingsCardProps) {
     overlayPositionStore.reset();
   }, []);
 
+  /** 重启 DSH 宿主（memorial 017 D-4）：POST 到 host 重启路由，宿主派自愈
+   *  看守进程后优雅退出并自动重起。加不加确认弹窗：不加（调试高频点击，重启
+   *  不丢数据，误点代价 = 一次重启）。fetch 竞态/失败静默吞掉。 */
+  const handleRestartDsh = useCallback(() => {
+    fetch("/api/dsh-jx/restart", { method: "POST" }).catch(() => {
+      /* 宿主即将退出重起，无需在 UI 层报错 */
+    });
+  }, []);
+
   // 五类 FX 配置项（固定顺序，useMemo 避免重渲染时重建）
   const fxItems = useMemo(
     () =>
@@ -668,9 +677,18 @@ export function SettingsCard({ className }: SettingsCardProps) {
         )}
       </section>
 
-      {/* 重置浮层位置按钮（工单 03，ADR-0006 决策 6）：调 overlayPositionStore.reset()
-          → 浮层回右下角 + 清 localStorage('jx-overlay-pos')。设置卡底部次要按钮。 */}
+      {/* 重启 DSH 按钮（memorial 017）：设置卡底部动作行，置于重置按钮之前。
+          调 host 重启路由，宿主派看守进程后优雅退出并自动重起（改 host 半区代码
+          后点一下让新构建生效）。复用 .resetBtn 次要按钮样式 + .resetDivider 分隔。 */}
       <div className={styles.resetRow}>
+        <button
+          type="button"
+          className={styles.resetBtn}
+          onClick={handleRestartDsh}
+        >
+          重启 DSH
+        </button>
+        <span className={styles.resetDivider} aria-hidden="true" />
         <button
           type="button"
           className={styles.resetBtn}

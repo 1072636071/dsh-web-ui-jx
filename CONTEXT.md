@@ -46,6 +46,8 @@
 | 角色 section | 设置卡第四 section（ADR-0007 起）：会话气泡上限（`localStorage('jx-max-session-bubbles')`）、动作轮换开关（`jx-variant-rotation`）、状态标签开关等角色相关设置的归属地。 |
 | 悬停详情窗 | 会话气泡 hover 弹出的书页卡片（`SessionBubbleDetail`，工单 16）：书眉标题 + AI 动态标题副题行（未配置隐藏）+ 最后用户/助手消息 3 行截断；数据经 `session.history` 尾页 transport（缓存 TTL 15s + updatedAt 失效 + in-flight 去重），AI 标题经 host `/api/dsh-jx/ai-title` 路由（settings/credentials 配置）；hover 300ms/200ms、触屏长按 500ms、视口边缘换侧、点击跳转。 |
 | 插件重载 | 宿主运行期热替换（ADR-0017）：client-hmr 收到 `rebuilt` 帧 → 作废模块 → 重拉 bundle → 排空 disposers → 重跑 `apply()`，全程不刷新页面。**apply 可重入是 client 半区存活硬约束**（挂载物必须纳入 ctx.effect 清理 + 入口清扫残留）。 |
+| 一键重启DSH | 设置卡底部「重启 DSH」按钮（memorial 017）：client `fetch("POST /api/dsh-jx/restart")` → host 先回 `200 {ok:true}` 再派**自愈重启器**→ 调 `ctx.appExit(0)` 优雅停机并自动重生。解决裸跑环境改 `src/host` 半区代码后需手动重起宿主的痛点（client 半区改动仍走插件重载/刷新，无需此按钮）。 |
+| 自愈重启器 | 插件自托管的重启监督（memorial 017 D-2/M1）：host 先 `spawn` 一个**分离（detached + unref）**的内联 `node -e` 看守进程并继承宿主控制台，等父进程 PID 死（`process.kill(pid,0)` ESRCH）即用相同 `execPath + argv + cwd` 重新拉起宿主。**为什么**：浏览器按钮无法重启承载它的宿主 Node 进程（依赖外部监督者），裸跑时只能自己在进程内派"看守-重生"闭环。 |
 | 孤儿浮层 | 旧 apply 挂载、fiber 已死但 DOM 滞留的 React 树，表现为多只姜晓重叠。清扫覆盖两类（ADR-0017/0019）：带 `data-dsh-jx-root` 标记的规范容器 + 无标记但内含 `[data-jx-character]` 的逃逸容器（旧版 bundle 产物），先经暂存的 `__jxRoot` unmount 再移除。 |
 | 姜晓（角色设定） | 浮层角色人设（`docs/character-profile.md`）：古风贵族少女剑士，冷冽聪明；异时间线赛博大明的智能助手。台词场景表见 `docs/character-lines.md`。 |
 

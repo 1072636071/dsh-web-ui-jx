@@ -586,10 +586,20 @@
  * SettingsCard — 重置浮层位置按钮（工单 03，ADR-0006 决策 6）
  * ============================================================ */
 .resetRow {
-  /* 设置卡底部次要按钮行：右对齐。重置按钮 .resetBtn 样式见上方 .closeBtn 共享声明。 */
+  /* 设置卡底部次要按钮行：右对齐。重置/重启按钮 .resetBtn 样式见上方 .closeBtn 共享声明。
+   * gap + 分隔线容纳「重启 DSH」与「重置浮层位置」双按钮（memorial 017）。 */
   display: flex;
+  align-items: center;
+  gap: 8px;
   justify-content: flex-end;
   padding-top: 4px;
+}
+
+/* 「重启 DSH」与「重置浮层位置」之间的分隔线（memorial 017 D-4）. */
+.resetDivider {
+  width: 1px;
+  height: 14px;
+  background: var(--dsw-alias-border-l1);
 }
 
 /* ============================================================
