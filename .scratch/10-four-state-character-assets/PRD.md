@@ -1,6 +1,6 @@
 # PRD — 角色素材四态重构（状态机收敛与素材全量替换）
 
-Status: ready-for-agent
+Status: resolved
 来源: memorial 009（jxx-grill-with-memorial，2026-08-23，决策 D1–D15）+ ADR-0016 + ADR-0008/0010/0011/0013/0015 + DESIGN.md §4
 
 ## 问题陈述

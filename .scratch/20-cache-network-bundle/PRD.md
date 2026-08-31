@@ -1,6 +1,6 @@
 # 网络缓存与包体：时长 manifest / inspect 缓存 / 素材减重
 
-Status: ready-for-agent
+Status: resolved
 
 ## 问题陈述
 

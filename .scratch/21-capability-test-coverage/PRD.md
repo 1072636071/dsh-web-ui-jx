@@ -1,6 +1,6 @@
 # 能力落地与测试补强：ADR-0014 / SettingsCard / 拖拽
 
-Status: ready-for-agent
+Status: resolved
 
 ## 问题陈述
 

@@ -1,6 +1,6 @@
 # PRD — warp-fx（鼠标光线扭曲特效替换 breathe 墨光呼吸）
 
-Status: ready-for-agent
+Status: resolved
 来源: grill 会话（jxx-grill-with-docs）+ ADR-0005 + CONTEXT.md + DESIGN.md §5/§7
 
 ## 问题陈述

@@ -1,6 +1,6 @@
 # PRD — 会话气泡列子代理归组（根祖先锚定折叠）
 
-Status: ready-for-agent
+Status: resolved
 来源: grill 会话（jxx-grill-with-docs，2026-08-22）+ ADR-0018 + DESIGN.md §4 + CONTEXT.md
 
 ## 问题陈述

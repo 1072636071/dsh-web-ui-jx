@@ -1,6 +1,6 @@
 # PRD — 角色浮层可拖动（整盒可拖 + 位置持久化 + 视口钳制 + 重置入口）
 
-Status: ready-for-agent
+Status: resolved
 来源: grill 会话（jxx-grill-with-docs，2026-08-19）+ ADR-0006 + DESIGN.md §4 + CONTEXT.md
 
 ## 问题陈述

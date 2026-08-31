@@ -1,5 +1,7 @@
 # PRD — 循环动作播放模式修复与多动作变体轮换
 
+**Status**: resolved
+
 **来源**：memorial 008-anim-loop-mode-and-variants（D1–D10 全部定案）。
 **关联**：ADR-0012（资产侧修复）、ADR-0013（播放列表拼接）。
 

@@ -1,6 +1,6 @@
 # PRD — dsh-jx-plugin（姜晓角色素材 DSH 插件）
 
-Status: ready-for-agent
+Status: resolved
 来源: docs/memorial/001-dsh-plugin-ui（Q1-Q6 决策汇总）+ ADR-0001 + ADR-0002 + CONTEXT.md
 
 ## 问题陈述

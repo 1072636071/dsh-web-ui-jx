@@ -1,7 +1,7 @@
 # PRD — 会话气泡独立成子包（库 + 薄壳插件）
 
 - Feature: `15-session-bubble-package`
-- Status: `ready-for-agent`
+- Status: `resolved`
 - Source: memorial 014 `docs/memorial/archived/014-session-bubble-package/`（Q1–Q4 用户拍板 + 授权自行决策 D5–D13）+ ADR-0029
 
 ## 问题陈述

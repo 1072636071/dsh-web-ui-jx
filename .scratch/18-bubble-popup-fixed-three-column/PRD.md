@@ -1,6 +1,6 @@
 # 气泡内容弹框：固定尺寸三列问答对照（去抖动 + 显示 LLM 回复）
 
-Status: ready-for-agent
+Status: resolved
 
 ## 问题陈述
 

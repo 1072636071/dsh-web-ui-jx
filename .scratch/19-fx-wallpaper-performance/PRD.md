@@ -1,6 +1,6 @@
 # 特效与壁纸性能：布局风暴 / 毛玻璃 / warp 语义
 
-Status: ready-for-agent
+Status: resolved
 
 ## 问题陈述
 

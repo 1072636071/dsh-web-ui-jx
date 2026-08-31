@@ -1,6 +1,6 @@
 # PRD — 会话气泡单击保留 + 拖拽收纳双投放区
 
-Status: ready-for-agent
+Status: resolved
 来源：memorial 010（grill 定案 2026-02-14，ADR-0022 已同步全局 `docs/adr/`）
 
 ## 问题陈述

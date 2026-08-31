@@ -1,6 +1,6 @@
 # PRD — 审批动画及时可见（播放计划结构等价门槛）
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 问题陈述
 
@@ -75,6 +75,6 @@
 
 - 本 PRD 与 ADR-0016（播放计划结构等价门槛）同源：ADR 记录「为什么这样决策」，本 PRD 记录「做什么与怎么验」。
 - 与 ADR-0014（审批等待时间启发式）互补：ADR-0014 解决「何时进入 permission」，本特性解决「进入了 permission，画面能不能走出来并被人看见」。两者可独立实施、互不阻塞。
-- 实施工单：`.scratch/06-session-level-state-machine/issues/08-permission-anim-stuck.md`（ready-for-agent）；本特性目录承载规格，实施验收以该工单清单为准。
+- 实施工单：`.scratch/06-session-level-state-machine/issues/08-permission-anim-stuck.md`（resolved）；本特性目录承载规格，实施验收以该工单清单为准。
 - 设计证据：设计会话的三个仿真/探针脚本位于 `.temp/scripts/`（临时目录不入库）——审批时序仿真、可见项推进仿真、过渡段时长探针（单段实测约 3.5s）；实施时将其场景固化为正式回归用例后，临时脚本可弃。
 - 编号注：ADR-0016 初稿曾占用 0014，与并发会话的 ADR-0014 撞号让位；两个决策已在各自文档中互相引用。

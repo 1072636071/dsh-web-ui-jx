@@ -1,6 +1,6 @@
 # PRD — management-inline-sidebar（管理界面内嵌侧边栏作为可折叠 section）
 
-Status: ready-for-agent
+Status: resolved
 来源: grill 会话（jxx-grill-with-memorial）+ ADR-0004 + CONTEXT.md + memorial 002
 状态: 已实施（本 PRD 为事后补文档）
 

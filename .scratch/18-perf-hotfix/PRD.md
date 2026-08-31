@@ -1,6 +1,6 @@
 # 快速修复批：writeJson 收敛 + 素材路由 304 + React.memo
 
-Status: ready-for-agent
+Status: resolved
 
 ## 问题陈述
 

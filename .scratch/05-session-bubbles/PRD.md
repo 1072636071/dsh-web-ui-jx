@@ -1,6 +1,6 @@
 # PRD — 角色浮层会话气泡列（气泡数 = 会话数 + 点击跳转）
 
-Status: ready-for-agent
+Status: resolved
 来源: grill 会话（jxx-grill-with-memorial 003-session-bubbles，2026-08-19）+ ADR-0007 + DESIGN.md §4 + CONTEXT.md
 
 ## 问题陈述
