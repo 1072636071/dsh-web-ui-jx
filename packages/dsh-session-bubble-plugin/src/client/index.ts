@@ -19,33 +19,45 @@ import type {
 } from "@deepseek-ai/dsh-client-runtime/client";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { SessionBubbleList } from "../../../dsh-session-bubble/src/index.ts";
+import {
+  SessionBubbleList,
+  type PendingInteractionsSource,
+} from "../../../dsh-session-bubble/src/index.ts";
 import "./root.css";
 
 /** 薄壳容器：暂存 React root 引用，供清扫时先 unmount 再移除（ADR-0017 D2）. */
 type BubbleShellContainer = HTMLDivElement & { __bubbleRoot?: Root };
 
-/** Client services required（气泡列需会话数据源 + 归档权威工作区）. */
-export const inject: string[] = ["sessions", "workspaces"];
+/** Client services required（气泡列需会话数据源 + 归档权威工作区 +
+ * 待交互源——宿主 SDK 升级后 pendingInteraction 由 uiSession.pendingInteractions 承载）. */
+export const inject: string[] = ["sessions", "workspaces", "uiSession"];
+
+/** 宿主 uiSession 服务的结构子集（只消费 pendingInteractions 观察源）. */
+interface UiSessionLike {
+  readonly pendingInteractions?: PendingInteractionsSource | undefined;
+}
 
 /**
  * 薄壳根组件：fixed 容器包裹气泡列。
  *
  * @param props.sessions - 会话数据源（气泡列订阅）.
  * @param props.workspaces - 工作区数据源（归档排除集派生 + archiveSession）.
+ * @param props.pendingInteractions - 宿主待交互源（朱砂待交互呈现事实源）.
  * @returns fixed 容器内的气泡列.
  */
 function BubbleShell({
   sessions,
   workspaces,
+  pendingInteractions,
 }: {
   sessions?: ISessions | undefined;
   workspaces?: IWorkspaces | undefined;
+  pendingInteractions?: PendingInteractionsSource | undefined;
 }) {
   return createElement(
     "div",
     { className: "dsh-bubble-shell" },
-    createElement(SessionBubbleList, { sessions, workspaces }),
+    createElement(SessionBubbleList, { sessions, workspaces, pendingInteractions }),
   );
 }
 
@@ -85,6 +97,8 @@ export function apply(ctx: ClientContext): void {
     createElement(BubbleShell, {
       sessions: ctx.get("sessions"),
       workspaces: ctx.get("workspaces"),
+      pendingInteractions: (ctx.get("uiSession") as UiSessionLike | undefined)
+        ?.pendingInteractions,
     }),
   );
 

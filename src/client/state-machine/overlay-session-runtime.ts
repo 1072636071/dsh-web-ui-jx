@@ -48,10 +48,13 @@
  */
 
 import type {
-  ConversationSnapshot,
   ISessions,
   SessionId,
 } from "@deepseek-ai/dsh-client-runtime/client";
+import {
+  visiblePendingKind,
+  type PendingInteractionsSource,
+} from "../../../packages/dsh-session-bubble/src/session-list-adapter.ts";
 import {
   createOverlayStateMachine,
   loopAssetUrl,
@@ -69,6 +72,7 @@ import { resolveDisplayLayer } from "./display-arbiter.ts";
 import {
   extractCore,
   diffTarget,
+  type SessionSnapshotLike,
   type SnapshotCore,
 } from "./session-follow.ts";
 import {
@@ -282,6 +286,12 @@ interface SessionEntry {
    * tick 扫描 ≥10s 进 permission、≥30s 升级 angry；目标/运行状态变化即清零。
    */
   blockedSince: number | undefined;
+  /**
+   * 最近一次原始会话快照（宿主 SessionSnapshot 结构子集）。待交互源
+   * （uiSession.pendingInteractions）变化时以它重放差分——pending 信号
+   * 不再随会话快照到达，边沿检测依赖重放。
+   */
+  rawSnapshot: SessionSnapshotLike | undefined;
 }
 
 /** 紧急态显示层（permission/error 接管，入场源姿态捕获）。 */
@@ -381,6 +391,13 @@ export interface CreateOverlaySessionRuntimeOptions {
    * 未注入时变体轮换禁用（纯测试环境默认行为与现状一致）。
    */
   variantRotationEnabled?: () => boolean;
+  /**
+   * 宿主待交互源（uiSession.pendingInteractions，宿主 SDK 升级后的
+   * pending 快路径）：会话 id → 待交互条目。注入后 runtime 订阅其变化，
+   * 以上升/下降沿驱动 permission 硬切与批准/拒绝表演；缺省时 pending
+   * 仅依赖旧宿主快照遗留字段（新宿主下恒无 pending）。
+   */
+  pendingInteractions?: PendingInteractionsSource;
 }
 
 /**
@@ -398,6 +415,16 @@ export function createOverlaySessionRuntime(
   const tickIntervalMs = opts?.tickIntervalMs ?? 1000;
   const random = opts?.random ?? Math.random;
   const rotationEnabled = opts?.variantRotationEnabled ?? (() => false);
+  const pendingSource = opts?.pendingInteractions;
+
+  /** 会话当前是否有可见待交互（approval/plan-review/question；未知 kind 不算）。 */
+  function pendingOf(id: SessionId): boolean {
+    if (pendingSource === undefined) return false;
+    return (
+      visiblePendingKind(pendingSource.getSnapshot().get(id)?.kind) !==
+      undefined
+    );
+  }
 
   const entries = new Map<SessionId, SessionEntry>();
   const listeners = new Set<() => void>();
@@ -1210,13 +1237,14 @@ export function createOverlaySessionRuntime(
 
   function processSnapshot(
     entry: SessionEntry,
-    snapshot: ConversationSnapshot,
+    snapshot: SessionSnapshotLike,
   ): void {
     // 并行驻留基线必须在**本会话目标态应用之前**采样：第二个会话转入工作
     // 正是发生在本次 processSnapshot 内，事后采样会让 wasParallel 恒等于
     // isHold，上升沿（hold 开始）永远检测不到 → 摸鱼彩蛋从未被调度。
     const wasParallel = isParallelHold();
-    const currCore = extractCore(snapshot);
+    entry.rawSnapshot = snapshot;
+    const currCore = extractCore(snapshot, pendingOf(entry.id));
     const outcome = diffTarget(entry.prevCore, currCore);
     entry.prevCore = currCore;
     if (outcome !== null) {
@@ -1293,6 +1321,7 @@ export function createOverlaySessionRuntime(
       lastState: IDLE,
       pendingTarget: IDLE,
       blockedSince: undefined,
+      rawSnapshot: undefined,
     };
     entries.set(id, entry);
     entry.unsub = binding.session.subscribe(() => {
@@ -1381,6 +1410,18 @@ export function createOverlaySessionRuntime(
   }
 
   const listUnsub = sessions.list.subscribe(() => handleListChange());
+
+  // 待交互源订阅（宿主 SDK 升级后的 pending 快路径）：pending 不再随会话
+  // 快照到达，源变化时以各会话最近一次原始快照重放差分，驱动 permission
+  // 硬切与批准/拒绝表演边沿。
+  const pendingUnsub = pendingSource?.subscribe(() => {
+    if (disposed) return;
+    for (const entry of entries.values()) {
+      if (entry.rawSnapshot !== undefined) {
+        processSnapshot(entry, entry.rawSnapshot);
+      }
+    }
+  });
 
   // 初始同步
   handleListChange();
@@ -1522,6 +1563,7 @@ export function createOverlaySessionRuntime(
     if (disposed) return;
     disposed = true;
     listUnsub();
+    pendingUnsub?.();
     debounce = undefined;
     clearPerformanceSchedule();
     clearPokeSchedule();

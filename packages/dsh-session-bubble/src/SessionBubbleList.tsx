@@ -127,6 +127,7 @@ import {
   type SessionListEntry,
 } from "./session-bubbles.ts";
 import { deriveSessionListEntries } from "./session-list-adapter.ts";
+import type { PendingInteractionsSource } from "./session-list-adapter.ts";
 import {
   getMaxSessionBubblesSnapshot,
   subscribeMaxSessionBubbles,
@@ -986,6 +987,12 @@ export interface SessionBubbleListProps {
    * 推荐传入 `createDynamicTitleStore(createDshDynamicTitleTransport())`。
    */
   dynamicTitleTransport?: DynamicTitleTransport | undefined;
+  /**
+   * 宿主待交互源（uiSession.pendingInteractions，宿主 SDK 升级适配）：
+   * 提供时订阅其快照并作为 pendingInteraction 事实源（朱砂待交互呈现）；
+   * 缺省时回退 sessions.list 遗留字段（旧宿主兼容）。
+   */
+  pendingInteractions?: PendingInteractionsSource | undefined;
 }
 
 /**
@@ -1009,6 +1016,7 @@ export const SessionBubbleList = memo(function SessionBubbleList({
   workspaces,
   previewTransport,
   dynamicTitleTransport,
+  pendingInteractions,
 }: SessionBubbleListProps) {
   // 订阅 sessions.list 原始快照（SDK store 保证稳定引用，避免无限重渲染）。
   // sessions 缺省时订阅 noop、getSnapshot 返回 undefined。
@@ -1027,6 +1035,25 @@ export const SessionBubbleList = memo(function SessionBubbleList({
   const rawState: SessionListState | undefined = useSyncExternalStore(
     sessionsSource ? sessionsSource.subscribe : noopSubscribe,
     sessionsSource ? sessionsSource.getSnapshot : undefinedGetSnapshot,
+  );
+
+  // 订阅宿主待交互源（uiSession.pendingInteractions，宿主 SDK 升级适配）：
+  // 与 sessionsSource 同理先绑定为稳定引用；缺省时订阅 noop、快照
+  // undefined → 投影回退 summary 遗留字段。
+  const pendingSource = useMemo(
+    () =>
+      pendingInteractions
+        ? {
+            subscribe: pendingInteractions.subscribe.bind(pendingInteractions),
+            getSnapshot:
+              pendingInteractions.getSnapshot.bind(pendingInteractions),
+          }
+        : undefined,
+    [pendingInteractions],
+  );
+  const pendingSnapshot = useSyncExternalStore(
+    pendingSource ? pendingSource.subscribe : noopSubscribe,
+    pendingSource ? pendingSource.getSnapshot : undefinedGetSnapshot,
   );
 
   // 订阅上限配置（即时生效）。
@@ -1097,11 +1124,13 @@ export const SessionBubbleList = memo(function SessionBubbleList({
     [keepEnabled, keptIds, dismissedIds, seenIds, archivedIds],
   );
 
-  // 派生 items + current（仅 rawState 变化时重算）。
+  // 派生 items + current（仅 rawState / 待交互快照变化时重算）。
   const items = useMemo(
     () =>
-      rawState === undefined ? EMPTY_ITEMS : deriveSessionListEntries(rawState),
-    [rawState],
+      rawState === undefined
+        ? EMPTY_ITEMS
+        : deriveSessionListEntries(rawState, pendingSnapshot),
+    [rawState, pendingSnapshot],
   );
   const current = rawState?.current;
 

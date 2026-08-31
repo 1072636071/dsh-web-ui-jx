@@ -91,6 +91,7 @@ import { loadWebpDurationMs } from "../webp-duration.ts";
 import {
   SessionBubbleList,
   type DynamicTitleTransport,
+  type PendingInteractionsSource,
   type PreviewTransport,
 } from "../../../packages/dsh-session-bubble/src/index.ts";
 import type {
@@ -191,6 +192,11 @@ export interface CharacterOverlayProps {
    * API 时整行隐藏。推荐 `createDynamicTitleStore(createDshDynamicTitleTransport())`。
    */
   dynamicTitleTransport?: DynamicTitleTransport | undefined;
+  /**
+   * 宿主待交互源（uiSession.pendingInteractions，宿主 SDK 升级适配）：
+   * 透传给气泡列作为 pendingInteraction 事实源（朱砂待交互呈现）。
+   */
+  pendingInteractions?: PendingInteractionsSource | undefined;
 }
 
 /**
@@ -211,6 +217,7 @@ export function CharacterOverlay({
   runtime,
   previewTransport,
   dynamicTitleTransport,
+  pendingInteractions,
 }: CharacterOverlayProps) {
   // ADR-0008：订阅会话级 runtime 快照（焦点会话 playback）。
   // runtime 为 undefined 时（如测试或未注入）回落到 idle 兜底快照。
@@ -565,6 +572,7 @@ export function CharacterOverlay({
         workspaces={workspaces}
         previewTransport={previewTransport}
         dynamicTitleTransport={dynamicTitleTransport}
+        pendingInteractions={pendingInteractions}
       />
       {stateLabel && (
         <div className={styles.stateLabel}>{stateLabel}</div>

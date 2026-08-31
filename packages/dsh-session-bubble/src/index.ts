@@ -37,7 +37,13 @@ export {
   type SessionListEntry,
 } from "./session-bubbles.ts";
 
-export { deriveSessionListEntries } from "./session-list-adapter.ts";
+export {
+  deriveSessionListEntries,
+  visiblePendingKind,
+  type PendingInteractionLike,
+  type PendingInteractionsSnapshot,
+  type PendingInteractionsSource,
+} from "./session-list-adapter.ts";
 
 export {
   DEFAULT_MAX_SESSION_BUBBLES,

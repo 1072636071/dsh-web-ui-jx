@@ -83,7 +83,7 @@ function textFromEvent(event: SessionEvent): string {
   switch (event.type) {
     case "user/message": {
       // 直接访问 event.data.content（官方实现方式）
-      const data = event.data as Record<string, unknown>;
+      const data = event.data as unknown as Record<string, unknown>;
       const content = data.content;
       if (Array.isArray(content)) {
         return extractVisibleText(content as ContentBlock[]);
@@ -92,7 +92,7 @@ function textFromEvent(event: SessionEvent): string {
     }
     case "assistant/message": {
       // assistant/message 的 data 是 { turn, step, message: AssistantMessage, usage? }
-      const data = event.data as Record<string, unknown>;
+      const data = event.data as unknown as Record<string, unknown>;
       const message = data.message as Record<string, unknown> | undefined;
       if (message && Array.isArray(message.content)) {
         return extractVisibleText(message.content as ContentBlock[]);

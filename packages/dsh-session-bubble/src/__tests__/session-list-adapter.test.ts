@@ -102,3 +102,52 @@ describe("session-list-adapter: 投影", () => {
     expect(out).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 待交互源投影（宿主 SDK 升级后 pendingInteraction 迁至 uiSession.pendingInteractions）
+// ---------------------------------------------------------------------------
+
+describe("session-list-adapter: 待交互源投影（pendingInteractions Map）", () => {
+  it("Map 命中 → pendingInteraction 落键（approval/plan-review/question）", () => {
+    const state = listState([
+      { id: "s1", running: true },
+      { id: "s2", running: true },
+      { id: "s3", running: false },
+    ]);
+    const pending = new Map([
+      ["s1", { kind: "approval" }],
+      ["s2", { kind: "question" }],
+      ["s3", { kind: "plan-review" }],
+    ]);
+    const out = deriveSessionListEntries(state as never, pending);
+    expect(out[0]?.pendingInteraction).toBe("approval");
+    expect(out[1]?.pendingInteraction).toBe("question");
+    expect(out[2]?.pendingInteraction).toBe("plan-review");
+  });
+
+  it("Map 未命中 / 未知 kind → 不落 pendingInteraction 键", () => {
+    const state = listState([
+      { id: "s1", running: true },
+      { id: "s2", running: true },
+    ]);
+    const pending = new Map([["s2", { kind: "some-future-domain" }]]);
+    const out = deriveSessionListEntries(state as never, pending);
+    expect(out[0]?.pendingInteraction).toBeUndefined();
+    expect(out[1]?.pendingInteraction).toBeUndefined();
+  });
+
+  it("Map 在场时以 Map 为准（忽略 summary 遗留 pendingInteraction 字段）", () => {
+    const state = listState([{ id: "s1", running: true }]);
+    // 旧宿主字段在场但 Map 未命中 → 以 Map（新事实源）为准
+    (state.byId.s1 as Record<string, unknown>).pendingInteraction = "approval";
+    const out = deriveSessionListEntries(state as never, new Map());
+    expect(out[0]?.pendingInteraction).toBeUndefined();
+  });
+
+  it("未传 Map → 回退 summary 遗留字段（旧宿主兼容）", () => {
+    const state = listState([{ id: "s1", running: true }]);
+    (state.byId.s1 as Record<string, unknown>).pendingInteraction = "question";
+    const out = deriveSessionListEntries(state as never);
+    expect(out[0]?.pendingInteraction).toBe("question");
+  });
+});

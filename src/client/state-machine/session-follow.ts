@@ -19,8 +19,28 @@
  * @module dsh-web-ui-jx/client
  */
 
-import type { ConversationSnapshot } from "@deepseek-ai/dsh-client-runtime/client";
 import type { OverlayState } from "./overlay-state-machine.ts";
+
+/**
+ * 新版宿主 `SessionSnapshot` 的结构子集——插件只消费这些字段。
+ *
+ * 宿主 SDK 升级后（session-controller 拆分），会话快照移除了
+ * `partial` / `runningCalls` / `pending` 字段：可见 chunk 与工具调用
+ * 计数不再有快照级来源（降级为常量，ADR-0014 时间启发式保留机制但
+ * 输入恒 0）；pending 信号迁至 `uiSession.pendingInteractions`，由
+ * 调用方按会话 id 注入本函数。类型只保留结构子集，使旧 SDK 类型
+ * （ConversationSnapshot）与新宿主运行时形状均可赋值。
+ */
+export interface SessionSnapshotLike {
+  /** running 位。 */
+  readonly running: boolean;
+  /** send/stop 失败（在场即错误）。 */
+  readonly promptError: unknown;
+  /** 历史窗口打开失败（在场即错误）。 */
+  readonly openError: unknown;
+  /** 最近 agent 错误（非空即错误）。 */
+  readonly lastAgentError: string | null;
+}
 
 /** 差分可触发的一次性表演（done/nod-smile/frown-wave；welcome 已随 ADR-0023 移除）. */
 export type DiffPerformance = "done" | "nod-smile" | "frown-wave";
@@ -47,10 +67,19 @@ export interface SnapshotCore {
   readonly hasError: boolean;
 }
 
-/** 判定 partial 是否含可见 chunk（匹配参考项目的 hasVisiblePartialChunk）。 */
-function hasVisiblePartialChunk(snapshot: ConversationSnapshot): boolean {
-  const partial = snapshot.partial;
-  if (partial === null) return false;
+/** 旧版宿主 ConversationSnapshot 的可选遗留字段（新宿主已移除，防御性读取）。 */
+interface LegacySnapshotFields {
+  readonly partial?: {
+    readonly blocks?: readonly { readonly kind: string; readonly text: string }[];
+  } | null;
+  readonly runningCalls?: readonly unknown[];
+  readonly pending?: readonly unknown[];
+}
+
+/** 判定遗留 partial 是否含可见 chunk（旧宿主来源；字段缺席即 false）。 */
+function legacyHasVisibleChunk(legacy: LegacySnapshotFields): boolean {
+  const partial = legacy.partial;
+  if (partial == null || partial.blocks === undefined) return false;
   for (const block of partial.blocks) {
     if (block.kind === "text" && block.text.length > 0) return true;
     if (block.kind === "reasoning" && block.text.length > 0) return true;
@@ -58,17 +87,28 @@ function hasVisiblePartialChunk(snapshot: ConversationSnapshot): boolean {
   return false;
 }
 
-/** 从 ConversationSnapshot 提取核心字段。 */
-export function extractCore(snapshot: ConversationSnapshot): SnapshotCore {
+/**
+ * 从宿主会话快照提取核心字段；pending 由外部待交互源注入（缺省 false）。
+ *
+ * 双宿主兼容：新宿主（SessionSnapshot）只有 running/错误字段，pending 全靠
+ * 注入、partial/runningCalls 恒缺席（降级为 false/0，ADR-0014 时间启发式
+ * 随之静默——审批等待由注入快路径承载）；旧宿主（ConversationSnapshot）
+ * 仍带 partial/runningCalls/pending 遗留字段，防御性读取继续生效。
+ */
+export function extractCore(
+  snapshot: SessionSnapshotLike & LegacySnapshotFields,
+  pending = false,
+): SnapshotCore {
+  const legacy = snapshot;
   return {
     running: snapshot.running,
-    hasVisibleChunk: hasVisiblePartialChunk(snapshot),
-    runningCallsCount: snapshot.runningCalls.length,
-    pending: snapshot.pending.length > 0,
+    hasVisibleChunk: legacyHasVisibleChunk(legacy),
+    runningCallsCount: legacy.runningCalls?.length ?? 0,
+    pending: pending || (legacy.pending !== undefined && legacy.pending.length > 0),
     hasError:
-      snapshot.promptError !== null ||
-      snapshot.lastAgentError !== null ||
-      snapshot.openError !== null,
+      snapshot.promptError != null ||
+      snapshot.lastAgentError != null ||
+      snapshot.openError != null,
   };
 }
 

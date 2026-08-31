@@ -51,6 +51,10 @@ import type {
   SessionId,
   SessionListState,
 } from "@deepseek-ai/dsh-client-runtime/client";
+import type {
+  PendingInteractionsSnapshot,
+  PendingInteractionsSource,
+} from "../../packages/dsh-session-bubble/src/session-list-adapter.ts";
 
 const A = "a" as SessionId;
 const B = "b" as SessionId;
@@ -281,6 +285,7 @@ function plainRuntime(sessions: ISessions): OverlaySessionRuntime {
 function timedRuntime(
   sessions: ISessions,
   random: () => number = () => 0.5,
+  pendingInteractions?: PendingInteractionsSource,
 ): {
   rt: OverlaySessionRuntime;
   advanceClock: (ms: number) => void;
@@ -292,6 +297,7 @@ function timedRuntime(
     now: () => now,
     tickIntervalMs: 1e9,
     random,
+    ...(pendingInteractions !== undefined ? { pendingInteractions } : {}),
   });
   return {
     rt,
@@ -302,6 +308,43 @@ function timedRuntime(
     advance: (ms: number) => {
       now += ms;
       rt.__tick();
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 待交互源（uiSession.pendingInteractions 形状）mock
+// ---------------------------------------------------------------------------
+
+interface MockPendingSource {
+  readonly source: PendingInteractionsSource;
+  /** 整体替换待交互表（sessionId → kind）并通知订阅者。 */
+  __set(entries: Record<string, string>): void;
+}
+
+function createMockPendingSource(
+  initial: Record<string, string> = {},
+): MockPendingSource {
+  let snapshot: PendingInteractionsSnapshot = toSnapshot(initial);
+  const listeners = new Set<() => void>();
+  function toSnapshot(entries: Record<string, string>): PendingInteractionsSnapshot {
+    return new Map(
+      Object.entries(entries).map(([id, kind]) => [id, { kind }]),
+    );
+  }
+  return {
+    source: {
+      getSnapshot: () => snapshot,
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    },
+    __set(entries) {
+      snapshot = toSnapshot(entries);
+      for (const l of listeners) l();
     },
   };
 }
@@ -1144,6 +1187,78 @@ describe("overlay-session-runtime: 审批等待时间启发式（ADR-0014）", (
     const s = t.rt.getSnapshot();
     expect(s.currentState).toBe("angry");
     expect(s.focusSessionId).toBe(B);
+    t.rt.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 待交互源驱动（uiSession.pendingInteractions，宿主 SDK 升级后的 pending 快路径）
+// ---------------------------------------------------------------------------
+
+describe("overlay-session-runtime: 待交互源驱动 pending（uiSession.pendingInteractions）", () => {
+  it("running 中待交互出现（approval）→ 硬切 permission（紧急接管）", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const pending = createMockPendingSource();
+    const t = timedRuntime(sessions, () => 0.5, pending.source);
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    t.advance(FOCUS_DEBOUNCE_MS + 1);
+    expect(t.rt.getSnapshot().currentState).toBe("working");
+    // 宿主上报待交互 → 即时快路径进 permission
+    pending.__set({ [A]: "approval" });
+    const s = t.rt.getSnapshot();
+    expect(s.currentState).toBe("permission");
+    expect(s.focusSessionId).toBe(A);
+    t.rt.dispose();
+  });
+
+  it("待交互解决 + running 继续 → nod-smile 表演（批准链）", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const pending = createMockPendingSource();
+    const t = timedRuntime(sessions, () => 0.5, pending.source);
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    t.advance(FOCUS_DEBOUNCE_MS + 1);
+    pending.__set({ [A]: "question" });
+    expect(t.rt.getSnapshot().currentState).toBe("permission");
+    // 用户回答（running 继续）→ nod-smile 表演
+    pending.__set({});
+    expect(t.rt.getSnapshot().currentState).toBe("nod-smile");
+    t.rt.dispose();
+  });
+
+  it("待交互解决 + running 已终止 → frown-wave 表演（拒绝链）", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const pending = createMockPendingSource();
+    const t = timedRuntime(sessions, () => 0.5, pending.source);
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    t.advance(FOCUS_DEBOUNCE_MS + 1);
+    pending.__set({ [A]: "approval" });
+    expect(t.rt.getSnapshot().currentState).toBe("permission");
+    // 拒绝同时回合终止：快照先到（pending 仍在场 → 无差分），待交互随后移除
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: false }));
+    pending.__set({});
+    expect(t.rt.getSnapshot().currentState).toBe("frown-wave");
+    t.rt.dispose();
+  });
+
+  it("未知 kind 不视为待交互（不触发 permission）", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const pending = createMockPendingSource();
+    const t = timedRuntime(sessions, () => 0.5, pending.source);
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    t.advance(FOCUS_DEBOUNCE_MS + 1);
+    expect(t.rt.getSnapshot().currentState).toBe("working");
+    pending.__set({ [A]: "some-future-domain" });
+    expect(t.rt.getSnapshot().currentState).toBe("working");
+    t.rt.dispose();
+  });
+
+  it("会话快照推进时同样读源：待交互先于快照在场 → 上升沿进 permission", () => {
+    const sessions = createMockSessions(makeListState([A], A));
+    const pending = createMockPendingSource({ [A]: "plan-review" });
+    const t = timedRuntime(sessions, () => 0.5, pending.source);
+    // 首个快照到达即带 pending（源先在场）→ 初次差分即 permission
+    sessions.__session(A)?.__push(makeSnapshot(A, { running: true }));
+    expect(t.rt.getSnapshot().currentState).toBe("permission");
     t.rt.dispose();
   });
 });

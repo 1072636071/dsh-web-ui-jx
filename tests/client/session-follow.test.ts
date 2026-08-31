@@ -16,7 +16,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { diffTarget, type SnapshotCore } from "../../src/client/state-machine/session-follow.ts";
+import {
+  diffTarget,
+  extractCore,
+  type SessionSnapshotLike,
+  type SnapshotCore,
+} from "../../src/client/state-machine/session-follow.ts";
 
 /** 构造核心快照（只填差分关心字段）. */
 function core(
@@ -210,5 +215,68 @@ describe("diffTarget: 全静兜底", () => {
 
   it("持续全静 → null", () => {
     expect(diffTarget(core({}), core({}))).toBe(null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractCore：新版宿主 SessionSnapshot 形状适配
+//（宿主 SDK 升级后 SessionSnapshot 移除 partial/runningCalls/pending 字段；
+//  pending 改由 uiSession.pendingInteractions 外部源注入）
+// ---------------------------------------------------------------------------
+
+/** 构造新版宿主形状的快照（只含 SessionSnapshot 现存字段）. */
+function hostSnapshot(
+  opts: {
+    running?: boolean;
+    promptError?: unknown;
+    openError?: unknown;
+    lastAgentError?: string | null;
+  } = {},
+): SessionSnapshotLike {
+  return {
+    running: opts.running ?? false,
+    promptError: opts.promptError ?? null,
+    openError: opts.openError ?? null,
+    lastAgentError: opts.lastAgentError ?? null,
+  };
+}
+
+describe("extractCore: 新版宿主 SessionSnapshot 形状", () => {
+  it("无 partial/runningCalls/pending 字段的快照不抛错，running 映射", () => {
+    expect(extractCore(hostSnapshot({ running: true }))).toEqual({
+      running: true,
+      hasVisibleChunk: false,
+      runningCallsCount: 0,
+      pending: false,
+      hasError: false,
+    });
+  });
+
+  it("pending 由外部源注入（true/false 两路）", () => {
+    expect(extractCore(hostSnapshot({ running: true }), true).pending).toBe(
+      true,
+    );
+    expect(extractCore(hostSnapshot({ running: true }), false).pending).toBe(
+      false,
+    );
+    expect(extractCore(hostSnapshot({ running: true })).pending).toBe(false);
+  });
+
+  it("promptError / openError / lastAgentError 任一在场 → hasError", () => {
+    expect(
+      extractCore(hostSnapshot({ promptError: { op: "send" } })).hasError,
+    ).toBe(true);
+    expect(
+      extractCore(hostSnapshot({ openError: { code: "x" } })).hasError,
+    ).toBe(true);
+    expect(
+      extractCore(hostSnapshot({ lastAgentError: "boom" })).hasError,
+    ).toBe(true);
+    expect(extractCore(hostSnapshot()).hasError).toBe(false);
+  });
+
+  it("新形状快照驱动 diffTarget：running 上升沿 → switch working（不抛错）", () => {
+    const curr = extractCore(hostSnapshot({ running: true }));
+    expect(diffTarget(null, curr)).toEqual({ kind: "switch", target: "working" });
   });
 });

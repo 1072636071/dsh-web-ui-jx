@@ -41,6 +41,7 @@ import {
   createDynamicTitleStore,
   createPreviewCache,
   type DynamicTitleTransport,
+  type PendingInteractionsSource,
   type PreviewTransport,
 } from "../../packages/dsh-session-bubble/src/index.ts";
 import { CharacterOverlay } from "./components/CharacterOverlay.tsx";
@@ -68,8 +69,14 @@ import "./styles/jiangxiao.css";
 import "./styles/fx.css";
 
 /** Client services required（令牌基座 + 动画挂钩需 sessions；ADR-0022 D3/D8
- * 归档排除/真归档需 workspaces）. */
-export const inject: string[] = ["sessions", "workspaces"];
+ * 归档排除/真归档需 workspaces；待交互快路径需 uiSession——宿主 SDK 升级后
+ * pendingInteraction 信号由 uiSession.pendingInteractions 承载）. */
+export const inject: string[] = ["sessions", "workspaces", "uiSession"];
+
+/** 宿主 uiSession 服务的结构子集（只消费 pendingInteractions 观察源）. */
+interface UiSessionLike {
+  readonly pendingInteractions?: PendingInteractionsSource | undefined;
+}
 
 /**
  * 清扫残留的 FX 装饰层容器（ADR-0017 可重入约束覆盖面补全）。
@@ -110,12 +117,14 @@ function RootApp({
   workspaces,
   previewTransport,
   dynamicTitleTransport,
+  pendingInteractions,
 }: {
   sessions?: ISessions | undefined;
   runtime?: OverlaySessionRuntime | undefined;
   workspaces?: IWorkspaces | undefined;
   previewTransport?: PreviewTransport | undefined;
   dynamicTitleTransport?: DynamicTitleTransport | undefined;
+  pendingInteractions?: PendingInteractionsSource | undefined;
 }) {
   return createElement(
     Fragment,
@@ -126,6 +135,7 @@ function RootApp({
       workspaces,
       previewTransport,
       dynamicTitleTransport,
+      pendingInteractions,
     }),
     createElement(SidebarEntry),
   );
@@ -187,11 +197,16 @@ export function apply(ctx: ClientContext): void {
   // archiveSession 真归档（归档权威在 SDK，本地不重复记账）。
   const sessions = ctx.get("sessions");
   const workspaces = ctx.get("workspaces");
+  // 宿主 SDK 升级后的待交互快路径源（uiSession.pendingInteractions）：
+  // 角色浮层状态机的 pending 边沿 + 气泡列的朱砂待交互呈现共用。
+  const uiSession = ctx.get("uiSession") as UiSessionLike | undefined;
+  const pendingInteractions = uiSession?.pendingInteractions;
   const runtime =
     sessions !== undefined
       ? createOverlaySessionRuntime(sessions, {
           // ADR-0013 D7：动作轮换开关由设置存储提供（默认开）。
           variantRotationEnabled: getVariantRotationEnabled,
+          ...(pendingInteractions !== undefined ? { pendingInteractions } : {}),
         })
       : undefined;
   // 详情窗数据链路（工单 16-02/16-04）：经 connection.api 拉预览（缓存包装器），
@@ -213,6 +228,7 @@ export function apply(ctx: ClientContext): void {
       workspaces,
       previewTransport,
       dynamicTitleTransport,
+      pendingInteractions,
     }),
   );
 
