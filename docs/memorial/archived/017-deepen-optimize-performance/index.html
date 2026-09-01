@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>dsh-web-ui-jx · 深化 / 优化 / 性能 全量盘点</title>
+<style>
+  :root {
+    --bg: #0b090d;
+    --surface-0: #121016;
+    --surface-1: #1a1620;
+    --surface-2: #2d242f;
+    --line: #3d3218;
+    --text: #f2ead8;
+    --text-weak: #a99c8a;
+    --text-faint: #8a7e6e;
+    --gold: #d6b34a;
+    --gold-bright: #f6d365;
+    --gold-dim: #996515;
+    --seal: #c7493a;
+    --success: #86b08a;
+    --warn: #d9a05b;
+    --error: #d06552;
+    --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px rgb(0 0 0 / .28);
+  }
+  html[data-theme="light"] {
+    --bg: #faf5ee;
+    --surface-0: #fdfaf4;
+    --surface-1: #f5eddf;
+    --surface-2: #e8dcc8;
+    --line: #d9c9b5;
+    --text: #2a241a;
+    --text-weak: #7d6a5e;
+    --text-faint: #8a7765;
+    --gold: #b8860b;
+    --gold-bright: #9c7a1e;
+    --gold-dim: #6f5306;
+    --seal: #8e3a49;
+    --success: #3d7a3d;
+    --warn: #9c6b1e;
+    --error: #a83a3a;
+    --shadow: 0 1px 2px rgb(90 70 40 / .1), 0 8px 24px rgb(90 70 40 / .1);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.7 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, .mono {
+    font-family: "SF Mono", "JetBrains Mono", "Fira Code", Consolas, Menlo, Courier,
+      "PingFang SC", "Microsoft YaHei", monospace;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 96px; }
+
+  /* ---------- header ---------- */
+  header { position: relative; padding-bottom: 28px; border-bottom: 1px solid var(--line); }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 30px;
+    line-height: 1.3;
+    letter-spacing: .5px;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold), var(--gold-dim));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .sub { color: var(--text-weak); font-size: 14px; }
+  .sub a { color: var(--gold); text-decoration: none; }
+  .sub a:hover { text-decoration: underline; }
+  .theme-toggle {
+    position: absolute; top: 0; right: 0;
+    background: var(--surface-1); color: var(--text-weak);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 14px; font-size: 13px; cursor: pointer;
+  }
+  .theme-toggle:hover { color: var(--gold); border-color: var(--gold-dim); }
+
+  /* ---------- stats ---------- */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 28px 0 0; }
+  .stat { background: var(--surface-0); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .stat .n { font-size: 26px; font-weight: 600; color: var(--gold); line-height: 1.2; }
+  .stat .l { font-size: 12.5px; color: var(--text-weak); margin-top: 2px; }
+
+  /* ---------- sections ---------- */
+  section { margin-top: 44px; }
+  h2 {
+    font-size: 19px; margin: 0 0 4px; color: var(--text);
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  h2::before { content: ""; width: 3px; height: 17px; background: var(--gold); border-radius: 2px; }
+  .h2-note { color: var(--text-faint); font-size: 13px; margin: 0 0 16px 13px; }
+  h3 { font-size: 15px; margin: 28px 0 10px; color: var(--gold); }
+
+  /* ---------- filters ---------- */
+  .filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+  .chip {
+    background: var(--surface-0); border: 1px solid var(--line); color: var(--text-weak);
+    border-radius: 999px; padding: 5px 14px; font-size: 13px; cursor: pointer;
+  }
+  .chip:hover { color: var(--text); }
+  .chip[aria-pressed="true"] { background: var(--gold-dim); border-color: var(--gold); color: #fff8ef; }
+
+  /* ---------- cards ---------- */
+  .card {
+    background: var(--surface-0); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 14px; box-shadow: var(--shadow);
+  }
+  .card-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+  .card-title { font-size: 16px; font-weight: 600; flex: 1 1 auto; min-width: 240px; }
+  .card-id { color: var(--text-faint); font-weight: 400; font-size: 13px; margin-right: 6px; }
+  .badge {
+    font-size: 11.5px; padding: 2px 9px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--text-weak); white-space: nowrap;
+  }
+  .b-high { border-color: var(--seal); color: var(--seal); }
+  .b-mid { border-color: var(--warn); color: var(--warn); }
+  .b-low { border-color: var(--text-faint); color: var(--text-faint); }
+  .b-ok { border-color: var(--success); color: var(--success); }
+  .b-cat { border-color: var(--gold-dim); color: var(--gold); }
+  .card dl { margin: 12px 0 0; display: grid; grid-template-columns: 68px 1fr; gap: 6px 12px; font-size: 14px; }
+  .card dt { color: var(--text-faint); font-size: 13px; }
+  .card dd { margin: 0; color: var(--text-weak); }
+  .card dd strong { color: var(--text); font-weight: 600; }
+  .ev {
+    display: inline-block; background: var(--surface-2); color: var(--gold);
+    border-radius: 4px; padding: 1px 6px; font-size: 12px; margin: 0 4px 4px 0;
+  }
+  .conflict {
+    margin-top: 12px; padding: 8px 12px; border-left: 2px solid var(--seal);
+    background: color-mix(in srgb, var(--seal) 8%, transparent);
+    font-size: 13.5px; color: var(--text-weak); border-radius: 0 6px 6px 0;
+  }
+
+  /* ---------- tables ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--surface-0); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--gold); font-weight: 600; font-size: 13px; background: var(--surface-1); }
+  tr:last-child td { border-bottom: none; }
+  td .mono { font-size: 12.5px; color: var(--gold); }
+  .yes { color: var(--success); }
+  .no { color: var(--error); }
+  .part { color: var(--warn); }
+
+  /* ---------- disproved ---------- */
+  .card.dead { opacity: .82; }
+  .card.dead .card-title { text-decoration: line-through; text-decoration-color: var(--text-faint); }
+
+  /* ---------- next steps ---------- */
+  ol.steps { padding-left: 22px; margin: 0; }
+  ol.steps li { margin-bottom: 12px; }
+  ol.steps .tag { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); margin-right: 8px; }
+  .tag.p0 { border-color: var(--seal); color: var(--seal); }
+  .tag.p1 { border-color: var(--warn); color: var(--warn); }
+  .tag.p2 { border-color: var(--text-faint); color: var(--text-faint); }
+
+  .note {
+    background: var(--surface-0); border: 1px dashed var(--line); border-radius: 10px;
+    padding: 14px 18px; color: var(--text-weak); font-size: 13.5px;
+  }
+  footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--text-faint); font-size: 13px; }
+  @media (max-width: 640px) {
+    .wrap { padding: 24px 16px 64px; }
+    h1 { font-size: 23px; }
+    .card dl { grid-template-columns: 1fr; gap: 2px; }
+    .card dt { margin-top: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <button class="theme-toggle" id="themeToggle" type="button">切换浅色</button>
+  <h1>dsh-web-ui-jx · 深化 / 优化 / 性能 全量盘点</h1>
+  <p class="sub">
+    2026-08-30 · 基于全仓事实检索（文件:行号证据）·
+    memorial <a href="./context.md">017-deepen-optimize-performance</a> ·
+    工单 <a href="./sub-task/001.md">001 性能</a> / <a href="./sub-task/002.md">002 深化与优化</a>
+  </p>
+
+  <div class="stats">
+    <div class="stat"><div class="n">20</div><div class="l">候选点（深化 3 / 优化 5 / 性能 12）</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">已证伪（不要再动）</div></div>
+    <div class="stat"><div class="n">8</div><div class="l">改动受 ADR / 前车之鉴约束</div></div>
+    <div class="stat"><div class="n">1</div><div class="l">ADR 仍未实施（0014）</div></div>
+    <div class="stat"><div class="n">≈187 MB</div><div class="l">assets 总体积</div></div>
+  </div>
+</header>
+
+<section id="decisions">
+  <h2>本次决策</h2>
+  <p class="h2-note">grill 记录见 <a href="./context.md" style="color:var(--gold)">context.md</a>。</p>
+  <table>
+    <thead><tr><th style="width:52px">#</th><th>决策</th><th>结论</th><th style="width:96px">来源</th></tr></thead>
+    <tbody>
+      <tr><td>D1</td><td>报告定位与范围</td><td>全量盘点：深化 / 优化 / 性能 + 已证伪项 + ADR 冲突 + 测试缺口 + ADR 落地状态 + 优先级 + 建议下一步</td><td>用户选定</td></tr>
+      <tr><td>D2</td><td>报告落点</td><td><span class="mono">docs/memorial/017-deepen-optimize-performance/index.html</span>（与 memorial 上下文同处，归档时一起走）</td><td>用户选定</td></tr>
+      <tr><td>D3</td><td>优先级排序口径</td><td>主键 = 影响（高/中/低）；同类内按 确定性（已核实 &gt; 推断）→ 风险（低 &gt; 中 &gt; 高）→ 实施成本；与 ADR 冲突的项单独打标并给合规改法，不因冲突而隐藏</td><td>推荐值</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="candidates">
+  <h2>候选点</h2>
+  <p class="h2-note">「已核实」= 有文件:行号证据；「推断」= 机制成立但未实测。点标签筛选。</p>
+
+  <div class="filters" id="filters">
+    <button class="chip" data-filter="all" aria-pressed="true" type="button">全部</button>
+    <button class="chip" data-filter="deepen" aria-pressed="false" type="button">深化</button>
+    <button class="chip" data-filter="quality" aria-pressed="false" type="button">优化</button>
+    <button class="chip" data-filter="perf" aria-pressed="false" type="button">性能</button>
+    <button class="chip" data-filter="high" aria-pressed="false" type="button">高影响</button>
+    <button class="chip" data-filter="conflict" aria-pressed="false" type="button">有 ADR 冲突</button>
+    <button class="chip" data-filter="dead" aria-pressed="false" type="button">已证伪</button>
+  </div>
+
+  <div id="cards">
+
+    <!-- ================= 深化 ================= -->
+    <h3 data-group="deepen">深化 · 架构与模块深度</h3>
+
+    <article class="card" data-cat="deepen" data-prio="high" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">C1</span>host 半区出现第二份 <code>writeJson</code>，同一模块重复同名导入绑定</div>
+        <span class="badge b-cat">深化</span><span class="badge b-high">高</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd><code>architecture-optimization-plan.md</code> 的 S5 已把 <code>writeJson</code> 收敛进 <code>http-shared.ts</code>，但后续 ADR-0032 工作又新建了逐字等价的 <code>json-response.ts</code>；<code>import-api.ts</code> 同时 import 了两个同名 <code>writeJson</code>，调用方已分裂。</dd>
+        <dt>证据</dt><dd><span class="ev">http-shared.ts:29-40</span><span class="ev">json-response.ts:13-20</span><span class="ev">import-api.ts:34-38</span><span class="ev">import-api.ts:47</span><span class="ev">session-messages.ts:32</span><span class="ev">ai-title-route.ts:27</span></dd>
+        <dt>建议</dt><dd>删除 <code>json-response.ts</code>；<code>session-messages.ts:32</code> 改为从 <code>http-shared.ts</code> 导入；删除 <code>import-api.ts:47</code> 整行。</dd>
+        <dt>收益</dt><dd>恢复单一实现，S5 成果不再漂移；消除重复绑定带来的「改了 A 处、B 处不生效」隐患。</dd>
+        <dt>风险</dt><dd><strong>低</strong>——两份实现逐字节等价，改动行为不变，既有 HTTP seam 测试即护栏。</dd>
+      </dl>
+    </article>
+
+    <article class="card" data-cat="deepen" data-prio="mid" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">C2</span>浮层位置持久化是收口后唯一剩余的裸 localStorage 点</div>
+        <span class="badge b-cat">深化</span><span class="badge b-low">降级·观察</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd>skin / overlay-settings / 气泡上限 / 保留模式 / 欢迎背景五处已全部收口进 <code>persistent-setting</code> 工厂，唯独位置仍自持容错读写。</dd>
+        <dt>证据</dt><dd><span class="ev">overlay-position.ts:52</span><span class="ev">overlay-position.ts:113</span><span class="ev">overlay-position.ts:323</span></dd>
+        <dt>关键</dt><dd><strong>不可直接套工厂。</strong><code>:299-300</code> 注释明写 <code>move</code> 只改内存不写盘（实时跟手，避免高频 I/O），<code>set</code> 才是提交语义（ADR-0006 决策 3），测试 <span class="ev">overlay-position.test.ts:426</span> 已锁定该语义。工厂 <code>set</code> 一律写盘，套上去会破坏。</dd>
+        <dt>建议</dt><dd><strong>维持现状</strong>。若确要收口，只能抽「容错读写」这一层并保留 move/set 双语义——收益不足以抵消风险。</dd>
+        <dt>风险</dt><dd><strong>中</strong>——破坏「跟手不写盘」会引入拖动期间的高频 localStorage I/O。</dd>
+      </dl>
+    </article>
+
+    <article class="card" data-cat="deepen" data-prio="low" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">C3</span>client 设置壳的遗留重复</div>
+        <span class="badge b-cat">深化</span><span class="badge b-low">低·观察</span><span class="badge">推断</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd><code>overlay-settings.ts</code> / <code>skin.ts</code> 的 bool parse 闭包在 S1 后是否仍有重复，需逐行复核。</dd>
+        <dt>证据</dt><dd><span class="ev">overlay-settings.ts:25-34</span><span class="ev">skin.ts:24-28</span></dd>
+        <dt>建议</dt><dd>S8 已判「维持现状，不加声明式表」——<strong>不实施</strong>，仅登记。触发条件：新增第 3+ 个 client 设置项时再评估。</dd>
+      </dl>
+    </article>
+
+    <!-- ================= 优化 ================= -->
+    <h3 data-group="quality">优化 · 正确性与可维护性</h3>
+
+    <article class="card" data-cat="quality" data-prio="high" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">U1</span>ADR-0014（审批等待时间启发式）<strong>仍未实施</strong></div>
+        <span class="badge b-cat">优化</span><span class="badge b-high">高</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd>CONTEXT.md 标「决策已定、待实施」，代码侧确实零落地：全 <code>src/</code> 检索 <code>blockedSince</code> 命中数为 0。意味着 permission 态只能靠 <code>snapshot.pending</code> 上升沿的即时快路径进入，没有 ≥10s 兜底，也不会有 ≥30s 的 angry 升级线。</dd>
+        <dt>证据</dt><dd><span class="ev">src/ 全量检索 blockedSince = 0 命中</span><span class="ev">CONTEXT.md:25</span><span class="ev">CONTEXT.md:99</span></dd>
+        <dt>建议</dt><dd>按 ADR-0014 原文实施：<code>blockedSince</code> 每会话记账 + <code>tick</code> 扫描（复用既有的注入 <code>now()</code> 时间接缝，无需新定时器），目标变化即清零。</dd>
+        <dt>收益</dt><dd>补上一个<strong>已决策但未兑现</strong>的能力缺口，且与已有 pending 快路径互补而非冲突。</dd>
+        <dt>风险</dt><dd><strong>低</strong>——ADR 已定阈值与语义，实现面收敛。</dd>
+      </dl>
+    </article>
+
+    <article class="card" data-cat="quality" data-prio="mid" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">U2</span><code>warp-controller.onFrame</code> 是死代码，导致 <code>visible</code> 守卫恒真</div>
+        <span class="badge b-cat">优化</span><span class="badge b-mid">中</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd><code>onFrame</code> 声明并实现，但全 <code>src</code> 无调用点 → <code>onMove</code> 置 <code>visible = true</code> 后再无人置回 false → <code>warp.ts</code> 四处 <code>getSnapshot().visible</code> 守卫恒真，模块头承诺的「停下 400ms 淡出」实际失效。</dd>
+        <dt>证据</dt><dd><span class="ev">warp-controller.ts:53</span><span class="ev">warp-controller.ts:90-101</span><span class="ev">warp.ts:157/186/221/233</span><span class="ev">warp.ts:6-8</span></dd>
+        <dt>建议</dt><dd><strong>二选一、必须择一</strong>：① 接上 rAF 恢复淡出语义（代价：引入常驻帧循环）；② 删除 <code>onFrame</code> 与守卫，明确「无淡出」并同步改文档。当前「代码写了但没接」是最坏状态。</dd>
+        <dt>附带</dt><dd>也正因没接 rAF，当前<strong>没有</strong>常驻帧循环——对 CPU 反而是好事。修之前先想清楚要哪个。</dd>
+        <dt>风险</dt><dd><strong>低</strong>（选②）/ <strong>中</strong>（选①，增加常驻开销）。</dd>
+      </dl>
+    </article>
+
+    <article class="card" data-cat="quality" data-prio="mid" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">U3</span>UI 组件层零单测，且无成文测试策略</div>
+        <span class="badge b-cat">优化</span><span class="badge b-mid">中</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd><code>state-machine/</code> 半区 10 个模块 9 个有单测，host 半区 7 个，库 12 个——覆盖面其实不差。但 <code>src/client/components/</code> 的 7 个组件<strong>全部无单测</strong>，其中 <code>SettingsCard</code> 承载全部设置开关接线、<code>ImportPanel</code>/<code>AssetList</code> 承载 zip 导入与路径安全 UI，属高风险 - 零覆盖。</dd>
+        <dt>证据</dt><dd><span class="ev">components/ 下 AssetList·CharacterOverlay·FishLogo·ImportPanel·ManagementUI·SettingsCard·SidebarEntry·SpeechBubble</span><span class="ev">AGENTS.md + docs/agents/ 检索「测试/覆盖率/TDD」= 0 命中</span></dd>
+        <dt>建议</dt><dd>优先补 <code>SettingsCard</code>（开关接线回归）与 <code>bubble-drag-handle</code>。</dd>
+        <dt>风险</dt><dd><strong>低</strong>——纯增量。</dd>
+      </dl>
+    </article>
+
+    <article class="card" data-cat="quality" data-prio="low" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">U4</span>拖拽手势测试偏薄</div>
+        <span class="badge b-cat">优化</span><span class="badge b-low">低</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd>拖拽是移除气泡的<strong>唯一</strong>手势（ADR-0022，双击方案已否决），且涉及「拖拽后吞掉紧随的合成 click」这类易回归细节，但测试文件仅 1.83 KB。</dd>
+        <dt>证据</dt><dd><span class="ev">packages/dsh-session-bubble/src/__tests__/bubble-drag-handle.test.ts（1.83 KB）</span></dd>
+        <dt>建议</dt><dd>补：8px 进臂态 / 禁止态不进臂 / 落点解析 / 合成 click 吞除 / 归档失败静默。</dd>
+      </dl>
+    </article>
+
+    <article class="card" data-cat="quality" data-prio="low" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">U5</span>S7 验收项②未复核：host 产物是否含 React 组件</div>
+        <span class="badge b-cat">优化</span><span class="badge b-low">低</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd>S7（host 改走库公共入口）代码侧已完成，但验收项②「<code>lib/index.js</code> 不含 React 组件痕迹、体积不显著增长」依赖构建产物复核，工作区 <code>lib/client.js</code> 当前不存在（<code>lib/</code> 被 gitignore）。</dd>
+        <dt>证据</dt><dd><span class="ev">ai-title-route.ts:30</span><span class="ev">.gitignore:11</span><span class="ev">lib/index.js 179.77 KB（host）</span></dd>
+        <dt>建议</dt><dd>跑一次 <code>npm run build</code> 后核验 <code>lib/index.js</code> 无 <code>SessionBubbleList</code> / <code>useState</code> 痕迹；必要时给库 <code>package.json</code> 加 <code>"sideEffects": false</code>。</dd>
+      </dl>
+    </article>
+
+    <!-- ================= 性能 ================= -->
+    <h3 data-group="perf">性能 · 运行时与包体</h3>
+
+    <article class="card" data-cat="perf" data-prio="high" data-conflict="1">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">H1</span>欢迎壁纸 MutationObserver 全域子树监听 → 强制同步布局风暴</div>
+        <span class="badge b-cat">性能</span><span class="badge b-high">高</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd><code>document.body</code> 全子树 childList 观察，回调对每个新增节点做全子树 DFS，逐元素 <code>getBoundingClientRect()</code> + <code>getComputedStyle()</code> + 长选择器 <code>closest()</code>；回调无防抖、无 rAF 批处理、无深度/数量上限，同步执行于 MutationObserver 微任务内。</dd>
+        <dt>证据</dt><dd><span class="ev">welcome-backdrop.ts:273</span><span class="ev">:277-287 handleSurfaceMutations</span><span class="ev">:166-172 tagSurfaces</span><span class="ev">:154-162 walkElements</span><span class="ev">:131-151 isWallpaperSurface（:139 rect / :142 computedStyle / :119-121 closest）</span></dd>
+        <dt>建议</dt><dd>① 回调改 <code>requestAnimationFrame</code> 合并 + 微批去重；② 先用 <code>offsetHeight/clientHeight</code> 廉价前置过滤，只对通过者做 rect + computedStyle；③ 观察范围从 <code>document.body</code> 收窄到 <code>#root</code> 或加 depth 上限。</dd>
+        <dt>收益</dt><dd><strong>高</strong>——流式输出场景下主线程长任务显著减少（触发频率与耗时<strong>未实测</strong>）。</dd>
+        <dt>风险</dt><dd><strong>中</strong>——改变打标时机与覆盖面，需回归视觉契约。</dd>
+      </dl>
+      <div class="conflict"><strong>ADR 冲突</strong>：收窄观察范围会改变 <code>welcome-backdrop.ts:224-227</code> 中和规则的生效面，触及 <strong>ADR-0024 / ADR-0027</strong>；改完必须重测视觉。</div>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="high" data-conflict="1">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">H2</span>assets 总体积 ≈187 MB，单文件最大 12.37 MB</div>
+        <span class="badge b-cat">性能</span><span class="badge b-high">高</span><span class="badge">已核实（体积）·推断（可压缩空间）</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd>35 webp ≈184.06 MB + 2 woff2 = 3.02 MB + 2 png = 4.88 KB，合计 39 文件 ≈187.09 MB。最大 <code>happy.webp</code> 12.37 MB，次大 surprised 8.54 / frown-wave 8.29 / error 8.22 MB；&gt;6 MB 的共 13 个文件合计 100 MB+。</dd>
+        <dt>证据</dt><dd><span class="ev">assets/character/happy.webp 12.37 MB</span><span class="ev">surprised.webp 8.54 MB</span><span class="ev">frown-wave.webp 8.29 MB</span><span class="ev">error.webp 8.22 MB</span><span class="ev">fonts/*.woff2 合计 3.02 MB</span></dd>
+        <dt>建议</dt><dd>优先治理 &gt;6 MB 的 13 个文件（帧数 / 分辨率 / 有损质量三档试压）；中文字体走子集化（通常可降到 1/5 以下）。<strong>先实测单文件试压再全量</strong>。</dd>
+        <dt>收益</dt><dd><strong>高</strong>——直接决定安装体积与首帧素材下载量。</dd>
+        <dt>风险</dt><dd><strong>中</strong>——触碰既有资产口径。</dd>
+      </dl>
+      <div class="conflict"><strong>ADR 冲突</strong>：素材重编码触及 <strong>ADR-0012</strong>（循环缺陷素材修复）与 <strong>ADR-0021</strong>（chroma key 重转）确定的资产口径；重压后须重验循环自然三原则（首尾帧对齐）。</div>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="high" data-conflict="1">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">H3</span>素材路由：304 路径仍全量 readFile，且无压缩 / 无内存缓存</div>
+        <span class="badge b-cat">性能</span><span class="badge b-high">高</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd><code>await Promise.all([readFile(filePath), stat(filePath)])</code> 位于 <code>if-none-match</code> 判定<strong>之前</strong>——条件请求命中 304 前已把整个文件读进内存；响应头无 <code>content-encoding</code>；全文件无内存缓存。对 MB 级素材尤其昂贵。</dd>
+        <dt>证据</dt><dd><span class="ev">asset-routes.ts:91（readFile 在 :97 ETag 判定之前）</span><span class="ev">asset-routes.ts:102-106（无 content-encoding）</span></dd>
+        <dt>建议</dt><dd>① 先 <code>stat</code> 算 ETag，<code>if-none-match</code> 命中直接 304 返回、不读文件；② 按 <code>path + mtimeMs</code> 做 LRU 字节缓存；③ 网关层 brotli/gzip（收益主要在 woff2/png，需实测）。</dd>
+        <dt>收益</dt><dd><strong>中-高</strong>（取决于 304 命中率）。</dd>
+        <dt>风险</dt><dd><strong>低</strong>——但方向不可逆。</dd>
+      </dl>
+      <div class="conflict"><strong>前车之鉴（务必先读）</strong>：<code>asset-routes.ts:87-90</code> 记录了「曾用 <code>immutable, max-age=86400</code> 强缓存导致浏览器最长 24h 看不到新字节（2026-08-22 白偏红修复踩坑）」——<strong>不可回退到强缓存</strong>。</div>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="high" data-conflict="1">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">H4</span>CharacterOverlay 重渲染放大到整个 SessionBubbleList</div>
+        <span class="badge b-cat">性能</span><span class="badge b-high">高</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd>runtime 每次 <code>emit()</code> 无条件重建快照 → CharacterOverlay 重渲染 → 其子组件 <code>SessionBubbleList</code>（约 30 个 hook）整棵子树重渲染。<code>SessionBubbleList</code> 导出为普通函数，<strong>未包 <code>React.memo</code></strong>。<code>emit()</code> 调用点 14 处。</dd>
+        <dt>证据</dt><dd><span class="ev">CharacterOverlay.tsx:217-220</span><span class="ev">CharacterOverlay.tsx:563-568</span><span class="ev">overlay-session-runtime.ts:1091-1095</span><span class="ev">emit 调用点 :482,589,653,679,690,735,763,827,837,1200,1293,1303,1326,1447</span><span class="ev">SessionBubbleList.tsx:1001</span></dd>
+        <dt>缓解</dt><dd><code>SessionBubbleList.tsx:1011/1057</code> 用 <code>useMemo</code> 绑定稳定引用源 → 派生计算（items / folded / expandedResult）<strong>不重算</strong>；但组件函数体与全量 JSX diff 仍每次执行。</dd>
+        <dt>建议</dt><dd><code>React.memo</code> 包裹 <code>SessionBubbleList</code>，或提升到 <code>RootApp</code>（<code>src/client/index.ts:106-131</code>）与 CharacterOverlay 并列。</dd>
+        <dt>风险</dt><dd><strong>低</strong>——纯结构隔离，不改语义。</dd>
+      </dl>
+      <div class="conflict"><strong>ADR 冲突（重要）</strong>：不要试图在 runtime 层加「内容 diff 再 emit」—— <strong>ADR-0016 已明确否决</strong>，理由是改动面大、需重验 <code>useSyncExternalStore</code> 通知语义（<code>focusNonce</code> 等字段的更新时机），且收益与 UI 侧门槛重复。另外：playback 的<strong>内容</strong>是推进的唯一身份，复用数组引用不得改变内容，加 nonce 会强制重播。</div>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="mid" data-conflict="1">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">M1</span>过渡素材时长解析：整文件 fetch 进内存</div>
+        <span class="badge b-cat">性能</span><span class="badge b-mid">中</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd>取时长用 <code>await res.arrayBuffer()</code> 拿<strong>完整文件</strong>再 JS 逐 chunk 解析；单个 transition webp 2.37–12.37 MB，首次播放即一次完整下载 + 大 Buffer 分配。缓存按 url 只有一次，但<strong>模块级且无清理入口</strong>。</dd>
+        <dt>证据</dt><dd><span class="ev">CharacterOverlay.tsx:448</span><span class="ev">webp-duration.ts:76-80</span><span class="ev">webp-duration.ts:47-70</span><span class="ev">webp-duration.ts:73 durationCache</span></dd>
+        <dt>建议</dt><dd>host 提供轻量 <code>/api/dsh-jx/duration?p=</code>（只读前若干 KB），或构建期生成 <code>assets/manifest.json</code> 固化时长（后者更彻底，零运行时开销）。</dd>
+        <dt>风险</dt><dd><strong>低</strong>——但新增长生命周期缓存须按 ADR-0017 在 dispose/teardown 清空。</dd>
+      </dl>
+      <div class="conflict"><strong>ADR 冲突</strong>：触及 <strong>ADR-0017</strong>（apply 可重入）。现存先例 <code>webp-duration.ts:73</code> 的模块级 cache 无清理入口，属同族隐患。</div>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="mid" data-conflict="1">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">M2</span><code>backdrop-filter: blur(10px)</code> 大面积覆盖宿主表面</div>
+        <span class="badge b-cat">性能</span><span class="badge b-mid">中</span><span class="badge">推断（成本未实测）</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd>壁纸激活时，选择器矩阵覆盖 composer-card / sidebar / <code>role=dialog|menu|listbox|tooltip</code> / radix-popper / 插件容器 / <code>[class*="bubble"]</code> / <code>code</code> 及兜底十余类元素，全部进入毛玻璃。滚动 / 重绘时反复模糊，是最贵的 CSS 属性之一。</dd>
+        <dt>证据</dt><dd><span class="ev">welcome-backdrop.ts:182 GLASS_BLUR_PX = 10</span><span class="ev">:235-238 注入</span><span class="ev">:187-214 选择器矩阵</span><span class="ev">:241-246 reduced-motion 降级</span></dd>
+        <dt>建议</dt><dd>收窄矩阵，或对高频重绘元素（bubble / code / listbox）降级为纯 alpha。</dd>
+        <dt>风险</dt><dd><strong>中</strong>——直接改变视觉契约。</dd>
+      </dl>
+      <div class="conflict"><strong>ADR 冲突</strong>：触及 <strong>ADR-0027 D2/D8</strong> 的覆盖契约（<code>GLASS_SURFACE_SELECTORS :187-200</code>）。</div>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="mid" data-conflict="1">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">M3</span><code>session-messages</code> 的 inspect 无缓存、无 in-flight 去重</div>
+        <span class="badge b-cat">性能</span><span class="badge b-mid">中</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd>直接 <code>controller.inspect(sessionId)</code> 后写响应；全文件检索 <code>cache|inflight|dedup|Map&lt;</code> 命中数为 0。悬浮预览高频打开同一会话时重复全量读事件 + 重复 <code>collectConversation</code>。</dd>
+        <dt>证据</dt><dd><span class="ev">session-messages.ts:274</span><span class="ev">session-messages.ts:275-278</span></dd>
+        <dt>建议</dt><dd>按 <code>sessionId</code> 加短 TTL 缓存 + in-flight Promise 去重。</dd>
+        <dt>风险</dt><dd><strong>中</strong>——缓存失效时机敏感。</dd>
+      </dl>
+      <div class="conflict"><strong>ADR 冲突</strong>：触及 <strong>ADR-0028</strong>——缓存必须与 archived / retention 变更联动失效，否则会退回已排除 / 已归档会话的陈旧数据。</div>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="mid" data-conflict="1">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">M4</span>ai-title：服务端无缓存 / 去重；客户端缓存无界且 TTL 可被全局覆写</div>
+        <span class="badge b-cat">性能</span><span class="badge b-mid">中</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd>服务端 <code>llmClient.chat</code> 前无任何 cache / inflight 判定，每次都 <code>scope.get()</code>。客户端 <code>dynamic-title.ts:333</code> 的 Map <strong>无 delete、无淘汰</strong>；<code>ttlMs</code> 是闭包级变量（<code>:330</code>），会被最后一次响应<strong>全局覆盖</strong>（<code>:402</code>）；无 in-flight 去重。</dd>
+        <dt>证据</dt><dd><span class="ev">ai-title-route.ts:156</span><span class="ev">ai-title-route.ts:132</span><span class="ev">dynamic-title.ts:333</span><span class="ev">dynamic-title.ts:402</span><span class="ev">dynamic-title.ts:336-411</span></dd>
+        <dt>已存在</dt><dd>客户端<strong>已有</strong> TTL 15min + 节流 30s（<code>:330-331</code>、决策函数 <code>:273-292</code>）——不是「没做」，是「做了但有洞」。</dd>
+        <dt>建议</dt><dd>服务端按 <code>sessionId + updatedAt</code> 短 TTL 缓存 + in-flight 去重；客户端 cache 加 LRU 上限，<code>ttlMs</code> 改为按 entry 存储。</dd>
+        <dt>风险</dt><dd><strong>低</strong>。</dd>
+      </dl>
+      <div class="conflict"><strong>ADR 冲突</strong>：同样触及 <strong>ADR-0017</strong>——新增模块级缓存须在 dispose 清空。</div>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="mid" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">M5</span>warp 涟漪每次 pointerdown 触发强制同步布局</div>
+        <span class="badge b-cat">性能</span><span class="badge b-mid">中</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd><code>el.style.animation = "none"; container.appendChild(el); void el.offsetWidth; el.style.animation = "";</code> —— <code>void el.offsetWidth</code> 是显式强制 reflow，每次 pointerdown 一次。</dd>
+        <dt>证据</dt><dd><span class="ev">warp.ts:190-193</span></dd>
+        <dt>建议</dt><dd>改用 <code>el.getAnimations().forEach(a =&gt; a.cancel())</code> + <code>anim.play()</code> 重放，或在 rAF 内重置，避免强制布局。</dd>
+        <dt>收益</dt><dd><strong>低-中</strong>（仅按下事件，影响面小）。</dd>
+        <dt>风险</dt><dd><strong>低</strong>。</dd>
+      </dl>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="low" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">L2</span>fall 叶子带 CSS <code>filter: drop-shadow</code></div>
+        <span class="badge b-cat">性能</span><span class="badge b-low">低</span><span class="badge">推断（未实测）</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd><code>drop-shadow</code> 作用于 8 个 WAAPI transform 动画元素；滤镜与动画叠加可能阻止纯合成层路径、每帧重栅格化。</dd>
+        <dt>证据</dt><dd><span class="ev">fx.css:90</span><span class="ev">fx.css:99</span><span class="ev">fall.ts:118</span><span class="ev">fall.ts:122-127</span></dd>
+        <dt>建议</dt><dd>先实测；若确有成本，把阴影烘进 SVG data-uri 素材（<code>fx.css:87/98</code> 已是 SVG），去掉 CSS filter。</dd>
+      </dl>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="low" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">L3</span>客户端产物关闭压缩</div>
+        <span class="badge b-cat">性能</span><span class="badge b-low">低</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>现象</dt><dd><code>minify: false</code>，原因写在注释里：为让 <code>generateBundle</code> 对产物文本整体包裹（<code>window.__ModuleLoader__.load</code>）时引用到的 <code>module</code> / <code>exports</code> 变量名保持确定。CSS 已内联进 <code>client.js</code>。</dd>
+        <dt>证据</dt><dd><span class="ev">vite.config.ts:161</span><span class="ev">vite.config.ts:158-161（原因说明）</span><span class="ev">vite.config.ts:36-43 inlineClientCss</span></dd>
+        <dt>建议</dt><dd>若要开压缩，需先保留顶层变量名（<code>keep_names</code> / <code>reservedNames</code>）再重验——<strong>这是一致性假设，别裸开</strong>。</dd>
+      </dl>
+    </article>
+
+    <article class="card" data-cat="perf" data-prio="low" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">L4</span>产物体积口径（基线数据）</div>
+        <span class="badge b-cat">性能</span><span class="badge b-low">低</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>事实</dt><dd><code>lib/index.js</code> 179.77 KB（host 半区，本地构建产物）；<code>lib/</code> 被 <code>.gitignore:11</code> 忽略；<code>lib/client.js</code> 当前工作区<strong>不存在</strong>，需 <code>npm run build:client</code> 后才可测。<code>vite.config.ts:94-109</code> 已 external 掉 react / react-dom / <code>@deepseek-ai/*</code> / <code>node:*</code>。</dd>
+        <dt>建议</dt><dd>把「双半区产物体积」纳入 <code>scripts/verify-release.mjs</code> 作为可观测基线，避免回归无感知。</dd>
+      </dl>
+    </article>
+
+    <!-- ================= 已证伪 ================= -->
+    <h3 data-group="dead">已证伪 · 不要再动</h3>
+
+    <article class="card dead" data-cat="dead" data-prio="low" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">X1</span>「getSnapshot 每次返回新对象导致无效重渲染」</div>
+        <span class="badge b-ok">不成立</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>反证</dt><dd>三处 store 均做了引用缓存：<code>overlay-session-runtime.ts:1412-1414</code>（只返回 <code>cachedSnapshot</code>，仅 <code>emit()</code> 重建）、<code>overlay-state-machine.ts:304-312</code>（注释明写「每次新建对象 → React error #301」）、<code>playback-cursor.ts:185-190</code>（惰性缓存 + <code>:141-146</code> 同引用二次守卫）。<code>CharacterOverlay.tsx:217-226/440</code> 三处 getSnapshot 全部稳定。</dd>
+      </dl>
+    </article>
+
+    <article class="card dead" data-cat="dead" data-prio="low" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">X2</span>「多个 store 订阅各自触发 setState，未批处理」</div>
+        <span class="badge b-ok">不成立</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>反证</dt><dd>runtime / position / cursor 均走 <code>useSyncExternalStore.subscribe</code>（<code>:1416-1421</code>、<code>:192-197</code>），React 18 自动批处理，未见手写 setState 通知路径。</dd>
+      </dl>
+    </article>
+
+    <article class="card dead" data-cat="dead" data-prio="low" data-conflict="0">
+      <div class="card-head">
+        <div class="card-title"><span class="card-id">X3</span>「SVG feDisplacementMap 重绘成本高」</div>
+        <span class="badge b-ok">不成立</span><span class="badge">已核实</span>
+      </div>
+      <dl>
+        <dt>反证</dt><dd><code>fx.css:117-118</code> 的 <code>feTurbulence</code> 是<strong>静态</strong> mask（<code>:119-120</code> 注释「静态：无 animation，零热循环」）；全仓无 <code>feDisplacementMap</code>。</dd>
+      </dl>
+    </article>
+
+  </div>
+</section>
+
+<section id="verified-ok">
+  <h2>已核实无问题（顺带记录，避免下次重复排查）</h2>
+  <p class="h2-note">以下 5 项经逐一检查确认<strong>实现正确</strong>，不需要优化。</p>
+  <table>
+    <thead><tr><th style="width:180px">项</th><th>核实结论</th></tr></thead>
+    <tbody>
+      <tr><td>监听器清理成对</td><td>CharacterOverlay / fx / warp / welcome-backdrop / SidebarEntry / SessionBubbleList / dynamic-title 的 <code>window</code>、<code>document</code>、<code>storage</code> 监听与 dispose 均成对。</td></tr>
+      <tr><td>WAAPI 实例泄漏</td><td><code>fall.ts:137-146</code>、<code>warp.ts:143-145/262-273</code> 有正确 cancel / 移除，无泄漏。</td></tr>
+      <tr><td><code>storage</code> 监听全局单例</td><td><code>persistent-setting.ts:64-67</code> 有 <code>storageListenerInstalled</code> 守卫，按 key 分发。</td></tr>
+      <tr><td>素材 ETag / 304</td><td><code>asset-routes.ts:92-101</code> 已实现（问题只在 304 前仍读文件，见 H3）。</td></tr>
+      <tr><td>AI 标题客户端节流与缓存</td><td><code>dynamic-title.ts:330-331</code> TTL 15min + 节流 30s，决策函数 <code>:273-292</code> 已存在（漏洞见 M4，非「没做」）。</td></tr>
+      <tr><td>类型逃逸</td><td>非测试代码中 <code>any</code> / <code>as unknown as</code> / 非空断言合计极低（src 5 文件 15 处、packages 1 处），<strong>不构成候选点</strong>。</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="adr-status">
+  <h2>既有方案与 ADR 落地状态</h2>
+
+  <h3><code>docs/architecture-optimization-plan.md</code> S1–S8</h3>
+  <table>
+    <thead><tr><th style="width:52px">Spec</th><th>内容</th><th style="width:130px">状态</th></tr></thead>
+    <tbody>
+      <tr><td>S1</td><td>工厂扩展 bool + id-set 构造器</td><td class="yes">已完成</td></tr>
+      <tr><td>S2</td><td>保留模式持久化收口</td><td class="yes">已完成（零裸 localStorage）</td></tr>
+      <tr><td>S3</td><td>欢迎背景配置收口</td><td class="yes">已完成（9 项入工厂 + 跨标签页同步）</td></tr>
+      <tr><td>S4</td><td>会话气泡上限配置削层</td><td class="yes">已完成（净减 ~20 行 + 补测试）</td></tr>
+      <tr><td>S5</td><td>host HTTP 共享件</td><td class="part">已完成但已回归 → 见 C1</td></tr>
+      <tr><td>S6</td><td>LLM 客户端适配器</td><td class="yes">已完成（可注入接缝 + 独立单测）</td></tr>
+      <tr><td>S7</td><td>host 改走库公共入口</td><td class="part">已完成，验收项②待复核 → 见 U5</td></tr>
+      <tr><td>S8</td><td>client 设置壳</td><td class="yes">维持现状（按方案不实施）→ 登记为 C3</td></tr>
+    </tbody>
+  </table>
+  <p class="h2-note" style="margin-top:10px">根因「<code>persistent-setting</code> 工厂未成为持久化单一事实源」经 S1–S4 已基本消除；唯一剩余漏网点是 C2，而 C2 经核实<strong>不宜收口</strong>（有意语义）。</p>
+
+  <h3>待实施 ADR</h3>
+  <table>
+    <thead><tr><th style="width:110px">ADR</th><th>内容</th><th style="width:110px">状态</th><th>证据</th></tr></thead>
+    <tbody>
+      <tr><td>ADR-0014</td><td>审批等待时间启发式（blockedSince ≥10s → permission，≥30s → angry）</td><td class="no">未实施</td><td class="mono">src/ 检索 blockedSince = 0 命中</td></tr>
+      <tr><td>ADR-0024</td><td>欢迎背景整页壁纸层</td><td class="yes">已实施</td><td class="mono">welcome-backdrop.ts + config 已入工厂</td></tr>
+      <tr><td>ADR-0032</td><td>气泡内容弹框固定几何 + 三列问答对照</td><td class="yes">已实施</td><td class="mono">POPUP_WIDTH_PX=560 / POPUP_HEIGHT_PX=320</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="next">
+  <h2>建议下一步</h2>
+  <p class="h2-note">按 D3 口径排序。P0 = 该马上做且风险低；P1 = 收益明确但需设计/实测；P2 = 增量补强。</p>
+  <ol class="steps">
+    <li><span class="tag p0">P0</span><strong>修 S5 回归（C1）</strong>——删 <code>json-response.ts</code>，两处 import 收敛到 <code>http-shared.ts</code>。行为逐字节等价，既有 HTTP seam 测试即护栏，几分钟可完成。</li>
+    <li><span class="tag p0">P0</span><strong>给 <code>SessionBubbleList</code> 加 <code>React.memo</code>（H4）</strong>——一行改动，直接切掉 14 个 emit 点放大的整棵子树重渲染。<strong>不要</strong>改 runtime 的 emit 语义（ADR-0016 已否决）。</li>
+    <li><span class="tag p0">P0</span><strong>素材路由先 stat 再判定 304（H3）</strong>——把 <code>readFile</code> 移到 ETag 命中之后，顺带给 LRU 字节缓存留出位置。注意别回退到强缓存。</li>
+    <li><span class="tag p1">P1</span><strong>H1 壁纸 MutationObserver 加 rAF 批处理 + 廉价前置过滤</strong>——先补一个 Profiler 实测，确认长任务量级再动手；改完回归 ADR-0024/0027 视觉。</li>
+    <li><span class="tag p1">P1</span><strong>实施 ADR-0014（U1）</strong>——决策早就定了，代码零落地。复用既有注入 <code>now()</code> 的时间接缝，不用新定时器。</li>
+    <li><span class="tag p1">P1</span><strong>H2 素材减重</strong>——先拿 <code>happy.webp</code>（12.37 MB）做单文件试压，确认画质与循环三原则不受损再全量；字体子集化单独立项。</li>
+    <li><span class="tag p1">P1</span><strong>M1 过渡时长改构建期 manifest</strong>——彻底消除运行时整文件下载，顺带解决 <code>durationCache</code> 无清理入口的 ADR-0017 隐患。</li>
+    <li><span class="tag p2">P2</span><strong>U2 二选一了结 warp 的 <code>onFrame</code></strong>——要么接上 rAF，要么删掉守卫并改文档。现在「写了不接」是最坏状态。</li>
+    <li><span class="tag p2">P2</span><strong>M3 / M4 补缓存与 in-flight 去重</strong>——两处都要先想清楚失效时机（M3 要随 archived/retention 失效，M4 要按 entry 存 TTL）。</li>
+    <li><span class="tag p2">P2</span><strong>补测试（U3 / U4）</strong>——优先 <code>SettingsCard</code> 开关接线与 <code>bubble-drag-handle</code> 的落点解析 + 合成 click 吞除。</li>
+  </ol>
+</section>
+
+<section id="boundary">
+  <h2>事实 / 推断边界</h2>
+  <div class="note">
+    <p style="margin:0 0 8px"><strong>已核实（有文件:行号证据）</strong>：全部候选点的现象与证据链；assets 体积数据；<code>tickIntervalMs</code> 生产值 = 1000ms（<code>overlay-session-runtime.ts:375</code>、<code>:1403</code>）；<code>onFrame</code> 无调用点；<code>readFile</code> 早于 ETag 判定；<code>SessionBubbleList</code> 未 memo；<code>emit()</code> 无条件重建快照；三条被证伪假设；监听器成对情况；类型逃逸量级。</p>
+    <p style="margin:0 0 8px"><strong>推断（机制成立但<em>未实测</em>）</strong>：H1 的触发频率与耗时；H2 的可压缩空间；M1 的累计内存量；M2 / M4 / L2 的实际成本；L3 开压缩的收益。</p>
+    <p style="margin:0"><strong>本次未覆盖</strong>：边界 bug 与竞态的专项审计（建议后续单开工单）。另外，<code>overlay-position.ts</code> 的 C2 降级结论基于「move 不写盘是有意语义」的判断，若要推翻需先读该模块全文。</p>
+  </div>
+</section>
+
+<footer>
+  生成于 2026-08-30 · memorial 017-deepen-optimize-performance ·
+  证据可回溯至 <a href="./sub-task/001.md" style="color:var(--gold)">工单 001（性能）</a> 与
+  <a href="./sub-task/002.md" style="color:var(--gold)">工单 002（深化与优化）</a>
+</footer>
+
+</div>
+
+<script>
+(function () {
+  var toggle = document.getElementById('themeToggle');
+  toggle.addEventListener('click', function () {
+    var root = document.documentElement;
+    var light = root.getAttribute('data-theme') === 'light';
+    root.setAttribute('data-theme', light ? 'dark' : 'light');
+    toggle.textContent = light ? '切换浅色' : '切换深色';
+  });
+
+  var chips = Array.prototype.slice.call(document.querySelectorAll('.chip'));
+  var items = Array.prototype.slice.call(document.querySelectorAll('#cards > .card, #cards > h3'));
+
+  function matches(card, filter) {
+    var cat = card.getAttribute('data-cat');
+    var prio = card.getAttribute('data-prio');
+    var conflict = card.getAttribute('data-conflict') === '1';
+    switch (filter) {
+      case 'deepen': return cat === 'deepen';
+      case 'quality': return cat === 'quality';
+      case 'perf': return cat === 'perf';
+      case 'dead': return cat === 'dead';
+      case 'high': return prio === 'high';
+      case 'conflict': return conflict;
+      default: return true;
+    }
+  }
+
+  function apply(filter) {
+    // 顺序遍历：h3 组标题的显隐取决于其后紧跟的卡片区块内是否有可见卡片。
+    var pendingHeader = null;
+    var headerHasVisible = false;
+
+    function flush() {
+      if (pendingHeader) pendingHeader.style.display = headerHasVisible ? '' : 'none';
+      pendingHeader = null;
+      headerHasVisible = false;
+    }
+
+    items.forEach(function (el) {
+      if (el.tagName === 'H3') {
+        flush();
+        pendingHeader = el;
+        return;
+      }
+      var show = matches(el, filter);
+      el.style.display = show ? '' : 'none';
+      if (show) headerHasVisible = true;
+    });
+    flush();
+  }
+
+  chips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      chips.forEach(function (c) { c.setAttribute('aria-pressed', String(c === chip)); });
+      apply(chip.getAttribute('data-filter'));
+    });
+  });
+})();
+</script>
+</body>
+</html>
