@@ -1,6 +1,6 @@
 # 用户名设置 + 带名问候
 
-**Status:** pending-review
+**Status:** done
 
 **Blocked by:** 01
 

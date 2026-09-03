@@ -1,6 +1,6 @@
 # 接入宿主 slots，占用 hero 标题，时段问候 MVP（不带名）
 
-**Status:** pending-review
+**Status:** done
 
 **Blocked by:** 无——可立即开始（外部前置：deepseek-harness 仓库 `03-hero-headline-slot` 的工单合入后才能实际占用，见评论）
 
