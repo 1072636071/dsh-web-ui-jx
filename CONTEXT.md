@@ -68,6 +68,16 @@
 | --- | --- |
 | warp | 鼠标光线扭曲特效（ADR-0005）：pointermove 驱动，半径 200px SVG feDisplacementMap 扭曲 + --jx-moon 边缘光，停下 400ms 淡出；pointer:coarse 与 reduced-motion 降级。替换已删除的 breathe。 |
 
+## 个性化问候
+
+| 术语 | 定义 |
+| --- | --- |
+| hero 时段问候 | 新会话空态大标题的个性化文案：按时段 + 用户名替换宿主的「探索未至之境」。经宿主 slot `conversation.hero.headline` 占用，无人占用时回落宿主原文案（ADR-0033）。 |
+| 问候时段四档 | 上午 05:00–11:59 / 下午 12:00–17:59 / 晚上 18:00–22:59 / 该休息 23:00–04:59；wrap-around 判定 `hour >= 23 \|\| hour < 5`。取**浏览器本地时间**，挂载时算一次不挂 timer（ADR-0035）。 |
+| 用户名（user name） | 用户在设置卡自填的称呼，只出现在 hero 大标题；未填则整句去掉名字与逗号（两套完整文案，不跨 key 拼接）。姜晓台词一律称「大人」，不带用户名（ADR-0034）。存 client 侧 `createPersistentSetting`（localStorage），不走 host settings 分节（ADR-0036）。 |
+| 新建会话台词 | 姜晓在「切到一个空会话」时说的台词，4 句与 hero 时段同步。判定：`sessions.list` 的 `current` **变化**且 `byId[current].blank === true`；同一 id 不重复。已知漏检：宿主「New Session reuses a blank one targeting the same workspace」，复用同工作区空白会话时 id 不变 → 不触发（与 hero 未重新挂载行为一致）。 |
+| 颜文字 | 台词句尾的表情符号，覆盖**全部**台词（8 条状态 + 4 条惊吓 + 4 条新建会话）。风格取线条型冷感（如 `(・∀・)` / `(¬_¬)` / `(ﾟДﾟ)`），避开圆润可爱型，守 `docs/character-lines.md` 的「不甜腻、不卑微」红线。颜文字不计入「一句 12 字内」的字数。 |
+
 ## 宿主生态（外部引用）
 
 | 术语 | 定义 |
@@ -114,5 +124,10 @@
 | ADR-0030 | 详情窗 AI 动态标题走 host 半区 Node 直连 + transport 抽象（已实施）：库 `DynamicTitleTransport` 接口 + host `/api/dsh-jx/ai-title` 路由（OpenAI 兼容协议）+ settings 分节 `dsh-jx.aiTitle`（endpoint/model/频率）+ credentials 存取 API key（每操作 resolve、换 key 零重启）；客户端只传消息上下文、浏览器零 key 暴露；触发重刷 = 事件失效 + 悬停时缓存过期才生成 + 节流；否决注册 LLM adapter。 |
 | ADR-0031 | 气泡内容弹框数据源取宿主服务端 `sessionController.inspect`（已实施）：host 半区注入 `sessionController`，`inspect(sessionId)` 无副作用读会话日志（兼容冷会话），顺序提取全部直接用户问话（时序正序，末条恒为最新）（`user/message` + `source.kind==='user'`），经 `/api/dsh-jx` 路由下发；client hover 气泡浮现内容弹框（标题 + 问话胶囊 + 详情区）；否决 client 临时 open 切回 / sessions.search / 仅已 open 会话降级。 |
 | ADR-0032 | 气泡内容弹框固定几何 + 三列问答对照（待实施）：`maxHeight`→固定 `height`（560×320）根治高度抖动，内容留白 + 各列内滚动；竖排三段改三列（左=标题+竖排可滚动问话摘要行、中=选中问话全文、右=配对 LLM 回复），左列选中态驱动中右；host 响应 prompts 每条附 `reply:string\|null`（问答案配对规则），`collectUserMessages` 扩为逐问配对 assistant 文本；否决 全局末条回复 / 回复堆叠中列 / JS 记忆上次高度。 |
+
+| ADR-0033 | 个性化问候走「宿主开槽 + 插件占用」（待实施）：宿主 `ui-conversation` 新增 slot `conversation.hero.headline`（3 处约 10 行，fallback 保留原文案 → 宿主测试/i18n 零改动），本插件加 peerDep 占用；时段判定与全部文案留本插件。否决 client DOM 劫持（靠文案匹配、locale 一换即失效）/ 逻辑写进宿主互读配置 / 只让姜晓在气泡问候。 |
+| ADR-0034 | 用户名由用户自填（待实施）：生态内原本不存在用户名（anonymous-user-id 明确不可用于识别用户）；未填则去掉名字与逗号保留问候语；姜晓台词一律称「大人」不带用户名（古风敬语人设 + 避免与标题重复）；trim 后非空有效、上限 16 字符、剥离控制字符与换行。否决 OS 用户名推断（拿到机器账号名，关怀感为负）/ 首启询问 / 回落原文案 / 「朋友」兜底。 |
+| ADR-0035 | 问候时段 05/12/18/23 四档 + 浏览器本地时区 + 挂载时算一次（待实施）：边界 wrap-around，边界值须专门测试；hero 仅空会话显示且新建会话会重挂载，故不挂 timer。否决 06/12/18/00（23 点漏掉关怀句）/ 22 点就劝休息（扫兴）/ setInterval 轮询 / setTimeout 精确唤醒（休眠节流后要补算）/ 边界可配置。 |
+| ADR-0036 | 用户名存 client 侧 `createPersistentSetting`（localStorage），不走 host settings 分节（待实施）：与皮肤/特效开关同构，不劳烦 host 半区，并绕开 memory 模式（远端浏览器）host settings 不可写的问题；代价是不跨浏览器 profile 同步。附带：SettingsCard 加「个性化问候」开关——本插件同时承载角色浮层，不能为关问候而 `disabled` 整个包。 |
 
 详见 `docs/adr/`。
