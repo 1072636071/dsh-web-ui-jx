@@ -5,7 +5,8 @@
  *   - Ma Shan Zheng 楷体（base.css @font-face JX MashanZheng）
  *   - 金色边框（color-mix gold-deep 38%）+ 金色文字（--jx-gold-bright）
  *   - 不对称圆角 12px 12px 2px 12px（右下尖角，气泡从角色右上方伸出）
- *   - 文居中 + 字间距 0.04em，不限宽单行（nowrap + 自适应宽度，台词尽可能一行）
+ *   - 文居中 + 字间距 0.04em，不限宽单行（nowrap + max-width: none + 自适应宽度，
+ *     台词尽可能一行；句尾颜文字亦不换行，memorial 017 D17）
  *   - box-shadow 0 4px 16px surface-0 40%
  *   - 淡入淡出（opacity + translateY），pointer-events: none
  *
@@ -19,8 +20,12 @@
   /* 浮层上方，不遮挡角色 */
   bottom: 100%;
   right: 0;
-  /* 不限宽、单行，保证台词尽可能一行（nowrap + 自适应宽度） */
+  /* 不限宽、单行，保证台词尽可能一行（nowrap + 自适应宽度）。
+   * max-width: none 显式声明（memorial 017 D17）：台词句尾带颜文字后最长句
+   * 约 12 汉字 + 颜文字（≈270px），历史上的 220px 上限会把颜文字挤到第二行；
+   * 宽度上限就此放开，勿再加 max-width。 */
   white-space: nowrap;
+  max-width: none;
   padding: 8px 14px;
   /* 唐风设计：楷体 + 金色边框 + 金色文字 + 不对称圆角 */
   background: color-mix(in srgb, var(--jx-surface-2) 92%, transparent);

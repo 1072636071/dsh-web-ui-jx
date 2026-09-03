@@ -25,10 +25,12 @@ function makeRandom(seq: number[]): () => number {
 describe("overlay-speech: 状态台词", () => {
   it("有台词状态返回对应台词（ADR-0016 四态 + 表演态）", () => {
     const s = createOverlaySpeech();
-    expect(s.decide("idle", "working").text).toBe("遵命，这就去办。");
-    expect(s.decide("working", "permission").text).toBe("此事需大人首肯。");
+    expect(s.decide("idle", "working").text).toBe("遵命，这就去办。(・∀・)");
+    expect(s.decide("working", "permission").text).toBe(
+      "此事需大人首肯。(`・ω・´)ゞ",
+    );
     expect(s.decide("permission", "nod-smile").text).toBe(
-      "大人英明，姜晓这便去办。",
+      "大人英明，姜晓这便去办。(￣ー￣)b",
     );
   });
 
@@ -46,7 +48,7 @@ describe("overlay-speech: 状态台词", () => {
 describe("overlay-speech: 惊吓自动路径（摸鱼彩蛋）", () => {
   it("切入 surprised 弹随机惊吓台词", () => {
     const s = createOverlaySpeech({ random: makeRandom([0]) });
-    expect(s.decide("working", "surprised").text).toBe("吓！");
+    expect(s.decide("working", "surprised").text).toBe("吓！(ﾟДﾟ)");
   });
 
   it("未抑制时自动路径不置抑制", () => {
@@ -79,16 +81,16 @@ describe("overlay-speech: 点击惊吓抑制（ADR-0011 D4）", () => {
     s.suppressAuto();
     s.decide("idle", "surprised");
     s.decide("surprised", "idle");
-    expect(s.decide("idle", "working").text).toBe("遵命，这就去办。");
+    expect(s.decide("idle", "working").text).toBe("遵命，这就去办。(・∀・)");
   });
 });
 
 describe("overlay-speech: pickSurpriseLine", () => {
   it("从台词池取（注入确定性随机）", () => {
     const s = createOverlaySpeech({ random: makeRandom([0, 0.25, 0.5, 0.75]) });
-    expect(s.pickSurpriseLine()).toBe("吓！");
-    expect(s.pickSurpriseLine()).toBe("何人！");
-    expect(s.pickSurpriseLine()).toBe("休要动手动脚！");
-    expect(s.pickSurpriseLine()).toBe("咦？可是吓到大人了？");
+    expect(s.pickSurpriseLine()).toBe("吓！(ﾟДﾟ)");
+    expect(s.pickSurpriseLine()).toBe("何人！(ﾟωﾟ)");
+    expect(s.pickSurpriseLine()).toBe("休要动手动脚！(ﾟДﾟ)ﾉ");
+    expect(s.pickSurpriseLine()).toBe("咦？可是吓到大人了？(´･ω･`)");
   });
 });

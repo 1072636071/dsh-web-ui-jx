@@ -29,24 +29,26 @@ export type SpeechDisplayState = OverlayState | PerformanceKind;
  *  ADR-0016 四态收敛 + 表演态（done/nod-smile/frown-wave/happy/angry）；
  *  welcome 入场表演已随 ADR-0023 移除。
  *  thinking/reading 为 working 显示层轮换素材，不配独立台词（标签恒为工作中）。
- *  匹配设计 demo 的唐风角色语气。idle 不配台词（切回 idle 不弹气泡）。 */
+ *  匹配设计 demo 的唐风角色语气。idle 不配台词（切回 idle 不弹气泡）。
+ *  句尾颜文字为线条型冷感风格（memorial 017 D12/D16 定稿，逐字照用）；
+ *  颜文字不计入「一句 12 字内」的字数约束（D17）。 */
 const STATE_SPEECH: Partial<Record<SpeechDisplayState, string>> = {
-  working: "遵命，这就去办。",
-  error: "此事有蹊跷，容我再查。",
-  permission: "此事需大人首肯。",
-  done: "此事已毕，大人过目。",
-  "nod-smile": "大人英明，姜晓这便去办。",
-  "frown-wave": "既如此，姜晓告退。",
-  happy: "大人笑了，姜晓也欢喜。",
-  angry: "久候无应，姜晓有些不耐。",
+  working: "遵命，这就去办。(・∀・)",
+  error: "此事有蹊跷，容我再查。(-_-;)",
+  permission: "此事需大人首肯。(`・ω・´)ゞ",
+  done: "此事已毕，大人过目。(￣▽￣)",
+  "nod-smile": "大人英明，姜晓这便去办。(￣ー￣)b",
+  "frown-wave": "既如此，姜晓告退。(´･_･`)",
+  happy: "大人笑了，姜晓也欢喜。(´▽｀)",
+  angry: "久候无应，姜晓有些不耐。(¬_¬)",
 };
 
 /** 惊吓台词池（点击触发随机一句；摸鱼彩蛋随机惊吓亦从池取，ADR-0011 D4）。 */
 const SURPRISE_LINES: readonly string[] = [
-  "吓！",
-  "何人！",
-  "休要动手动脚！",
-  "咦？可是吓到大人了？",
+  "吓！(ﾟДﾟ)",
+  "何人！(ﾟωﾟ)",
+  "休要动手动脚！(ﾟДﾟ)ﾉ",
+  "咦？可是吓到大人了？(´･ω･`)",
 ];
 
 /** 台词决策结果. */
