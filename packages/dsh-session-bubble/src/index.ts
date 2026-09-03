@@ -14,6 +14,7 @@
  */
 
 
+export type { SessionStreamRemote } from "./detail/detail-data.ts";
 export {
   buildBubbleGroups,
   displayTitle,

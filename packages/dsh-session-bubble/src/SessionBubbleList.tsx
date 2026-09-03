@@ -110,12 +110,9 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type {
-  ISessions,
-  IWorkspaces,
-  SessionId,
-  SessionListState,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type { ISessions, SessionListState } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { IWorkspaces } from "@deepseek-ai/dsh-api-workspace-controller/client";
+import type { SessionId } from "@deepseek-ai/dsh-session";
 import {
   buildBubbleGroups,
   displayTitle,

@@ -53,7 +53,7 @@ function makeSessions(current: string, blank: boolean) {
     subagentsByParent: {},
     jobsBySession: {},
     currentAddress: undefined,
-  } as unknown as import("@deepseek-ai/dsh-client-runtime/client").SessionListState;
+  } as unknown as import("@deepseek-ai/dsh-api-session-controller/client").SessionListState;
   const listeners = new Set<() => void>();
   return {
     list: {

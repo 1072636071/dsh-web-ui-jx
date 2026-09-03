@@ -18,7 +18,7 @@
  * @module dsh-web-ui-jx/client
  */
 
-import type { SessionListState } from "@deepseek-ai/dsh-client-runtime/client";
+import type { SessionListState } from "@deepseek-ai/dsh-api-session-controller/client";
 import type { PendingInteractionKind, SessionListEntry } from "./session-bubbles.ts";
 
 // ---------------------------------------------------------------------------
@@ -73,8 +73,7 @@ export function visiblePendingKind(
  * pendingInteraction 双事实源（宿主 SDK 升级适配）：
  *   - 传入 `pendingInteractions`（uiSession.pendingInteractions 快照）时以
  *     Map 为准——可见 kind（approval/plan-review/question）命中才落键，
- *     未命中/未知 kind 一律不落（忽略 summary 遗留字段）；
- *   - 未传 Map 时回退 summary.pendingInteraction 遗留字段（旧宿主兼容）。
+ *     未命中/未知 kind 一律不落（SDK 升级后 Summary 无此字段，仅此一源）。
  *
  * @param state - sessions.list 快照（SDK store 保证稳定引用）。
  * @param pendingInteractions - 宿主待交互快照（可选，新宿主事实源）。
@@ -88,10 +87,12 @@ export function deriveSessionListEntries(
   for (const id of state.ids) {
     const summary = state.byId[id];
     if (summary === undefined) continue;
+    // 宿主 SDK 升级后 SessionSummary 不再带 pendingInteraction；等待用户交互
+    // 信号仅来自 uiSession.pendingInteractions（见文件头单一事实源注释）。
     const pendingKind =
       pendingInteractions !== undefined
         ? visiblePendingKind(pendingInteractions.get(summary.id)?.kind)
-        : summary.pendingInteraction;
+        : undefined;
     items.push({
       sessionId: summary.id,
       title: summary.title,

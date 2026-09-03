@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { ISessions } from "@deepseek-ai/dsh-client-runtime/client";
+import type { ISessions } from "@deepseek-ai/dsh-api-session-controller/client";
 import type { SpeechTrigger } from "./components/CharacterOverlay.tsx";
 import { createNewSessionGreeter } from "./state-machine/new-session-greeting.ts";
 

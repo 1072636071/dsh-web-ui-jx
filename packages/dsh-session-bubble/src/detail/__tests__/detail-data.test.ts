@@ -6,7 +6,8 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import type { ContentBlock, HistoryEntry } from "@deepseek-ai/dsh-client-connection/client";
+import type { SessionEventLikeEntry } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { ContentBlock } from "@deepseek-ai/dsh-llm/types";
 import {
   createDshPreviewTransport,
   createPreviewCache,
@@ -15,9 +16,10 @@ import {
   type SessionPreview,
 } from "../detail-data.ts";
 
-// 构造最小 HistoryEntry 事件（只关心 type / data.content / surfaceOp）
-function userMessage(text: string): HistoryEntry {
+// 构造最小 SessionEventLikeEntry 事件（只关心 type / data.content / surfaceOp）
+function userMessage(text: string): SessionEventLikeEntry {
   return {
+    type: "event",
     event: {
       type: "user/message",
       seq: 0,
@@ -30,11 +32,12 @@ function userMessage(text: string): HistoryEntry {
       },
       surfaceOp: "append",
     },
-  } as unknown as HistoryEntry;
+  } as unknown as SessionEventLikeEntry;
 }
 
-function assistantMessage(text: string): HistoryEntry {
+function assistantMessage(text: string): SessionEventLikeEntry {
   return {
+    type: "event",
     event: {
       type: "assistant/message",
       seq: 0,
@@ -51,22 +54,24 @@ function assistantMessage(text: string): HistoryEntry {
       },
       surfaceOp: "append",
     },
-  } as unknown as HistoryEntry;
+  } as unknown as SessionEventLikeEntry;
 }
 
-function assistantChunk(text: string): HistoryEntry {
+function assistantChunk(text: string): SessionEventLikeEntry {
   return {
+    type: "event",
     event: {
       type: "assistant/chunk",
       seq: 0,
       time: 0,
       data: { turn: 1, step: 0, chunk: { type: "text-delta", index: 0, text } },
     },
-  } as unknown as HistoryEntry;
+  } as unknown as SessionEventLikeEntry;
 }
 
-function toolResult(text: string): HistoryEntry {
+function toolResult(text: string): SessionEventLikeEntry {
   return {
+    type: "event",
     event: {
       type: "tool/result",
       seq: 0,
@@ -83,7 +88,7 @@ function toolResult(text: string): HistoryEntry {
       },
       surfaceOp: "append",
     },
-  } as unknown as HistoryEntry;
+  } as unknown as SessionEventLikeEntry;
 }
 
 const emptyPreview = (sessionId: string, title: string): SessionPreview => ({
@@ -124,9 +129,10 @@ describe("extractPreview", () => {
   });
 
   it("空内容 assistant/message + chunk 视为 in-flight", () => {
-    const entries: HistoryEntry[] = [
+    const entries: SessionEventLikeEntry[] = [
       userMessage("u"),
       {
+        type: "event",
         event: {
           type: "assistant/message",
           seq: 0,
@@ -143,7 +149,7 @@ describe("extractPreview", () => {
           },
           surfaceOp: "append",
         },
-      } as unknown as HistoryEntry,
+      } as unknown as SessionEventLikeEntry,
       assistantChunk("par"),
     ];
     const result = extractPreview({ title: "t", entries });
@@ -156,6 +162,7 @@ describe("extractPreview", () => {
       title: "t",
       entries: [
         {
+          type: "event",
           event: {
             type: "user/message",
             seq: 0,
@@ -171,7 +178,7 @@ describe("extractPreview", () => {
             },
             surfaceOp: "append",
           },
-        } as unknown as HistoryEntry,
+        } as unknown as SessionEventLikeEntry,
       ],
     });
     expect(result.lastUserText).toBe("[图片] 调用工具 calc");
@@ -179,25 +186,17 @@ describe("extractPreview", () => {
 });
 
 describe("createDshPreviewTransport", () => {
-  it("业务错误静默降级", async () => {
-    const api = {
-      sessions: {
-        history: vi.fn().mockResolvedValue({
-          result: { ok: false, error: { code: "session-not-found", message: "x", details: { sessionId: "s1" } } },
-        }),
-      },
-    } as unknown as Parameters<typeof createDshPreviewTransport>[0];
+  it("Remote 面不完整（构造失败）静默降级", async () => {
+    const api = {} as unknown as Parameters<typeof createDshPreviewTransport>[0];
 
     const transport = createDshPreviewTransport(api);
     const preview = await transport.fetchPreview({ sessionId: "s1", title: "t", updatedAt: 1 });
     expect(preview).toEqual(emptyPreview("s1", "t"));
   });
 
-  it("异常静默降级", async () => {
+  it("$stream 抛异常静默降级", async () => {
     const api = {
-      sessions: {
-        history: vi.fn().mockRejectedValue(new Error("timeout")),
-      },
+      $stream: vi.fn().mockImplementation(() => { throw new Error("timeout"); }),
     } as unknown as Parameters<typeof createDshPreviewTransport>[0];
 
     const transport = createDshPreviewTransport(api);

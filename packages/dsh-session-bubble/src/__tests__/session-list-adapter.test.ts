@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import { deriveSessionListEntries } from "../session-list-adapter.ts";
 
 // ---------------------------------------------------------------------------
-// 辅助构造 SDK 形状输入（类型见 @deepseek-ai/dsh-client-runtime/client）
+// 辅助构造 SDK 形状输入（类型见 @deepseek-ai/dsh-api-session-controller/client）
 // ---------------------------------------------------------------------------
 
 interface FakeSummary {
@@ -139,15 +139,15 @@ describe("session-list-adapter: 待交互源投影（pendingInteractions Map）"
   it("Map 在场时以 Map 为准（忽略 summary 遗留 pendingInteraction 字段）", () => {
     const state = listState([{ id: "s1", running: true }]);
     // 旧宿主字段在场但 Map 未命中 → 以 Map（新事实源）为准
-    (state.byId.s1 as Record<string, unknown>).pendingInteraction = "approval";
+    (state.byId.s1 as unknown as Record<string, unknown>).pendingInteraction = "approval";
     const out = deriveSessionListEntries(state as never, new Map());
     expect(out[0]?.pendingInteraction).toBeUndefined();
   });
 
-  it("未传 Map → 回退 summary 遗留字段（旧宿主兼容）", () => {
+  it("未传 Map → 无 pendingInteraction（SDK 升级后无遗留字段回退）", () => {
     const state = listState([{ id: "s1", running: true }]);
-    (state.byId.s1 as Record<string, unknown>).pendingInteraction = "question";
+    (state.byId.s1 as unknown as Record<string, unknown>).pendingInteraction = "question";
     const out = deriveSessionListEntries(state as never);
-    expect(out[0]?.pendingInteraction).toBe("question");
+    expect(out[0]?.pendingInteraction).toBeUndefined();
   });
 });

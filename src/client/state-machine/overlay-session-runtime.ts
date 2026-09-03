@@ -47,10 +47,8 @@
  * @module dsh-web-ui-jx/client
  */
 
-import type {
-  ISessions,
-  SessionId,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type { ISessions } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { SessionId } from "@deepseek-ai/dsh-session";
 import {
   visiblePendingKind,
   type PendingInteractionsSource,

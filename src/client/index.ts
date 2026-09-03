@@ -28,11 +28,9 @@
  * @module dsh-web-ui-jx/client
  */
 
-import type { ClientContext } from "@deepseek-ai/dsh-client-runtime/client";
-import type {
-  ISessions,
-  IWorkspaces,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type { Context as ClientContext } from "@deepseek-ai/cordis";
+import type { ISessions } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { IWorkspaces } from "@deepseek-ai/dsh-api-workspace-controller/client";
 import { createElement, Fragment } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -43,6 +41,7 @@ import {
   type DynamicTitleTransport,
   type PendingInteractionsSource,
   type PreviewTransport,
+  type SessionStreamRemote,
 } from "../../packages/dsh-session-bubble/src/index.ts";
 import { CharacterOverlay } from "./components/CharacterOverlay.tsx";
 import { SidebarEntry } from "./components/SidebarEntry.tsx";
@@ -74,7 +73,7 @@ import "./styles/fx.css";
  * 归档排除/真归档需 workspaces；待交互快路径需 uiSession——宿主 SDK 升级后
  * pendingInteraction 信号由 uiSession.pendingInteractions 承载；hero 标题 slot
  * 占用需 slots——ADR-0033 临时形态，运行期键见 hero-headline-greeting.ts）. */
-export const inject: string[] = ["sessions", "workspaces", "uiSession", "slots"];
+export const inject: string[] = ["sessions", "workspaces", "uiSession", "slots", "remote"];
 
 /** 宿主 uiSession 服务的结构子集（只消费 pendingInteractions 观察源）. */
 interface UiSessionLike {
@@ -156,10 +155,11 @@ function RootApp({
  * 最后启动 FX 特效系统（applyFx 读取 localStorage + reduced-motion 判定，
  * 在 html 上增删 fx-* 类）。
  *
- * 详情窗数据链路（工单 16-02/16-04）：经 `ctx.connection.api` 构建预览
- * transport（createPreviewCache 缓存包装）与 AI 动态标题 transport
- * （createDynamicTitleStore 缓存/节流包装，host 半区 /api/dsh-jx/ai-title
- * 路由，浏览器零 key 暴露）；connection 缺失时两者缺省，详情窗仅显示标题。
+ * 详情窗数据链路（工单 16-02/16-04）：经 `ctx.remote` 构建预览 transport
+ * （createPreviewCache 缓存包装，会话历史走 SessionEventStream）与 AI 动态
+ * 标题 transport（createDynamicTitleStore 缓存/节流包装，host 半区
+ * /api/dsh-jx/ai-title 路由，浏览器零 key 暴露）；remote 缺失时两者缺省，
+ * 详情窗仅显示标题。
  *
  * ADR-0017 可重入约束：宿主存在运行期插件重载机制（client-hmr rebuilt 帧、
  * 动态包 runner invalidate+重建），本函数会在不刷新页面的情况下被再次执行。
@@ -215,16 +215,18 @@ export function apply(ctx: ClientContext): void {
           ...(pendingInteractions !== undefined ? { pendingInteractions } : {}),
         })
       : undefined;
-  // 详情窗数据链路（工单 16-02/16-04）：经 connection.api 拉预览（缓存包装器），
+  // 详情窗数据链路（工单 16-02/16-04）：经 ctx.remote 拉预览（缓存包装器），
   // 动态标题走 host 半区 /api/dsh-jx/ai-title 路由（缓存/节流包装器）。
-  // connection 缺失时两者均为 undefined → 详情窗仅显示标题，完整可用。
-  const connection = ctx.get("connection");
+  // remote（ClientRemote）缺失时 previewTransport/dynamicTitleTransport 均为
+  // undefined → 详情窗仅显示标题，完整可用。新版 Connection 不再暴露 .api，
+  // 会话历史经 ctx.remote 的 SessionEventStream 读取（见 detail-data.ts）。
+  const remote = ctx.get("remote");
   const previewTransport =
-    connection !== undefined
-      ? createPreviewCache(createDshPreviewTransport(connection.api))
+    remote !== undefined
+      ? createPreviewCache(createDshPreviewTransport(remote as unknown as SessionStreamRemote))
       : undefined;
   const dynamicTitleTransport =
-    connection !== undefined
+    remote !== undefined
       ? createDynamicTitleStore(createDshDynamicTitleTransport())
       : undefined;
   root.render(

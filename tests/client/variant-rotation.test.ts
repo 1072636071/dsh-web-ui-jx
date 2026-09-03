@@ -45,13 +45,9 @@ import {
   setVariantRotationEnabled,
   subscribeVariantRotationEnabled,
 } from "../../src/client/state-machine/overlay-settings.ts";
-import type {
-  ConversationSnapshot,
-  ISessions,
-  SessionBinding,
-  SessionId,
-  SessionListState,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type { ConversationSnapshot } from "@deepseek-ai/dsh-client-ui-conversation/client";
+import type { ISessions, SessionBinding, SessionListState } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { SessionId } from "@deepseek-ai/dsh-session";
 
 const A = "a" as SessionId;
 const B = "b" as SessionId;
@@ -150,13 +146,19 @@ function createMockSessions(initial: SessionListState): MockSessions {
     return {
       sessionId: id,
       session: s as unknown as SessionBinding["session"],
+      eventSource: {} as SessionBinding["eventSource"],
       ctx: {} as SessionBinding["ctx"],
     };
   }
 
   const mock: MockSessions = {
     list: list as unknown as ISessions["list"],
-    currentProvideInfo: {} as ISessions["currentProvideInfo"],
+    create() {
+      return Promise.resolve("" as SessionId);
+    },
+    refresh() {
+      return Promise.resolve();
+    },
     searchResultLimit: 10,
     open() {},
     openSubagent() {},

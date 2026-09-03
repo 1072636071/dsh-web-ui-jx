@@ -2,18 +2,24 @@
  * detail-data — 会话气泡详情窗数据层（工单 16-01）。
  *
  * 纯逻辑模块：
- *   - 预览提取：从 `session.history` 尾页事件序列中抽取最后一条用户消息与
+ *   - 预览提取：从会话尾页事件序列中抽取最后一条用户消息与
  *     最后一条模型消息；空日志 / 纯工具尾 / in-flight partial 回退正确。
  *   - 缓存策略：TTL 15s + 会话 updatedAt 变化失效 + in-flight 去重。
- *   - transport 接口 + DSH 默认实现（经 connection.api.sessions.history 调用）。
+ *   - transport 接口 + DSH 默认实现（经 SessionEventStream 打开会话尾页）。
  *
  * 本模块零依赖 DOM/React；所有 SDK 类型以 TypeScript 类型导入，运行时仅依赖
- * 标准 ECMAScript。
+ * 标准 ECMAScript（SessionEventStream 为浏览器 __ModuleLoader__ 包裹的运行时
+ * 模块，仅经 fetchPreview 内的延迟动态导入触达）。
  *
  * @module dsh-session-bubble/detail
  */
 
-import type { ContentBlock, HistoryEntry, IApiClient } from "@deepseek-ai/dsh-client-connection/client";
+import type {
+  SessionEventStream,
+  SessionEventLikeEntry,
+  SessionJournalChange,
+} from "@deepseek-ai/dsh-api-session-controller/client";
+import type { ContentBlock } from "@deepseek-ai/dsh-llm/types";
 import type { SessionEvent, SessionId } from "@deepseek-ai/dsh-session/types";
 import {
   isSurfaceEligibleType,
@@ -127,12 +133,12 @@ function isAssistantChunkEvent(event: SessionEvent): boolean {
  * 规则：
  *   - 遍历事件；surface 事件中的 user/message 更新 lastUserText；
  *     assistant/message 更新 lastAssistantText；tool/result 忽略。
- *   - 若遍历结束后 lastAssistantText 为空，且序列中出现过 assistant/chunk，
- *     则视为 in-flight，UI 可展示占位文案。
+ *   - 若遍历结束后 lastAssistantText 为空，且序列中出现过 assistant/chunk
+ *     或紧凑 chunk 行，则视为 in-flight，UI 可展示占位文案。
  *   - 空日志 / 非 surface 尾页 ⇒ 返回空文本、非 inFlight。
  *
  * @param title - 会话标题（由会话列表给出）。
- * @param entries - session.history 尾页返回的 HistoryEntry[]。
+ * @param entries - 会话尾页返回的 SessionEventLikeEntry[]。
  * @returns 不含 sessionId 的预览内容（SessionBubbleDetail 再拼 sessionId）。
  */
 export function extractPreview({
@@ -140,13 +146,18 @@ export function extractPreview({
   entries,
 }: {
   title: string;
-  entries: readonly HistoryEntry[];
+  entries: readonly SessionEventLikeEntry[];
 }): Omit<SessionPreview, "sessionId"> {
   let lastUserText = "";
   let lastAssistantText = "";
   let hasChunk = false;
 
   for (const entry of entries) {
+    // 紧凑 chunk 行：未落盘的模型增量，视为 in-flight 信号。
+    if (entry.type === "chunks") {
+      hasChunk = true;
+      continue;
+    }
     const event = entry.event;
     if (isAssistantChunkEvent(event)) {
       hasChunk = true;
@@ -207,22 +218,52 @@ export interface DshPreviewTransportOptions {
   maxMessages?: number;
 }
 
-/** 创建 DSH 默认 preview transport：调用 connection.api.sessions.history 尾页。 */
+/** SessionEventStream 构造所需的 Remote 命名空间面（即 SessionRemotes）. */
+export type SessionStreamRemote = ConstructorParameters<typeof SessionEventStream>[0];
+
+/** 创建 DSH 默认 preview transport：经 SessionEventStream 打开会话尾页快照。 */
 export function createDshPreviewTransport(
-  api: Pick<IApiClient, "sessions">,
+  api: SessionStreamRemote,
   options: DshPreviewTransportOptions = {},
 ): PreviewTransport {
   const maxMessages = options.maxMessages ?? 6;
 
   return {
     async fetchPreview({ sessionId, title, updatedAt: _updatedAt }, signal) {
+      let stream: SessionEventStream | undefined;
       try {
-        const response = await api.sessions.history({ sessionId: sessionId as SessionId, maxMessages }, signal);
-        // RpcResponse.result 即 RpcResult 槽位——内联解包避免运行时依赖
-        // @deepseek-ai/dsh-client-connection/client（该包引用 window，node 测试环境不可导入）。
-        const result = response.result;
-        if (!result.ok) {
-          // 业务错误静默降级，避免详情窗出现刺眼报错
+        // @deepseek-ai/dsh-api-session-controller/client 是浏览器 __ModuleLoader__
+        // 包裹的运行时模块，node 测试环境不可顶层导入；改在 fetchPreview 内延迟
+        // 动态导入，失败（node 测试 / 宿主模块表未提供）自然落入下方静默降级。
+        const { SessionEventStream: SessionEventStreamCtor } = await import(
+          "@deepseek-ai/dsh-api-session-controller/client"
+        );
+        let snapshotEntries: readonly SessionEventLikeEntry[] | undefined;
+        stream = new SessionEventStreamCtor(
+          api,
+          { kind: "session", sessionId: sessionId as SessionId },
+          {
+            // open() 发布首个 replace/prepend 快照后即读取 entries，无需常驻订阅。
+            publish: (change: SessionJournalChange) => {
+              if (
+                snapshotEntries === undefined &&
+                (change.type === "replace" || change.type === "prepend")
+              ) {
+                snapshotEntries = change.entries;
+              }
+            },
+            failed: () => {
+              // open() 期间的终态失败会直接 reject；此处仅兜底避免未处理异常
+            },
+          },
+        );
+        if (signal !== undefined) {
+          if (signal.aborted) throw new Error("preview aborted");
+          signal.addEventListener("abort", () => { void stream?.dispose(); }, { once: true });
+        }
+        await stream.open({ maxMessages });
+        if (snapshotEntries === undefined) {
+          // 无 opening snapshot：按旧语义静默降级为空预览
           return {
             sessionId,
             title,
@@ -232,10 +273,7 @@ export function createDshPreviewTransport(
             hasHistory: false,
           };
         }
-        const extracted = extractPreview({
-          title,
-          entries: result.value.events,
-        });
+        const extracted = extractPreview({ title, entries: snapshotEntries });
         return { sessionId, ...extracted };
       } catch {
         // 超时 / 取消 / 网络抖动 静默降级
@@ -247,6 +285,8 @@ export function createDshPreviewTransport(
           inFlight: false,
           hasHistory: false,
         };
+      } finally {
+        void stream?.dispose();
       }
     },
   };

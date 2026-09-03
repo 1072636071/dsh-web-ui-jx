@@ -16,11 +16,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type {
-  ISessions,
-  SessionId,
-  SessionListState,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type { ISessions, SessionListState } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { SessionId } from "@deepseek-ai/dsh-session";
 import {
   createNewSessionGreeter,
   NEW_SESSION_LINES,
@@ -87,7 +84,12 @@ function createMockSessions(initial: SessionListState): MockSessions {
   };
   return {
     list: list as unknown as ISessions["list"],
-    currentProvideInfo: {} as ISessions["currentProvideInfo"],
+    create() {
+      return Promise.resolve("" as SessionId);
+    },
+    refresh() {
+      return Promise.resolve();
+    },
     searchResultLimit: 10,
     open() {},
     openSubagent() {},

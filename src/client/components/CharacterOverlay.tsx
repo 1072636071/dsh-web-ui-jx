@@ -94,10 +94,8 @@ import {
   type PendingInteractionsSource,
   type PreviewTransport,
 } from "../../../packages/dsh-session-bubble/src/index.ts";
-import type {
-  ISessions,
-  IWorkspaces,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type { ISessions } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { IWorkspaces } from "@deepseek-ai/dsh-api-workspace-controller/client";
 
 /** 拖动中提视缩放（ADR-0006 决策 5：scale 1.02）. */
 const DRAG_SCALE = 1.02;

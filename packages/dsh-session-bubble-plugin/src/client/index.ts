@@ -12,11 +12,9 @@
  * @module dsh-session-bubble-plugin/client
  */
 
-import type {
-  ClientContext,
-  ISessions,
-  IWorkspaces,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type { Context as ClientContext } from "@deepseek-ai/cordis";
+import type { ISessions } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { IWorkspaces } from "@deepseek-ai/dsh-api-workspace-controller/client";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {

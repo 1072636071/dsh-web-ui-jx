@@ -27,13 +27,9 @@ import {
   getKeepEnabled,
   setKeepEnabled,
 } from "../index.ts";
-import type {
-  ISessions,
-  IWorkspaces,
-  SessionId,
-  SessionListState,
-  SessionSummary,
-} from "@deepseek-ai/dsh-client-runtime/client";
+import type { ISessions, SessionListState, SessionSummary } from "@deepseek-ai/dsh-api-session-controller/client";
+import type { IWorkspaces } from "@deepseek-ai/dsh-api-workspace-controller/client";
+import type { SessionId } from "@deepseek-ai/dsh-session";
 
 // ---------------------------------------------------------------------------
 // 常量（持久化契约键名）

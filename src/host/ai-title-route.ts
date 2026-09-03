@@ -21,7 +21,6 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Context } from "@deepseek-ai/cordis";
 import z from "@deepseek-ai/schemastery";
 import type { SettingsScope } from "@deepseek-ai/dsh-settings";
-import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 import type { CredentialProvider } from "@deepseek-ai/dsh-credentials";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { writeJson } from "./http-shared.ts";
@@ -34,7 +33,7 @@ import { buildDynamicTitlePrompt } from "../../packages/dsh-session-bubble/src/i
 export const AI_TITLE_ROUTE_PREFIX = "/api/dsh-jx/ai-title";
 
 /** settings 命名空间：本插件宿主设置分节（`dsh-jx.aiTitle`）。 */
-export const AI_TITLE_NS = settingsNamespace("dsh-jx");
+export const AI_TITLE_NS = "dsh-jx" as const;
 
 /** POST body 大小上限（4 KB，仅三个文本字段）。 */
 const MAX_BODY_BYTES = 4 * 1024;
