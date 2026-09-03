@@ -1,6 +1,6 @@
 # 姜晓新建会话台词（blank 检测 + 4 句时段台词）
 
-**Status:** pending-review
+**Status:** done
 
 **Blocked by:** 01
 
