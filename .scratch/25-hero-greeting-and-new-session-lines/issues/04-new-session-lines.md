@@ -26,7 +26,7 @@
 **台词通道选择**：复用既有台词显示通道——`CharacterOverlay` 的 `speech` prop（nonce 变化即弹台词气泡），不发明新通道。新建 `useNewSessionGreeting` hook 桥接纯逻辑 `createNewSessionGreeter` → 触发时产出 `SpeechTrigger` 经 RootApp 传入 `CharacterOverlay` 的 `speech` prop。
 
 **改动文件**：
-- 新增 `src/client/state-machine/new-session-greeting.ts`（纯逻辑：4 句台词常量 `NEW_SESSION_LINES` 逐字照抄 memorial 017 D16；`selectNewSessionLine` 复用工单 01 `greeting.ts` 的 `getGreetingBucket`，不写第二份时段判定；`shouldGreetNewSession` 纯触发判定；`isNewSessionGreetingEnabled` 单一开关判定点，本工单恒为开，工单 03 在此一处接入；`createNewSessionGreeter` 订阅 `sessions.list`，挂载补触发）。
+- 新增 `src/client/state-machine/new-session-greeting.ts`（纯逻辑：4 句台词常量 `NEW_SESSION_LINES` 逐字照抄 memorial 017 D16；`selectNewSessionLine` 复用工单 01 `greeting.ts` 的 `getGreetingBucket`，不写第二份时段判定；`shouldGreetNewSession` 纯触发判定；`isNewSessionGreetingEnabled` 单一开关判定点（本工单恒为开；已由工单 03 接入 `greetingEnabledStore`，改为始终订阅、evaluate 实时静默）；`createNewSessionGreeter` 订阅 `sessions.list`，挂载补触发）。
 - 新增 `src/client/new-session-greeting.ts`（React hook，桥接 greeter → SpeechTrigger，随组件 effect 释放订阅）。
 - 修改 `src/client/index.ts`（RootApp 追加 `speech={greetingSpeech}`，追加式小改）。
 - 新增 `tests/client/new-session-greeting.test.ts`（判定点纯逻辑 + 集成，fake sessions 双 + now 注入）。
@@ -35,4 +35,4 @@
 
 **已知漏检（记录，未修）**：宿主「New Session reuses a blank one targeting the same workspace」——点「新建会话」复用同工作区已有空白会话时 session id 不变，`current` 未变化 → 不触发请安台词。此时 hero 也未重新挂载，行为一致，与 D13 决策一致地接受。
 
-**遗留风险**：`useNewSessionGreeting` 仅在 `sessions` 注入时工作；`sessions` 缺失（测试假 ctx）不弹。开关判定点 `isNewSessionGreetingEnabled` 当前恒 `true`，工单 03 需在此接入设置读取，其余调用点无改动。
+**遗留风险**：`useNewSessionGreeting` 仅在 `sessions` 注入时工作；`sessions` 缺失（测试假 ctx）不弹。【已被工单 03 接入】开关判定点 `isNewSessionGreetingEnabled` 现读 `getGreetingEnabled()`，evaluate 内实时静默；其余调用点无改动。
