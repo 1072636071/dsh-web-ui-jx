@@ -60,6 +60,7 @@ import {
   subscribeVariantRotationEnabled,
 } from "./state-machine/overlay-settings.ts";
 import { initSkin } from "./skin.ts";
+import { registerHeroHeadlineGreeting } from "./hero-headline-greeting.ts";
 import {
   startWelcomeBackdrop,
   sweepResidualBackdrops,
@@ -70,8 +71,9 @@ import "./styles/fx.css";
 
 /** Client services required（令牌基座 + 动画挂钩需 sessions；ADR-0022 D3/D8
  * 归档排除/真归档需 workspaces；待交互快路径需 uiSession——宿主 SDK 升级后
- * pendingInteraction 信号由 uiSession.pendingInteractions 承载）. */
-export const inject: string[] = ["sessions", "workspaces", "uiSession"];
+ * pendingInteraction 信号由 uiSession.pendingInteractions 承载；hero 标题 slot
+ * 占用需 slots——ADR-0033 临时形态，运行期键见 hero-headline-greeting.ts）. */
+export const inject: string[] = ["sessions", "workspaces", "uiSession", "slots"];
 
 /** 宿主 uiSession 服务的结构子集（只消费 pendingInteractions 观察源）. */
 interface UiSessionLike {
@@ -253,6 +255,12 @@ export function apply(ctx: ClientContext): void {
     () => startWelcomeBackdrop(),
     "dsh-web-ui-jx: welcome backdrop lifecycle",
   );
+
+  // hero 标题 slot 占用（ADR-0033 临时形态 + ADR-0035 时段问候 MVP）。
+  // registerHeroHeadlineGreeting 经 ctx.slots.inject 注册，该调用内部通过
+  // 本 ctx 的 effect 自动清理（fiber 卸载 = 级联卸载，ADR-0017 可重入约束），
+  // 故无需在此额外挂清理器；插件缺席时宿主回落原文案，无空白标题。
+  registerHeroHeadlineGreeting(ctx);
 
   // ADR-0008：runtime 生命周期随 ctx.effect（dispose 释放全部订阅 + tick timer）。
   // ADR-0013：开关变化触发 runtime.resetRotation() 重估轮换。
