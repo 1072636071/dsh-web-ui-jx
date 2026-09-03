@@ -77,6 +77,10 @@ import {
 } from "../welcome-backdrop-config.ts";
 import { syncWelcomeBackdrop } from "../welcome-backdrop.ts";
 import { MAX_USER_NAME_LENGTH, userNameStore } from "../user-name-setting.ts";
+import {
+  getGreetingEnabled,
+  setGreetingEnabled,
+} from "../greeting-enabled.ts";
 import { ManagementUI } from "./ManagementUI.tsx";
 import styles from "../styles/sidebar-settings.module.css";
 
@@ -231,6 +235,10 @@ export function SettingsCard({ className }: SettingsCardProps) {
   const [nameDraft, setNameDraft] = useState<string>(() => userNameStore.getSnapshot());
   const [nameError, setNameError] = useState<string | null>(null);
 
+  // 个性化问候总开关（ADR-0036 D8，默认开）：关 → hero 回落宿主原文案 +
+  // 姜晓新建会话台词静默；角色浮层与其余台词不受影响。
+  const [greetingOn, setGreetingOn] = useState<boolean>(() => getGreetingEnabled());
+
   /** 切换皮肤总开关：setSkinEnabled 即时生效 + 持久化，并更新本地视图状态. */
   const handleToggleSkin = useCallback(() => {
     const next = !skinEnabled;
@@ -267,6 +275,13 @@ export function SettingsCard({ className }: SettingsCardProps) {
   const handleToggleNameSection = useCallback(() => {
     setNameCollapsed((c) => !c);
   }, []);
+
+  /** 切换个性化问候总开关（ADR-0036 D8）：即时生效 + 持久化 + 更新视图. */
+  const handleToggleGreeting = useCallback(() => {
+    const next = !greetingOn;
+    setGreetingEnabled(next);
+    setGreetingOn(next);
+  }, [greetingOn]);
 
   /** 用户名输入受控变更：同步草稿并清除既有行内错误（ADR-0034 D4）. */
   const handleNameChange = useCallback(
@@ -720,6 +735,24 @@ export function SettingsCard({ className }: SettingsCardProps) {
         </div>
         {!nameCollapsed && (
           <div className={styles.sectionBody}>
+            <div className={styles.fxItem}>
+              <div className={styles.fxLabelBox}>
+                <span className={styles.fxLabel}>启用个性化问候</span>
+                <span className={styles.fxDesc}>
+                  关闭后空会话大标题回落宿主原文案「探索未至之境」，姜晓的新建会话台词一并静默（角色浮层不受影响）
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={greetingOn}
+                aria-label="切换个性化问候"
+                className={`${styles.toggleSwitch}${greetingOn ? " " + styles.toggleOn : ""}`}
+                onClick={handleToggleGreeting}
+              >
+                <span className={styles.toggleKnob} />
+              </button>
+            </div>
             <div className={styles.fxItem}>
               <div className={styles.fxLabelBox}>
                 <span className={styles.fxLabel}>你的称呼</span>

@@ -16,7 +16,8 @@
  * `useNewSessionGreeting`（本模块同目录 hook）桥接。
  *
  * 「是否弹请安台词」收敛为单一内部判定点 `isNewSessionGreetingEnabled`
- * （本工单恒为开）；工单 03「个性化问候」开关在此一处接入即可整体关掉。
+ * （读个性化问候总开关，默认开）；工单 03「个性化问候」开关在此一处接入即可
+ * 整体关掉（关闭后 hero 与新建会话台词一并静默，ADR-0036 附带决策 D8）。
  *
  * 纯逻辑模块：不操作 DOM、不依赖 React。`createNewSessionGreeter` 仅订阅
  * `sessions.list`、记录闭包态（prevCurrent / lastGreetedId），可注入时钟 `now`
@@ -27,6 +28,7 @@
 
 import type { ISessions, SessionId } from "@deepseek-ai/dsh-client-runtime/client";
 import { getGreetingBucket, type GreetingBucket } from "./greeting.ts";
+import { getGreetingEnabled } from "../greeting-enabled.ts";
 
 export type { GreetingBucket } from "./greeting.ts";
 
@@ -82,12 +84,13 @@ export function shouldGreetNewSession(
 /**
  * 内部单一判定点：是否弹请安台词（工单 03「个性化问候」开关接入点）。
  *
- * 本工单恒为开；工单 03 在此读取设置开关（关闭后 `createNewSessionGreeter`
- * 直接空转，新建会话台词随 hero 问候一并静默，ADR-0036 附带决策），无需改动
- * 任何其他调用点。
+ * 读个性化问候总开关（`greetingEnabledStore`，默认开）：关闭后
+ * `createNewSessionGreeter` 在每次评估时静默，新建会话台词随 hero 问候一并
+ * 静默（ADR-0036 附带决策 D8），无需改动任何其他调用点。读取实时生效——
+ * 用户中途切开关，下一次 blank 会话切换即按新值判定。
  */
 export function isNewSessionGreetingEnabled(): boolean {
-  return true;
+  return getGreetingEnabled();
 }
 
 /** new-session-greeter 选项. */
@@ -110,10 +113,11 @@ export interface NewSessionGreeter {
  * 创建新建会话台词 greeter：订阅 `sessions.list`，检测 blank 当前会话变化，
  * 触发时经 `onGreet` 弹台词。
  *
- * 内部单一判定点 `isNewSessionGreetingEnabled`（当前恒为开，工单 03 开关接入处）：
- * 关闭时本函数直接返回空转实例，不订阅、不触发。
+ * 内部单一判定点 `isNewSessionGreetingEnabled`（工单 03 开关接入处，读个性化
+ * 问候总开关，默认开）：关闭时在每次评估时静默 —— 始终订阅 `sessions.list`，
+ * 以便用户中途切开关后下一次 blank 会话切换即按新值生效，无需重建 greeter。
  *
- * 挂载时立即评估一次：若当前已是 blank 会话，补触发一次（D13）。
+ * 挂载时立即评估一次：若当前已是 blank 会话且开关开启，补触发一次（D13）。
  * 同一 id 不重复（lastGreetedId 记忆；跨 id 变化且仅当 blank 时触发）。
  *
  * @param opts - 选项（sessions / now 注入 / onGreet 回调）。
@@ -122,11 +126,6 @@ export interface NewSessionGreeter {
 export function createNewSessionGreeter(
   opts: NewSessionGreeterOptions,
 ): NewSessionGreeter {
-  // 内部单一判定点（工单 03 开关接入点，当前恒为开）。
-  if (!isNewSessionGreetingEnabled()) {
-    return { dispose() {} };
-  }
-
   const now = opts.now ?? (() => new Date());
   const list = opts.sessions.list;
 
@@ -138,7 +137,10 @@ export function createNewSessionGreeter(
     const current = snapshot.current;
     const blank =
       current !== undefined && snapshot.byId[current]?.blank === true;
+    // 工单 03 开关接入点：关闭时静默。仍跟踪 prevCurrent，以免重新开启后
+    // 把禁用期间发生的会话切换补弹（D13 仅补偿挂载时刻，不追溯历史）。
     if (
+      isNewSessionGreetingEnabled() &&
       shouldGreetNewSession(prevCurrent, lastGreetedId, current, blank)
     ) {
       lastGreetedId = current;
@@ -147,7 +149,7 @@ export function createNewSessionGreeter(
     prevCurrent = current;
   };
 
-  // 挂载时补触发（D13）：当前已是 blank 会话则弹一次。
+  // 挂载时补触发（D13）：当前已是 blank 会话且开关开启则弹一次。
   evaluate();
   const unsub = list.subscribe(() => evaluate());
 

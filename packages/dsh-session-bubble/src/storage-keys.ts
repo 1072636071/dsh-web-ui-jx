@@ -21,4 +21,6 @@ export const STORAGE_KEYS = {
   seen: "jx-bubble-keep-seen",
   /** 个性化问候用户名（ADR-0034/0036：client 侧 localStorage，不走 host settings）. */
   userName: "jx-user-name",
+  /** 个性化问候总开关（ADR-0036 附带决策 D8：默认开；关 → hero 回落宿主原文案 + 姜晓新建会话台词静默）. */
+  greetingEnabled: "jx-greeting-enabled",
 } as const;
