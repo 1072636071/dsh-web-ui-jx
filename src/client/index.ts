@@ -46,6 +46,7 @@ import {
 } from "../../packages/dsh-session-bubble/src/index.ts";
 import { CharacterOverlay } from "./components/CharacterOverlay.tsx";
 import { SidebarEntry } from "./components/SidebarEntry.tsx";
+import { useNewSessionGreeting } from "./new-session-greeting.ts";
 import { applyFx, teardownFx } from "./fx/index.ts";
 import {
   createRootContainer,
@@ -128,6 +129,8 @@ function RootApp({
   dynamicTitleTransport?: DynamicTitleTransport | undefined;
   pendingInteractions?: PendingInteractionsSource | undefined;
 }) {
+  // 姜晓新建会话台词（工单 04）：切到空会话时经既有 speech 通道弹请安台词。
+  const greetingSpeech = useNewSessionGreeting(sessions);
   return createElement(
     Fragment,
     null,
@@ -138,6 +141,7 @@ function RootApp({
       previewTransport,
       dynamicTitleTransport,
       pendingInteractions,
+      speech: greetingSpeech,
     }),
     createElement(SidebarEntry),
   );
