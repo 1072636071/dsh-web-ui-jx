@@ -76,6 +76,7 @@ import {
   setWallOpacity,
 } from "../welcome-backdrop-config.ts";
 import { syncWelcomeBackdrop } from "../welcome-backdrop.ts";
+import { MAX_USER_NAME_LENGTH, userNameStore } from "../user-name-setting.ts";
 import { ManagementUI } from "./ManagementUI.tsx";
 import styles from "../styles/sidebar-settings.module.css";
 
@@ -176,6 +177,8 @@ export function SettingsCard({ className }: SettingsCardProps) {
   const [fxCollapsed, setFxCollapsed] = useState(false);
   const [mgmtCollapsed, setMgmtCollapsed] = useState(true);
   const [charCollapsed, setCharCollapsed] = useState(true);
+  // 个性化问候 section（ADR-0034/0036，默认折叠）
+  const [nameCollapsed, setNameCollapsed] = useState(true);
 
   // 会话气泡数量上限（ADR-0007 决策 5，初始值读 localStorage，默认 10）
   const [maxBubbles, setMaxBubbles] = useState<number>(() =>
@@ -224,6 +227,10 @@ export function SettingsCard({ className }: SettingsCardProps) {
     getArchiveDragEnabled(),
   );
 
+  // 个性化问候用户名（ADR-0034/0036）：受控草稿 + 行内错误
+  const [nameDraft, setNameDraft] = useState<string>(() => userNameStore.getSnapshot());
+  const [nameError, setNameError] = useState<string | null>(null);
+
   /** 切换皮肤总开关：setSkinEnabled 即时生效 + 持久化，并更新本地视图状态. */
   const handleToggleSkin = useCallback(() => {
     const next = !skinEnabled;
@@ -255,6 +262,47 @@ export function SettingsCard({ className }: SettingsCardProps) {
   const handleToggleCharSection = useCallback(() => {
     setCharCollapsed((c) => !c);
   }, []);
+
+  /** 切换个性化问候 section 折叠态（ADR-0034/0036）. */
+  const handleToggleNameSection = useCallback(() => {
+    setNameCollapsed((c) => !c);
+  }, []);
+
+  /** 用户名输入受控变更：同步草稿并清除既有行内错误（ADR-0034 D4）. */
+  const handleNameChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setNameDraft(e.target.value);
+      if (nameError !== null) setNameError(null);
+    },
+    [nameError],
+  );
+
+  /**
+   * 提交用户名（失焦或回车，ADR-0034 D4）：经 userNameStore.commit 校验落地。
+   * - valid → 写入净化值，草稿同步为净化值，清除错误。
+   * - empty → 清空（写空串），草稿清空，清除错误。
+   * - too-long → 不写入，行内提示，保留草稿供编辑。
+   */
+  const handleNameSubmit = useCallback(() => {
+    const result = userNameStore.commit(nameDraft);
+    if (result.status === "too-long") {
+      setNameError(`最多 ${result.max} 个字符`);
+      return;
+    }
+    setNameError(null);
+    setNameDraft(result.status === "valid" ? result.value : "");
+  }, [nameDraft]);
+
+  /** 回车提交（不插入换行）；IME 组字中不拦截（避免打断中文输入）. */
+  const handleNameKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        e.currentTarget.blur();
+      }
+    },
+    [],
+  );
 
   /** 切换会话气泡数量上限：调 setMaxSessionBubbles 即时生效 + 持久化，并更新本地视图状态. */
   const handleMaxBubblesChange = useCallback(
@@ -650,6 +698,53 @@ export function SettingsCard({ className }: SettingsCardProps) {
                 <span className={styles.toggleKnob} />
               </button>
             </div>
+          </div>
+        )}
+      </section>
+
+      {/* 个性化问候 section（ADR-0034/0036）：用户名输入，失焦/回车提交 */}
+      <section className={styles.fxSection}>
+        <div
+          className={styles.sectionHeader}
+          onClick={handleToggleNameSection}
+          onKeyDown={(e) => handleSectionKeyDown(e, handleToggleNameSection)}
+          role="button"
+          tabIndex={0}
+          aria-expanded={!nameCollapsed}
+          aria-label="折叠个性化问候"
+        >
+          <h3 className={styles.sectionTitle}>个性化问候</h3>
+          <span className={styles.sectionToggleBtn} aria-hidden="true">
+            {nameCollapsed ? "▸" : "▾"}
+          </span>
+        </div>
+        {!nameCollapsed && (
+          <div className={styles.sectionBody}>
+            <div className={styles.fxItem}>
+              <div className={styles.fxLabelBox}>
+                <span className={styles.fxLabel}>你的称呼</span>
+                <span className={styles.fxDesc}>
+                  显示在空会话大标题（如「上午好，张三」）；留空则姜晓一律称「大人」
+                </span>
+              </div>
+            </div>
+            <input
+              type="text"
+              value={nameDraft}
+              onChange={handleNameChange}
+              onBlur={handleNameSubmit}
+              onKeyDown={handleNameKeyDown}
+              maxLength={MAX_USER_NAME_LENGTH + 8}
+              placeholder="如：张三"
+              aria-label="你的称呼"
+              aria-invalid={nameError !== null}
+              className={`${styles.textInput}${nameError !== null ? " " + styles.inputErrorBorder : ""}`}
+            />
+            {nameError !== null && (
+              <p className={styles.inputError} role="alert">
+                {nameError}
+              </p>
+            )}
           </div>
         )}
       </section>

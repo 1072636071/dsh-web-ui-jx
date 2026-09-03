@@ -631,3 +631,46 @@
     transform: translateY(-50%);
   }
 }
+
+/* ============================================================
+ * SettingsCard — 个性化问候用户名输入（ADR-0034/0036）
+ * ============================================================ */
+.textInput {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  margin-top: 8px;
+  padding: 6px 8px;
+  font-family: var(--dsw-font-family);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-sidebar-fill);
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 4px;
+  transition: border-color 150ms var(--ds-ease-in-out);
+}
+
+.textInput:hover {
+  border-color: var(--dsw-alias-border-l2);
+}
+
+.textInput:focus-visible {
+  outline: 2px solid var(--jx-gold);
+  outline-offset: 2px;
+}
+
+/* 行内校验错误：边框转朱砂（--jx-error），与全局语义别名一致 */
+.inputErrorBorder {
+  border-color: var(--jx-error);
+}
+
+.inputErrorBorder:focus-visible {
+  outline-color: var(--jx-error);
+}
+
+.inputError {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--jx-error);
+}

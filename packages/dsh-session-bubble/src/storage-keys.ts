@@ -19,4 +19,6 @@ export const STORAGE_KEYS = {
   dismissed: "jx-bubble-keep-dismissed",
   /** 完成见闻集（ADR-0028 决策 1，JSON string[]）. */
   seen: "jx-bubble-keep-seen",
+  /** 个性化问候用户名（ADR-0034/0036：client 侧 localStorage，不走 host settings）. */
+  userName: "jx-user-name",
 } as const;
