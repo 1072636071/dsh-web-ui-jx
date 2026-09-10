@@ -120,21 +120,13 @@ function textFromEvent(event: SessionEvent): string {
 }
 
 /**
- * 判断事件是否属于模型正在生成的信号（assistant/chunk）。
- * 尾页会在最后一个未落盘的助手消息上附带 chunk 事件。
- */
-function isAssistantChunkEvent(event: SessionEvent): boolean {
-  return event.type === "assistant/chunk";
-}
-
-/**
  * 预览提取：尾页事件序列 → 预览结构。
  *
  * 规则：
  *   - 遍历事件；surface 事件中的 user/message 更新 lastUserText；
  *     assistant/message 更新 lastAssistantText；tool/result 忽略。
- *   - 若遍历结束后 lastAssistantText 为空，且序列中出现过 assistant/chunk
- *     或紧凑 chunk 行，则视为 in-flight，UI 可展示占位文案。
+ *   - 若遍历结束后 lastAssistantText 为空，且序列中出现过 'transient' 条目
+ *     （未落盘的模型增量 assistant/live-chunk），则视为 in-flight，UI 可展示占位文案。
  *   - 空日志 / 非 surface 尾页 ⇒ 返回空文本、非 inFlight。
  *
  * @param title - 会话标题（由会话列表给出）。
@@ -150,19 +142,16 @@ export function extractPreview({
 }): Omit<SessionPreview, "sessionId"> {
   let lastUserText = "";
   let lastAssistantText = "";
-  let hasChunk = false;
+  let hasLiveChunk = false;
 
   for (const entry of entries) {
-    // 紧凑 chunk 行：未落盘的模型增量，视为 in-flight 信号。
-    if (entry.type === "chunks") {
-      hasChunk = true;
+    // transient 条目：未落盘的模型增量（assistant/live-chunk），视为 in-flight 信号。
+    if (entry.type === "transient") {
+      hasLiveChunk = true;
       continue;
     }
+    // 此处 entry.type === "event"，entry.event 已收窄为持久化 SessionEvent。
     const event = entry.event;
-    if (isAssistantChunkEvent(event)) {
-      hasChunk = true;
-      continue;
-    }
     if (!isSurfaceEligibleType(event.type)) continue;
 
     const text = textFromEvent(event);
@@ -174,7 +163,7 @@ export function extractPreview({
     // tool/result 不覆盖 lastAssistantText
   }
 
-  const inFlight = lastAssistantText.length === 0 && hasChunk;
+  const inFlight = lastAssistantText.length === 0 && hasLiveChunk;
 
   return {
     title,

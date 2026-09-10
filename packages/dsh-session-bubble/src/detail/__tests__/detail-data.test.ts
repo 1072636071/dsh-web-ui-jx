@@ -57,14 +57,19 @@ function assistantMessage(text: string): SessionEventLikeEntry {
   } as unknown as SessionEventLikeEntry;
 }
 
-function assistantChunk(text: string): SessionEventLikeEntry {
+function assistantLiveChunk(text: string): SessionEventLikeEntry {
   return {
-    type: "event",
+    type: "transient",
     event: {
-      type: "assistant/chunk",
+      type: "assistant/live-chunk",
       seq: 0,
       time: 0,
-      data: { turn: 1, step: 0, chunk: { type: "text-delta", index: 0, text } },
+      data: {
+        attemptId: "att-1",
+        turn: 1,
+        step: 0,
+        chunk: { type: "text-delta", index: 0, text },
+      },
     },
   } as unknown as SessionEventLikeEntry;
 }
@@ -128,7 +133,7 @@ describe("extractPreview", () => {
     expect(result.lastAssistantText).toBe("a");
   });
 
-  it("空内容 assistant/message + chunk 视为 in-flight", () => {
+  it("空内容 assistant/message + transient 增量视为 in-flight", () => {
     const entries: SessionEventLikeEntry[] = [
       userMessage("u"),
       {
@@ -150,7 +155,7 @@ describe("extractPreview", () => {
           surfaceOp: "append",
         },
       } as unknown as SessionEventLikeEntry,
-      assistantChunk("par"),
+      assistantLiveChunk("par"),
     ];
     const result = extractPreview({ title: "t", entries });
     expect(result.inFlight).toBe(true);
