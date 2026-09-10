@@ -260,6 +260,8 @@ function useHoverDetail(
   previewActiveRef: React.RefObject<boolean>,
 ): {
   hoverDetail: HoverDetailState | null;
+  /** 立即关闭详情弹框（不依赖 pointer 事件流，供收起会话联动调用）. */
+  closeDetail: () => void;
   onPointerOver: React.PointerEventHandler<HTMLDivElement>;
   onPointerOut: React.PointerEventHandler<HTMLDivElement>;
   onPointerDown: React.PointerEventHandler<HTMLDivElement>;
@@ -367,6 +369,17 @@ function useHoverDetail(
       hoverRowRef.current = null;
     }, HOVER_LEAVE_MS);
   }, [clearEnter, clearLongPress, clearLeave]);
+
+  /** 立即关闭详情弹框（不依赖 pointer 事件流，供收起会话联动调用）.
+   * 清空全部悬停计时、复位长按/行引用，一步到位——与离开计时关闭等价但即时生效。 */
+  const closeDetail = useCallback(() => {
+    clearEnter();
+    clearLeave();
+    clearLongPress();
+    longPressedRef.current = false;
+    hoverRowRef.current = null;
+    setHoverDetail(null);
+  }, [clearEnter, clearLeave, clearLongPress]);
 
   /** 详情窗获得指针：取消离开计时（保活）. */
   const onCardPointerEnter = useCallback(() => {
@@ -496,6 +509,7 @@ function useHoverDetail(
 
   return {
     hoverDetail,
+    closeDetail,
     onPointerOver,
     onPointerOut,
     onPointerDown,
@@ -1174,6 +1188,7 @@ export const SessionBubbleList = memo(function SessionBubbleList({
     onClickCapture,
     onCardPointerEnter,
     onCardPointerLeave,
+    closeDetail: closeHoverDetail,
   } = useHoverDetail(bubbleListRef, entryFor, previewActiveRef);
 
   // 详情窗定位样式（换侧 + 纵向对齐）。
@@ -1309,8 +1324,12 @@ export const SessionBubbleList = memo(function SessionBubbleList({
     (id: string) => {
       if (!keepEnabled) return;
       addDismissed(id);
+      // 收起该会话 ⇒ 同步收起正在展示的该会话详情弹框（详情窗与收起联动）。
+      if (hoverDetail?.entry.sessionId === id) {
+        closeHoverDetail();
+      }
     },
-    [keepEnabled],
+    [keepEnabled, hoverDetail, closeHoverDetail],
   );
 
   // 计算可见顶层组：折叠态按 maxVisible 截取，展开态显示全部。

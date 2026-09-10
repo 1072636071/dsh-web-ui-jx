@@ -521,3 +521,72 @@ describe("SessionBubbleList: React.memo 隔离重渲染（工单 18-03）", () =
     expect(snapshotCalls).toBe(baseline);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 收起会话 ⇒ 同步收起该会话的详情弹框（工单：详情窗与收起联动）
+// ---------------------------------------------------------------------------
+
+describe("SessionBubbleList: 点击手柄收起会话同步收起该会话详情弹框", () => {
+  it("详情弹框打开着时点击该会话绿色手柄收起 ⇒ 详情弹框一并收起", () => {
+    vi.useFakeTimers();
+    try {
+      mount({
+        sessions: makeSessions(
+          listState("ready", [
+            summary("droot"),
+            summary("ds1", {
+              parentId: "droot",
+              origin: "subagent",
+              completed: true,
+            }),
+          ]),
+        ).sessions,
+      });
+
+      // 触屏长按打开 root 会话详情弹框（详情窗只走触屏车道，两弹层互斥 ADR-0031）。
+      const row = container.querySelector<HTMLElement>(
+        "[data-hover-key='droot']",
+      );
+      expect(row).not.toBeNull();
+      act(() => {
+        row!.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            pointerType: "touch",
+          }),
+        );
+      });
+      act(() => {
+        vi.advanceTimersByTime(600); // 越过触屏长按 500ms
+      });
+      expect(
+        container.querySelector("[aria-label^='会话详情']"),
+      ).not.toBeNull();
+
+      // 复位触屏长按的合成点击锁存（长按打开后下一个 click 会被 onClickCapture
+      // 吞掉以抑制合成点击）；pointerover 的 startHover 会把 longPressedRef 置
+      // 回 false，使手柄点击能落到 handleDismiss。其 300ms enter 计时器随后会
+      // 被收起联动关闭详情时一并清除。
+      act(() => {
+        row!.dispatchEvent(
+          new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }),
+        );
+      });
+
+      // 点击该会话的绿色手柄收起。
+      act(() => {
+        container
+          .querySelector<HTMLButtonElement>("[aria-label='收起会话']")!
+          .click();
+      });
+      act(() => {
+        vi.advanceTimersByTime(150); // 越过整组退出动画
+      });
+
+      // 被收起会话的详情弹框一并收起，且不被残留的悬停计时器重新打开。
+      expect(container.querySelector("[aria-label^='会话详情']")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

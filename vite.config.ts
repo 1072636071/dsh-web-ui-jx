@@ -122,6 +122,9 @@ const external = [
 const INLINE_SAFE = [
   // Browser-safe surface projection consumed by dsh-session-bubble's detail.
   "@deepseek-ai/dsh-session/surface",
+  // dsh-session 的 brand 恒等函数（value-import，被 clientExternal 外部化后宿主
+  // 模块表无此项）；browser-safe 且内部自洽，内联以消除裸 require。
+  "@deepseek-ai/dsh-brand",
 ];
 
 /** Client-side external predicate: every rule, except the inline-safe set. */
