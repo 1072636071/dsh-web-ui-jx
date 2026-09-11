@@ -1255,6 +1255,7 @@ export const SessionBubbleList = memo(function SessionBubbleList({
     for (const item of items) {
       if (prev.get(item.sessionId) === true && item.running === false) {
         addSeen(item.sessionId);
+        clearDismissed(item.sessionId);
       }
     }
   }, [rawState, items]);

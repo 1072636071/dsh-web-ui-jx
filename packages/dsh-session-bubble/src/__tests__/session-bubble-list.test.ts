@@ -317,6 +317,28 @@ describe("SessionBubbleList: 完成见闻集记账与投影", () => {
       true,
     );
   });
+
+  it("当前查看会话再跑一轮、回答完（无 completed 帧）⇒ 凭 running 落沿解除旧收起、气泡重现（0.1.5 回归）", () => {
+    // 场景：正在查看的会话被用户收起（dismissed），随后它又跑一轮并回答完毕。
+    // 0.1.5 宿主对该当前会话不下发 completed，故旧 completed 上升沿路径永不触发；
+    // 期望插件凭 running 真→假落沿（新一轮完成代理）解除旧 dismissed，让提醒重现。
+    addDismissed("z");
+
+    const { sessions, emit } = makeSessions(
+      listState("ready", [summary("z", { running: true })]), // 首帧：正在运行
+    );
+    mount({ sessions });
+
+    // 回答完：running 翻假，completed 始终缺省。
+    act(() => {
+      emit(listState("ready", [summary("z")]));
+    });
+
+    expect(storedIds(STORAGE_KEYS.dismissed)).toEqual([]);
+    expect(bubbleTitles().some((label) => label.includes("会话：z"))).toBe(
+      true,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
