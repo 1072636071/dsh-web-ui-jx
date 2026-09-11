@@ -1235,6 +1235,30 @@ export const SessionBubbleList = memo(function SessionBubbleList({
   // 会话新一轮 completed 上升沿（上一帧 !completed → 本帧 completed）清除其
   // dismissed 记账——旧收起不吞新完成提醒。prev ref 模式对齐上方 prevItemsRef；
   // 首帧仅建基线（无上一帧则无上升沿）；clearDismissed 幂等，无记账零副作用。
+  // 0.1.5 加固（工单：消息气泡"回答完"自行消失）：宿主对**当前查看**的会话不下发
+  // completed 位（completedNotifications 仅点亮非选中会话），上方旧逻辑只在观察到
+  // completed===true 帧才记 seen，于是这类会话一结束（running 转 false、completed
+  // 始终缺省）即掉出可见集、在用户点收起前自消。这里增补：观察 running 真→假落沿
+  // （"AI 回答完"的可靠信号）即在落沿记 seen，不依赖那一瞬的 completed 帧；addSeen 幂等。
+  // 与上方 completed 记账并存不冲突；仅对曾被观察到 running 的会话生效（首见即 idle 者不误记）。
+  const prevRunningRef = useRef<Map<string, boolean> | null>(null);
+  useEffect(() => {
+    if (rawState === undefined) {
+      prevRunningRef.current = null;
+      return;
+    }
+    const prev = prevRunningRef.current;
+    const nextMap = new Map<string, boolean>();
+    for (const item of items) nextMap.set(item.sessionId, item.running);
+    prevRunningRef.current = nextMap;
+    if (prev === null) return; // 首帧仅建基线，无上一帧则无落沿
+    for (const item of items) {
+      if (prev.get(item.sessionId) === true && item.running === false) {
+        addSeen(item.sessionId);
+      }
+    }
+  }, [rawState, items]);
+
   const prevCompletedRef = useRef<Map<string, boolean> | null>(null);
   useEffect(() => {
     if (rawState === undefined) {

@@ -266,6 +266,25 @@ describe("SessionBubbleList: 完成见闻集记账与投影", () => {
     );
   });
 
+  it("会话从 running 转 idle 且宿主未下发 completed 位 ⇒ 凭落沿记见闻、气泡留存（0.1.5 回归）", () => {
+    // 场景：正在查看的会话，AI 回答完毕。0.1.5 宿主只把 running 翻假，
+    // 该会话始终不带 completed 位（宿主仅对"非当前"会话点亮 completed 提醒）。
+    // 期望插件不依赖那一瞬的 completed 帧：观察到 running 真→假落沿即记 seen，
+    // 使气泡在用户点「收起」前持续可见。
+    const { sessions, emit } = makeSessions(
+      listState("ready", [summary("r1", { running: true })]),
+    );
+    mount({ sessions });
+
+    // 回答完：running 翻假，completed 始终缺省。
+    act(() => emit(listState("ready", [summary("r1")])));
+
+    expect(storedIds(STORAGE_KEYS.seen)).toEqual(["r1"]);
+    expect(bubbleTitles().some((label) => label.includes("会话：r1"))).toBe(
+      true,
+    );
+  });
+
   it("收起隐藏优先于见闻入选：已收起的会话不因见闻记账复活", () => {
     addSeen("x");
     addDismissed("x");
