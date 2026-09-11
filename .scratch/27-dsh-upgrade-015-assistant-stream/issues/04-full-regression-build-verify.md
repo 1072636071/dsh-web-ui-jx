@@ -16,13 +16,11 @@
 ## 评论
 
 **已做的可自动化核验（部分替代冒烟）**：
-- 静态产物冒烟：`lib/client.js`+`lib/index.js` 已删符号残留均为 0（`assistant/chunk` / `"chunks"` / `isAssistantChunkEvent` / `dsh-client-runtime`），且 `transient` 新逻辑确已编入 client 半区；`node --check lib/index.js` 语法通过；`npm run build` 成功即证 client 半区可被宿主加载。
+- 静态产物冒烟：`lib/client.js`+`lib/index.js` 已删符号残留均为 0（`assistant/chunk` / `"chunks"` / `isAssistantChunkEvent` / `dsh-client-runtime`），且 `transient` 新逻辑确已编入 client 半区；`node --check lib/index.js` 语法通过。
+- **真宿主挂载冒烟（源码起）**：`node E:/work/sp/deepseek-harness/apps/cli/lib/bin.js --profile web --no-open --host 127.0.0.1 --port 3080` 起 dsh web 宿主（v0.9.0）成功；app 首页 HTTP 200；首页预加载清单里 **`dsh-web-ui-jx/client.js` 带解析 `rev` 出现**（= profile 成功挂载本插件、并解析到 0.1.5 运行时），且升级新引入的宿主 peer 客户端均在清单中（`dsh-api-gateway` / `dsh-api-session-controller` / `dsh-client-connection` / `dsh-client-file-upload` / `dsh-client-ui-conversation`）。
 - 门禁全绿：typecheck 0 / test 683 / build / verify。
 
-**未做的（需人工或浏览器桥）**：活宿主目视回归。复现路径（任一即可，做完把本框打勾并转 `done`）：
-1. 起宿主：`cd ~/.dsh/profiles/web` → 用 dsh 起 web profile（本项目已以 `link:E:/work/sp/dsh-web-ui-jx` 登记）；源码若改先 `npm run build` 再让宿主拉 `/plugins/dsh-web-ui-jx/client.js`。
-2. 逐项看：① 角色浮层挂载/拖拽/切换；② 侧边栏入口出现；③ 会话气泡列渲染与点击跳转；④ hover 气泡弹详情窗、尾页预览有内容（关键——走改过的 `extractPreview` + `createDshPreviewTransport`）；⑤ 模型正在生成时详情窗 in-flight 占位出现（现由 `transient`/`assistant/live-chunk` 触发）；⑥ 新建会话问候台词照常。
-3. 或：用户启用浏览器自动化桥（kimi-webbridge）后由我驱动冒烟。
+**未做（仅剩浏览器渲染目视，curl 无法执行宿主运行期的模块 federate 加载）**：角色浮层 / 侧边栏 / 气泡列 / hover 详情窗预览 / 生成中 in-flight 占位 / 新建会话问候是否照常画出来。宿主已在本机 `127.0.0.1:3080` 起好（token 见 `.temp/t04-host.log`，不入库），点开即用。逐项目视通过后把上框打勾并转 `done`；或启用 kimi-webbridge 后由我驱动。
 
 **结论**：可自动化部分全绿；`Status` 暂置 `ready-for-human`，待上述目视冒烟通过再转 `done`。
 
